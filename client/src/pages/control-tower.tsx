@@ -23,7 +23,16 @@ import {
   ArrowLeft,
   Loader2,
   Activity,
-  History
+  History,
+  HeartPulse,
+  Wrench,
+  Search,
+  RotateCcw,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  Eye,
+  EyeOff,
+  Sparkles
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -72,6 +81,42 @@ type ControlStatus = {
   totalEntities: number;
   enabledEntities: number;
   disabledEntities: number;
+};
+
+type HealingAlert = {
+  id: number;
+  agentSlug: string;
+  alertType: string;
+  severity: string;
+  title: string;
+  description: string;
+  metricType: string | null;
+  currentValue: string | null;
+  expectedValue: string | null;
+  anomalyScore: string | null;
+  suggestedAction: string;
+  actionDetails: string | null;
+  status: string;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+};
+
+const severityColors: Record<string, string> = {
+  low: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  info: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  medium: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+  warning: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
+  high: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+  critical: "bg-red-500/20 text-red-400 border-red-500/30",
+};
+
+const actionIcons: Record<string, React.ReactNode> = {
+  restart: <RotateCcw className="w-4 h-4" />,
+  retrain: <Sparkles className="w-4 h-4" />,
+  investigate: <Search className="w-4 h-4" />,
+  scale_up: <ArrowUpCircle className="w-4 h-4" />,
+  scale_down: <ArrowDownCircle className="w-4 h-4" />,
 };
 
 const categoryIcons: Record<string, React.ReactNode> = {
@@ -204,6 +249,79 @@ export default function ControlTower() {
     },
     onError: (error: Error) => {
       toast({ title: "Reset Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const { data: healingAlerts = [] } = useQuery<HealingAlert[]>({
+    queryKey: ["/api/healing-alerts/active"],
+    queryFn: async () => {
+      const res = await fetch("/api/healing-alerts/active");
+      if (!res.ok) throw new Error("Failed to fetch healing alerts");
+      return res.json();
+    },
+    refetchInterval: 10000,
+  });
+
+  const scanAnomaliesMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/anomaly-detection/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hours: 24 }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/healing-alerts/active"] });
+      toast({
+        title: "Anomaly Scan Complete",
+        description: `Analyzed ${data.metricsAnalyzed || 0} metrics, generated ${data.alertsGenerated || 0} alerts`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Scan Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const executeHealingMutation = useMutation({
+    mutationFn: async (alertId: number) => {
+      const res = await fetch(`/api/healing-alerts/${alertId}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/healing-alerts/active"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/control-center"] });
+      toast({
+        title: "Healing Action Executed",
+        description: data.message || `${data.action} completed successfully`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Healing Failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const dismissAlertMutation = useMutation({
+    mutationFn: async (alertId: number) => {
+      const res = await fetch(`/api/healing-alerts/${alertId}/dismiss`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dismissedBy: "user" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/healing-alerts/active"] });
+      toast({ title: "Alert Dismissed" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Dismiss Failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -353,6 +471,131 @@ export default function ControlTower() {
                   </div>
                   <div className="text-xs text-zinc-500">Content</div>
                 </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-cyan-950/30 to-zinc-900 border-cyan-500/30 mb-8">
+          <CardHeader className="pb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-xl bg-cyan-500/20 border border-cyan-500/50">
+                  <HeartPulse className="w-8 h-8 text-cyan-400" />
+                </div>
+                <div>
+                  <CardTitle className="text-xl">ML Self-Healing Alerts</CardTitle>
+                  <CardDescription className="text-zinc-400">
+                    Anomaly detection and automated remediation suggestions
+                  </CardDescription>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge 
+                  variant="outline" 
+                  className={healingAlerts.length > 0 ? "border-amber-500/50 text-amber-400" : "border-green-500/50 text-green-400"}
+                >
+                  {healingAlerts.length} Active
+                </Badge>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20"
+                  onClick={() => scanAnomaliesMutation.mutate()}
+                  disabled={scanAnomaliesMutation.isPending}
+                  data-testid="button-scan-anomalies"
+                >
+                  {scanAnomaliesMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Search className="w-4 h-4 mr-2" />
+                  )}
+                  Run Scan
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {healingAlerts.length === 0 ? (
+              <div className="text-center py-8 border border-dashed border-zinc-700 rounded-lg">
+                <CheckCircle2 className="w-12 h-12 text-green-400 mx-auto mb-3" />
+                <p className="text-zinc-400 font-medium">All Systems Healthy</p>
+                <p className="text-sm text-zinc-500 mt-1">No anomalies detected in the last scan</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {healingAlerts.slice(0, 5).map((alert) => (
+                  <div
+                    key={alert.id}
+                    className="p-4 rounded-lg bg-zinc-800/50 border border-zinc-700 hover:border-zinc-600 transition-colors"
+                    data-testid={`healing-alert-${alert.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className={`p-2 rounded-lg ${severityColors[alert.severity] || "bg-zinc-500/20 text-zinc-400 border-zinc-500/30"}`}>
+                          <AlertTriangle className="w-4 h-4" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-zinc-200">{alert.title}</span>
+                            <Badge variant="outline" className={severityColors[alert.severity] || "bg-zinc-500/20 text-zinc-400 border-zinc-500/30"}>
+                              {alert.severity}
+                            </Badge>
+                            <Badge variant="outline" className="border-zinc-600 text-zinc-400">
+                              {alert.agentSlug}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-zinc-400 mt-1">{alert.description}</p>
+                          {alert.currentValue && alert.expectedValue && (
+                            <div className="flex items-center gap-4 mt-2 text-xs text-zinc-500">
+                              <span>Current: <span className="text-zinc-300">{parseFloat(alert.currentValue).toFixed(2)}</span></span>
+                              <span>Expected: <span className="text-zinc-300">{parseFloat(alert.expectedValue).toFixed(2)}</span></span>
+                              {alert.anomalyScore && (
+                                <span>Anomaly Score: <span className="text-amber-400">{(parseFloat(alert.anomalyScore) * 100).toFixed(0)}%</span></span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-cyan-500/50 text-cyan-400 hover:bg-cyan-500/20"
+                          onClick={() => executeHealingMutation.mutate(alert.id)}
+                          disabled={executeHealingMutation.isPending}
+                          data-testid={`button-execute-${alert.id}`}
+                        >
+                          {executeHealingMutation.isPending ? (
+                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                          ) : (
+                            actionIcons[alert.suggestedAction] || <Wrench className="w-4 h-4 mr-1" />
+                          )}
+                          {alert.suggestedAction.replace("_", " ")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-zinc-500 hover:text-zinc-300"
+                          onClick={() => dismissAlertMutation.mutate(alert.id)}
+                          disabled={dismissAlertMutation.isPending}
+                          data-testid={`button-dismiss-${alert.id}`}
+                        >
+                          <EyeOff className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2 text-xs text-zinc-500">
+                      <Clock className="w-3 h-3" />
+                      {formatDistanceToNow(new Date(alert.createdAt), { addSuffix: true })}
+                    </div>
+                  </div>
+                ))}
+                {healingAlerts.length > 5 && (
+                  <div className="text-center py-2">
+                    <span className="text-sm text-zinc-500">+{healingAlerts.length - 5} more alerts</span>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
