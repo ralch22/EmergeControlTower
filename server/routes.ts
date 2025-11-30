@@ -1335,17 +1335,32 @@ export async function registerRoutes(
   // Master kill switch - disable ALL services
   app.post("/api/control-center/global/kill", async (req, res) => {
     try {
-      const { triggeredBy, reason } = req.body;
+      const { triggeredBy } = req.body;
       await storage.killAllServices(triggeredBy || 'user');
       
-      // Also cancel any in-flight video generation
+      // Cancel any in-flight video generation including scenes and clips
       const projects = await storage.getAllVideoProjects();
       const generatingProjects = projects.filter(p => p.status === 'generating');
       
       for (const project of generatingProjects) {
-        await storage.updateVideoProject(project.projectId, {
-          status: 'cancelled',
-        });
+        // Cancel all in-flight scenes and clips
+        const fullProject = await storage.getFullVideoProject(project.projectId);
+        if (fullProject) {
+          for (const scene of fullProject.scenes) {
+            if (scene.status !== 'ready') {
+              await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
+            }
+          }
+          for (const clip of fullProject.clips) {
+            if (clip.status !== 'ready') {
+              await storage.updateVideoClip(clip.clipId, { 
+                status: 'failed',
+                errorMessage: 'Cancelled by master kill switch'
+              });
+            }
+          }
+        }
+        await storage.updateVideoProject(project.projectId, { status: 'cancelled' });
       }
       
       const entities = await storage.getControlEntities();
@@ -1462,6 +1477,67 @@ function buildEnhancedVideoPrompt(
   return parts.join('. ') + '.';
 }
 
+// Helper to check if system is operational via control center (full hierarchy check)
+async function isSystemOperational(storage: any, category: string = 'video'): Promise<{ operational: boolean; reason?: string }> {
+  try {
+    // Check master kill switch first
+    const masterSwitch = await storage.getControlEntity('master-kill-switch');
+    if (!masterSwitch?.isEnabled) {
+      return { operational: false, reason: 'Master kill switch is disabled' };
+    }
+    
+    // Check category pipeline
+    const pipelineSlug = `${category}-pipeline`;
+    const pipeline = await storage.getControlEntity(pipelineSlug);
+    if (pipeline && !pipeline.isEnabled) {
+      return { operational: false, reason: `${category} pipeline is disabled` };
+    }
+    
+    // Check if at least one provider in the category is enabled
+    const categoryEntities = await storage.getControlEntitiesByCategory(category);
+    const providers = categoryEntities.filter((e: any) => e.type === 'provider');
+    const hasEnabledProvider = providers.some((p: any) => p.isEnabled);
+    
+    if (providers.length > 0 && !hasEnabledProvider) {
+      return { operational: false, reason: `No ${category} providers are enabled in Control Tower` };
+    }
+    
+    return { operational: true };
+  } catch (error) {
+    console.warn('[ControlCheck] Error checking control status, assuming operational:', error);
+    return { operational: true };
+  }
+}
+
+// Cancel all in-flight scenes and clips for a project
+async function cancelProjectInFlight(storage: any, projectId: string): Promise<void> {
+  try {
+    const fullProject = await storage.getFullVideoProject(projectId);
+    if (!fullProject) return;
+    
+    // Update all non-ready scenes to cancelled
+    for (const scene of fullProject.scenes) {
+      if (scene.status !== 'ready') {
+        await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
+      }
+    }
+    
+    // Update all non-ready clips to failed
+    for (const clip of fullProject.clips) {
+      if (clip.status !== 'ready') {
+        await storage.updateVideoClip(clip.clipId, { 
+          status: 'failed',
+          errorMessage: 'Cancelled by Control Tower'
+        });
+      }
+    }
+    
+    console.log(`[ControlTower] Cancelled in-flight items for project ${projectId}`);
+  } catch (error) {
+    console.error('[ControlTower] Error cancelling in-flight items:', error);
+  }
+}
+
 // Background video generation function with multi-provider fallback
 async function generateVideoProjectAsync(
   projectId: string, 
@@ -1469,6 +1545,16 @@ async function generateVideoProjectAsync(
   storage: any
 ) {
   try {
+    // Check if system is operational before starting
+    const systemCheck = await isSystemOperational(storage);
+    if (!systemCheck.operational) {
+      console.log(`[VideoProject] Generation blocked: ${systemCheck.reason}`);
+      await storage.updateVideoProject(projectId, { 
+        status: 'cancelled',
+      });
+      return;
+    }
+
     const fullProject = await storage.getFullVideoProject(projectId);
     if (!fullProject) return;
 
@@ -1502,6 +1588,15 @@ async function generateVideoProjectAsync(
     const { generateVideoWithFallback, waitForVideoWithProvider, generateUniqueSceneImage } = await import("../01-content-factory/integrations/video-provider");
 
     for (const scene of fullProject.scenes) {
+      // Check if system is still operational before each scene
+      const sceneCheck = await isSystemOperational(storage, 'video');
+      if (!sceneCheck.operational) {
+        console.log(`[VideoProject] Generation stopped mid-process: ${sceneCheck.reason}`);
+        await cancelProjectInFlight(storage, projectId);
+        await storage.updateVideoProject(projectId, { status: 'cancelled' });
+        return;
+      }
+
       // Skip scenes that are already ready
       if (scene.status === 'ready') {
         console.log(`[VideoProject] Scene ${scene.sceneNumber} already ready, skipping`);
