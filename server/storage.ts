@@ -514,13 +514,14 @@ export class DatabaseStorage implements IStorage {
     const hasGeminiKey = !!(process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY);
     
     const defaultProviders: InsertAiProvider[] = [
-      // Video Providers - Runway remains primary as Veo 2.0 may require waitlist access
-      { category: 'video', name: 'runway', displayName: 'Runway Gen-3', isEnabled: true, priority: 1, apiKeyConfigured: !!process.env.RUNWAY_API_KEY },
-      { category: 'video', name: 'veo2', displayName: 'Veo 2.0', isEnabled: false, priority: 2, apiKeyConfigured: hasGeminiKey },
-      { category: 'video', name: 'pika', displayName: 'Pika Labs', isEnabled: false, priority: 3, apiKeyConfigured: false },
-      { category: 'video', name: 'luma', displayName: 'Luma Dream Machine', isEnabled: false, priority: 4, apiKeyConfigured: false },
-      { category: 'video', name: 'kling', displayName: 'Kling AI', isEnabled: false, priority: 5, apiKeyConfigured: false },
-      { category: 'video', name: 'hailuo', displayName: 'Hailuo AI', isEnabled: false, priority: 6, apiKeyConfigured: false },
+      // Video Providers - Veo 3.1 Fast is primary (native audio, Ultra tier), Runway as fallback
+      { category: 'video', name: 'veo31', displayName: 'Veo 3.1 Fast', isEnabled: true, priority: 1, apiKeyConfigured: hasGeminiKey },
+      { category: 'video', name: 'runway', displayName: 'Runway Gen-3', isEnabled: true, priority: 2, apiKeyConfigured: !!process.env.RUNWAY_API_KEY },
+      { category: 'video', name: 'veo2', displayName: 'Veo 2.0', isEnabled: false, priority: 3, apiKeyConfigured: hasGeminiKey },
+      { category: 'video', name: 'pika', displayName: 'Pika Labs', isEnabled: false, priority: 4, apiKeyConfigured: false },
+      { category: 'video', name: 'luma', displayName: 'Luma Dream Machine', isEnabled: false, priority: 5, apiKeyConfigured: false },
+      { category: 'video', name: 'kling', displayName: 'Kling AI', isEnabled: false, priority: 6, apiKeyConfigured: false },
+      { category: 'video', name: 'hailuo', displayName: 'Hailuo AI', isEnabled: false, priority: 7, apiKeyConfigured: false },
       
       // Image Providers - Nano Banana Pro is the advanced option
       { category: 'image', name: 'nano_banana_pro', displayName: 'Nano Banana Pro', isEnabled: true, priority: 1, apiKeyConfigured: hasGeminiKey },

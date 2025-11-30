@@ -3,6 +3,7 @@ import { generateVideoWithWan, checkWanTaskStatus, waitForWanCompletion } from '
 import { generateVideoWithPika, checkPikaStatus, waitForPikaCompletion } from './pika';
 import { generateVideoWithLuma, checkLumaStatus, waitForLumaCompletion } from './luma';
 import { generateVideoWithVeo2, checkVeo2Status, waitForVeo2Completion } from './veo2';
+import { generateVideoWithVeo31, checkVeo31Status, waitForVeo31Completion, testVeo31Connection } from './veo31';
 
 export interface VideoProviderResult {
   success: boolean;
@@ -15,7 +16,7 @@ export interface VideoProviderResult {
   fallbackAttempts?: number;
 }
 
-export type VideoProvider = 'veo2' | 'runway' | 'wan' | 'pika' | 'luma' | 'kling' | 'hailuo';
+export type VideoProvider = 'veo31' | 'veo2' | 'runway' | 'wan' | 'pika' | 'luma' | 'kling' | 'hailuo';
 
 interface ProviderConfig {
   name: VideoProvider;
@@ -34,6 +35,38 @@ interface VideoGenerationOptions {
 }
 
 const providerConfigs: Record<VideoProvider, ProviderConfig> = {
+  veo31: {
+    name: 'veo31',
+    displayName: 'Veo 3.1 Fast',
+    isConfigured: () => !!(process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY),
+    generate: async (prompt, options) => {
+      const result = await generateVideoWithVeo31(prompt, {
+        duration: Math.min(Math.max(options.duration || 8, 4), 8) as 4 | 6 | 8,
+        aspectRatio: options.aspectRatio || '16:9',
+        resolution: '720p',
+        generateAudio: true,
+        imageUrl: options.imageUrl,
+      });
+      return {
+        success: result.success,
+        provider: 'veo31',
+        taskId: result.taskId,
+        videoUrl: result.videoUrl,
+        status: result.status,
+        error: result.error,
+        imageUrl: options.imageUrl,
+      };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkVeo31Status(taskId);
+      return { ...result, provider: 'veo31' };
+    },
+    waitForCompletion: async (taskId, maxWait = 600, interval = 10) => {
+      const result = await waitForVeo31Completion(taskId, maxWait, interval);
+      return { ...result, provider: 'veo31' };
+    },
+  },
+
   veo2: {
     name: 'veo2',
     displayName: 'Veo 2.0',
@@ -367,6 +400,20 @@ export async function testProviderConnection(provider: VideoProvider): Promise<{
 
   try {
     switch (provider) {
+      case 'veo31': {
+        const result = await testVeo31Connection();
+        return result;
+      }
+
+      case 'veo2': {
+        const apiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+        if (response.ok) {
+          return { success: true, message: `${config.displayName} connected`, status: 'working' };
+        }
+        return { success: false, message: `${config.displayName} API error: ${response.status}`, status: 'error' };
+      }
+
       case 'runway': {
         const response = await fetch('https://api.dev.runwayml.com/v1/tasks?limit=1', {
           headers: {

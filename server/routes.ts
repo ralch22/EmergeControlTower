@@ -1017,6 +1017,26 @@ export async function registerRoutes(
       let message = '';
       
       const testResults: Record<string, () => Promise<{ status: string; message: string }>> = {
+        veo31: async () => {
+          const key = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
+          if (!key) return { status: 'error', message: 'GEMINI_API_KEY not configured' };
+          try {
+            const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + key);
+            if (response.ok) {
+              const data = await response.json();
+              const hasVeo31 = data.models?.some((m: any) => 
+                m.name?.includes('veo-3.1') || m.name?.includes('veo-3')
+              );
+              return { 
+                status: 'working', 
+                message: hasVeo31 ? 'Veo 3.1 Fast connected (Ultra tier)' : 'Gemini API connected (Veo 3.1 requires Ultra tier)' 
+              };
+            }
+            return { status: 'error', message: `API error: ${response.status}` };
+          } catch (e: any) {
+            return { status: 'error', message: e.message || 'Connection failed' };
+          }
+        },
         veo2: async () => {
           const key = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
           if (!key) return { status: 'error', message: 'GEMINI_API_KEY not configured' };
