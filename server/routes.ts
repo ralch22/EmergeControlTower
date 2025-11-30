@@ -785,7 +785,7 @@ export async function registerRoutes(
   app.post("/api/video-projects/:projectId/generate", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const { provider = 'wan' } = req.body; // wan or runway
+      const { provider = 'runway' } = req.body; // runway or wan (runway is default)
       
       const fullProject = await storage.getFullVideoProject(projectId);
       if (!fullProject) {
