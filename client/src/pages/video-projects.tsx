@@ -285,6 +285,27 @@ export default function VideoProjectsPage() {
     },
   });
 
+  const clearAllMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/video-projects/clear-all", {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to clear video projects");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/video-projects"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/video-ingredients"] });
+      toast({ 
+        title: "Cleared", 
+        description: `Removed ${data.deletedCount || 0} video projects` 
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const getProjectStats = (project: VideoProject) => {
     const scenes = project.scenes || [];
     const clips = project.clips || [];
@@ -382,6 +403,21 @@ export default function VideoProjectsPage() {
                 Settings
               </Button>
             </Link>
+
+            <Button 
+              variant="outline" 
+              className="border-red-500/50 text-red-400 hover:bg-red-500/20 hover:border-red-500"
+              onClick={() => clearAllMutation.mutate()}
+              disabled={clearAllMutation.isPending || (projects.length === 0 && videoIngredients.length === 0)}
+              data-testid="button-clear-all-projects"
+            >
+              {clearAllMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Trash2 className="w-4 h-4 mr-2" />
+              )}
+              Clear All
+            </Button>
 
             <Select value={provider} onValueChange={(v: "runway" | "wan") => setProvider(v)}>
               <SelectTrigger className="w-32 bg-zinc-900 border-zinc-700" data-testid="select-provider">

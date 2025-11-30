@@ -2002,6 +2002,54 @@ export function registerVideoIngredientsRoutes(app: Express) {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // Clear all content library items
+  app.delete("/api/content/clear-all", async (req, res) => {
+    try {
+      console.log("[Clear] Clearing all content library items...");
+      const result = await storage.clearAllGeneratedContent();
+      res.json({ 
+        success: true, 
+        message: `Cleared all content library items`,
+        deletedCount: result.deletedCount 
+      });
+    } catch (error: any) {
+      console.error("[Clear] Error clearing content:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Clear all video projects
+  app.delete("/api/video-projects/clear-all", async (req, res) => {
+    try {
+      console.log("[Clear] Clearing all video projects...");
+      const result = await storage.clearAllVideoProjects();
+      res.json({ 
+        success: true, 
+        message: `Cleared all video projects`,
+        deletedCount: result.deletedCount 
+      });
+    } catch (error: any) {
+      console.error("[Clear] Error clearing video projects:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Clear all approval queue items
+  app.delete("/api/approval-queue/clear-all", async (req, res) => {
+    try {
+      console.log("[Clear] Clearing all approval queue items...");
+      const result = await storage.clearAllApprovalQueue();
+      res.json({ 
+        success: true, 
+        message: `Cleared all approval queue items`,
+        deletedCount: result.deletedCount 
+      });
+    } catch (error: any) {
+      console.error("[Clear] Error clearing approval queue:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 }
 
 // Helper to split voiceover script across scenes

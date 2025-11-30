@@ -17,7 +17,8 @@ import {
   Eye,
   RefreshCw,
   Film,
-  Layers
+  Layers,
+  Trash2
 } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -261,6 +262,46 @@ export default function DashboardPage() {
     },
   });
 
+  const clearApprovalsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/approval-queue/clear-all", {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to clear approval queue");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/approvals"] });
+      toast({ 
+        title: "Cleared", 
+        description: `Removed ${data.deletedCount || 0} approval items` 
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const clearVideoProjectsMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/video-projects/clear-all", {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to clear video projects");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/video-projects"] });
+      toast({ 
+        title: "Cleared", 
+        description: `Removed ${data.deletedCount || 0} video projects` 
+      });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const getCounts = () => {
     const allApprovals = queryClient.getQueryData<ApprovalItem[]>(["/api/approvals", "all"]) || [];
     return {
@@ -388,11 +429,27 @@ export default function DashboardPage() {
                   <Video className="w-5 h-5" />
                   Recent Video Projects
                 </CardTitle>
-                <Link href="/video-projects">
-                  <Button variant="ghost" size="sm" className="text-zinc-400 hover:text-cyan-400" data-testid="button-view-all-projects">
-                    View All
+                <div className="flex items-center gap-2">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                    onClick={() => clearVideoProjectsMutation.mutate()}
+                    disabled={clearVideoProjectsMutation.isPending || videoProjects.length === 0}
+                    data-testid="button-clear-video-projects"
+                  >
+                    {clearVideoProjectsMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
                   </Button>
-                </Link>
+                  <Link href="/video-projects">
+                    <Button variant="ghost" size="sm" className="text-zinc-400 hover:text-cyan-400" data-testid="button-view-all-projects">
+                      View All
+                    </Button>
+                  </Link>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -512,10 +569,26 @@ export default function DashboardPage() {
 
           <Card className="bg-zinc-900 border-zinc-700">
             <CardHeader>
-              <CardTitle className="text-cyan-400 flex items-center gap-2">
-                <FileText className="w-5 h-5" />
-                Approval Queue
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-cyan-400 flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  Approval Queue
+                </CardTitle>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                  onClick={() => clearApprovalsMutation.mutate()}
+                  disabled={clearApprovalsMutation.isPending || counts.all === 0}
+                  data-testid="button-clear-approvals"
+                >
+                  {clearApprovalsMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

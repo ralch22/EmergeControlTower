@@ -138,6 +138,11 @@ export interface IStorage {
   createVideoIngredients(ingredients: InsertVideoIngredients): Promise<VideoIngredients>;
   updateVideoIngredients(ingredientId: string, updates: Partial<InsertVideoIngredients>): Promise<VideoIngredients>;
   deleteVideoIngredients(ingredientId: string): Promise<void>;
+
+  // Clear/Delete All Operations
+  clearAllGeneratedContent(): Promise<{ deletedCount: number }>;
+  clearAllVideoProjects(): Promise<{ deletedCount: number }>;
+  clearAllApprovalQueue(): Promise<{ deletedCount: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -619,6 +624,27 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(videoIngredients)
       .where(eq(videoIngredients.ingredientId, ingredientId));
+  }
+
+  // Clear All Operations
+  async clearAllGeneratedContent(): Promise<{ deletedCount: number }> {
+    const result = await db.delete(generatedContent);
+    return { deletedCount: result.rowCount || 0 };
+  }
+
+  async clearAllVideoProjects(): Promise<{ deletedCount: number }> {
+    // Delete in order due to foreign key constraints
+    await db.delete(audioTracks);
+    await db.delete(videoClips);
+    await db.delete(videoScenes);
+    await db.delete(videoIngredients);
+    const result = await db.delete(videoProjects);
+    return { deletedCount: result.rowCount || 0 };
+  }
+
+  async clearAllApprovalQueue(): Promise<{ deletedCount: number }> {
+    const result = await db.delete(approvalQueue);
+    return { deletedCount: result.rowCount || 0 };
   }
 }
 
