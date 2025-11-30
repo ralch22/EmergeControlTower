@@ -15,6 +15,14 @@ import {
   type InsertContentRun,
   type GeneratedContentRecord,
   type InsertGeneratedContent,
+  type VideoProject,
+  type InsertVideoProject,
+  type VideoScene,
+  type InsertVideoScene,
+  type VideoClip,
+  type InsertVideoClip,
+  type AudioTrack,
+  type InsertAudioTrack,
   kpis,
   pods,
   phaseChanges,
@@ -22,7 +30,11 @@ import {
   alerts,
   clients,
   contentRuns,
-  generatedContent
+  generatedContent,
+  videoProjects,
+  videoScenes,
+  videoClips,
+  audioTracks
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -71,6 +83,37 @@ export interface IStorage {
   getAllGeneratedContent(): Promise<GeneratedContentRecord[]>;
   updateGeneratedContentStatus(contentId: string, status: string): Promise<GeneratedContentRecord>;
   createGeneratedContent(content: InsertGeneratedContent): Promise<GeneratedContentRecord>;
+
+  // Video Projects
+  getVideoProjects(): Promise<VideoProject[]>;
+  getAllVideoProjects(): Promise<VideoProject[]>;
+  getVideoProject(projectId: string): Promise<VideoProject | undefined>;
+  createVideoProject(project: InsertVideoProject): Promise<VideoProject>;
+  updateVideoProject(projectId: string, updates: Partial<InsertVideoProject>): Promise<VideoProject>;
+
+  // Video Scenes
+  createVideoScene(scene: InsertVideoScene): Promise<VideoScene>;
+  getVideoScenes(projectId: string): Promise<VideoScene[]>;
+  updateVideoScene(sceneId: string, updates: Partial<InsertVideoScene>): Promise<VideoScene>;
+
+  // Video Clips
+  createVideoClip(clip: InsertVideoClip): Promise<VideoClip>;
+  getVideoClips(projectId: string): Promise<VideoClip[]>;
+  getVideoClipsByScene(sceneId: string): Promise<VideoClip[]>;
+  updateVideoClip(clipId: string, updates: Partial<InsertVideoClip>): Promise<VideoClip>;
+
+  // Audio Tracks
+  createAudioTrack(track: InsertAudioTrack): Promise<AudioTrack>;
+  getAudioTracks(projectId: string): Promise<AudioTrack[]>;
+  updateAudioTrack(trackId: string, updates: Partial<InsertAudioTrack>): Promise<AudioTrack>;
+
+  // Full Project
+  getFullVideoProject(projectId: string): Promise<{
+    project: VideoProject;
+    scenes: VideoScene[];
+    clips: VideoClip[];
+    audioTracks: AudioTrack[];
+  } | null>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -272,6 +315,144 @@ export class DatabaseStorage implements IStorage {
   async createGeneratedContent(insertContent: InsertGeneratedContent): Promise<GeneratedContentRecord> {
     const [content] = await db.insert(generatedContent).values(insertContent).returning();
     return content;
+  }
+
+  // Video Projects
+  async createVideoProject(project: InsertVideoProject): Promise<VideoProject> {
+    const [result] = await db.insert(videoProjects).values(project).returning();
+    return result;
+  }
+
+  async getVideoProject(projectId: string): Promise<VideoProject | undefined> {
+    const [project] = await db
+      .select()
+      .from(videoProjects)
+      .where(eq(videoProjects.projectId, projectId));
+    return project;
+  }
+
+  async getVideoProjectsByClient(clientId: number): Promise<VideoProject[]> {
+    return await db
+      .select()
+      .from(videoProjects)
+      .where(eq(videoProjects.clientId, clientId))
+      .orderBy(desc(videoProjects.createdAt));
+  }
+
+  async getAllVideoProjects(): Promise<VideoProject[]> {
+    return await db
+      .select()
+      .from(videoProjects)
+      .orderBy(desc(videoProjects.createdAt));
+  }
+
+  async updateVideoProject(projectId: string, updates: Partial<InsertVideoProject>): Promise<VideoProject> {
+    const [project] = await db
+      .update(videoProjects)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(videoProjects.projectId, projectId))
+      .returning();
+    return project;
+  }
+
+  // Video Scenes
+  async createVideoScene(scene: InsertVideoScene): Promise<VideoScene> {
+    const [result] = await db.insert(videoScenes).values(scene).returning();
+    return result;
+  }
+
+  async getVideoScenes(projectId: string): Promise<VideoScene[]> {
+    return await db
+      .select()
+      .from(videoScenes)
+      .where(eq(videoScenes.projectId, projectId))
+      .orderBy(videoScenes.sceneNumber);
+  }
+
+  async updateVideoScene(sceneId: string, updates: Partial<InsertVideoScene>): Promise<VideoScene> {
+    const [scene] = await db
+      .update(videoScenes)
+      .set(updates)
+      .where(eq(videoScenes.sceneId, sceneId))
+      .returning();
+    return scene;
+  }
+
+  // Video Clips
+  async createVideoClip(clip: InsertVideoClip): Promise<VideoClip> {
+    const [result] = await db.insert(videoClips).values(clip).returning();
+    return result;
+  }
+
+  async getVideoClips(projectId: string): Promise<VideoClip[]> {
+    return await db
+      .select()
+      .from(videoClips)
+      .where(eq(videoClips.projectId, projectId))
+      .orderBy(videoClips.createdAt);
+  }
+
+  async getVideoClipsByScene(sceneId: string): Promise<VideoClip[]> {
+    return await db
+      .select()
+      .from(videoClips)
+      .where(eq(videoClips.sceneId, sceneId));
+  }
+
+  async updateVideoClip(clipId: string, updates: Partial<InsertVideoClip>): Promise<VideoClip> {
+    const [clip] = await db
+      .update(videoClips)
+      .set(updates)
+      .where(eq(videoClips.clipId, clipId))
+      .returning();
+    return clip;
+  }
+
+  // Audio Tracks
+  async createAudioTrack(track: InsertAudioTrack): Promise<AudioTrack> {
+    const [result] = await db.insert(audioTracks).values(track).returning();
+    return result;
+  }
+
+  async getAudioTracks(projectId: string): Promise<AudioTrack[]> {
+    return await db
+      .select()
+      .from(audioTracks)
+      .where(eq(audioTracks.projectId, projectId))
+      .orderBy(audioTracks.createdAt);
+  }
+
+  async updateAudioTrack(trackId: string, updates: Partial<InsertAudioTrack>): Promise<AudioTrack> {
+    const [track] = await db
+      .update(audioTracks)
+      .set(updates)
+      .where(eq(audioTracks.trackId, trackId))
+      .returning();
+    return track;
+  }
+
+  // Get full project with all related data
+  async getFullVideoProject(projectId: string): Promise<{
+    project: VideoProject;
+    scenes: VideoScene[];
+    clips: VideoClip[];
+    audioTracks: AudioTrack[];
+  } | null> {
+    const project = await this.getVideoProject(projectId);
+    if (!project) return null;
+
+    const [scenes, clips, audio] = await Promise.all([
+      this.getVideoScenes(projectId),
+      this.getVideoClips(projectId),
+      this.getAudioTracks(projectId),
+    ]);
+
+    return {
+      project,
+      scenes,
+      clips,
+      audioTracks: audio,
+    };
   }
 }
 

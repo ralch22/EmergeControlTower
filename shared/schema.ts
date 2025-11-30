@@ -131,3 +131,85 @@ export const generatedContent = pgTable("generated_content", {
 export const insertGeneratedContentSchema = createInsertSchema(generatedContent).omit({ id: true, createdAt: true });
 export type InsertGeneratedContent = z.infer<typeof insertGeneratedContentSchema>;
 export type GeneratedContentRecord = typeof generatedContent.$inferSelect;
+
+// Video Projects - for multi-scene video production
+export const videoProjects = pgTable("video_projects", {
+  id: serial("id").primaryKey(),
+  projectId: text("project_id").notNull().unique(),
+  clientId: integer("client_id").notNull(),
+  sourceContentId: text("source_content_id"), // links to video_script content
+  title: text("title").notNull(),
+  description: text("description"),
+  totalDuration: integer("total_duration"), // total seconds
+  status: text("status").notNull().default("draft"), // draft, generating, ready, exported, failed
+  outputUrl: text("output_url"), // final merged video URL
+  outputFormat: text("output_format").default("mp4"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertVideoProjectSchema = createInsertSchema(videoProjects).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertVideoProject = z.infer<typeof insertVideoProjectSchema>;
+export type VideoProject = typeof videoProjects.$inferSelect;
+
+// Video Scenes - individual scenes within a project
+export const videoScenes = pgTable("video_scenes", {
+  id: serial("id").primaryKey(),
+  sceneId: text("scene_id").notNull().unique(),
+  projectId: text("project_id").notNull(),
+  sceneNumber: integer("scene_number").notNull(),
+  title: text("title"),
+  visualPrompt: text("visual_prompt").notNull(), // prompt for video generation
+  voiceoverText: text("voiceover_text"), // text for TTS
+  duration: integer("duration").notNull().default(5), // seconds
+  startTime: integer("start_time").notNull().default(0), // position on timeline
+  status: text("status").notNull().default("pending"), // pending, generating, ready, failed
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertVideoSceneSchema = createInsertSchema(videoScenes).omit({ id: true, createdAt: true });
+export type InsertVideoScene = z.infer<typeof insertVideoSceneSchema>;
+export type VideoScene = typeof videoScenes.$inferSelect;
+
+// Video Clips - generated video clips for scenes
+export const videoClips = pgTable("video_clips", {
+  id: serial("id").primaryKey(),
+  clipId: text("clip_id").notNull().unique(),
+  sceneId: text("scene_id").notNull(),
+  projectId: text("project_id").notNull(),
+  provider: text("provider").notNull().default("wan"), // wan, runway
+  taskId: text("task_id"), // provider task ID for polling
+  videoUrl: text("video_url"),
+  thumbnailUrl: text("thumbnail_url"),
+  duration: integer("duration"), // actual duration in seconds
+  resolution: text("resolution").default("1080p"),
+  status: text("status").notNull().default("pending"), // pending, generating, ready, failed
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertVideoClipSchema = createInsertSchema(videoClips).omit({ id: true, createdAt: true });
+export type InsertVideoClip = z.infer<typeof insertVideoClipSchema>;
+export type VideoClip = typeof videoClips.$inferSelect;
+
+// Audio Tracks - generated audio for scenes (voiceover, music)
+export const audioTracks = pgTable("audio_tracks", {
+  id: serial("id").primaryKey(),
+  trackId: text("track_id").notNull().unique(),
+  sceneId: text("scene_id"), // null for background music
+  projectId: text("project_id").notNull(),
+  type: text("type").notNull().default("voiceover"), // voiceover, music, sfx
+  provider: text("provider").notNull().default("elevenlabs"), // elevenlabs, etc
+  taskId: text("task_id"),
+  audioUrl: text("audio_url"),
+  duration: integer("duration"), // seconds
+  voiceId: text("voice_id"), // for TTS
+  text: text("text"), // source text for TTS
+  status: text("status").notNull().default("pending"), // pending, generating, ready, failed
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAudioTrackSchema = createInsertSchema(audioTracks).omit({ id: true, createdAt: true });
+export type InsertAudioTrack = z.infer<typeof insertAudioTrackSchema>;
+export type AudioTrack = typeof audioTracks.$inferSelect;

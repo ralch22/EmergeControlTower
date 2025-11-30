@@ -76,6 +76,12 @@
               class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
               data-testid="nav-content-library"
             >Content Library</button>
+            <button 
+              @click="currentView = 'video-projects'; loadVideoProjects()" 
+              :class="currentView === 'video-projects' ? 'bg-white/10 text-white' : 'text-zinc-500 hover:text-white'"
+              class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+              data-testid="nav-video-projects"
+            >Video Projects</button>
           </nav>
         </div>
         
@@ -469,6 +475,15 @@
                   >
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                   </button>
+                  <button 
+                    @click="createVideoProject(item.contentId)" 
+                    x-show="item.type === 'video_script'"
+                    class="p-1.5 rounded hover:bg-purple-500/10 text-zinc-500 hover:text-purple-400 transition-colors"
+                    title="Create Video Project"
+                    :data-testid="'create-project-' + item.contentId"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -482,6 +497,258 @@
           </div>
         </div>
       </div><!-- End Content Library View -->
+
+      <!-- Video Projects View -->
+      <div x-show="currentView === 'video-projects'" x-cloak class="space-y-6">
+        
+        <!-- Header -->
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h2 class="text-2xl font-bold text-white">Video Projects</h2>
+            <p class="text-sm text-zinc-500 mt-1">Generate full-length videos from script content using AI</p>
+          </div>
+          
+          <div class="flex items-center gap-3">
+            <select 
+              x-model="videoProjectFilter.status" 
+              @change="filterVideoProjects()"
+              data-testid="filter-project-status"
+              class="bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none"
+            >
+              <option value="">All Status</option>
+              <option value="draft">Draft</option>
+              <option value="generating">Generating</option>
+              <option value="ready">Ready</option>
+              <option value="exported">Exported</option>
+              <option value="failed">Failed</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Stats Bar -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div class="bg-zinc-900/50 border border-white/5 rounded-lg p-4">
+            <div class="text-2xl font-bold text-white" x-text="videoProjectStats.total"></div>
+            <div class="text-xs text-zinc-500">Total Projects</div>
+          </div>
+          <div class="bg-zinc-900/50 border border-white/5 rounded-lg p-4">
+            <div class="text-2xl font-bold text-zinc-400" x-text="videoProjectStats.draft"></div>
+            <div class="text-xs text-zinc-500">Draft</div>
+          </div>
+          <div class="bg-zinc-900/50 border border-white/5 rounded-lg p-4">
+            <div class="text-2xl font-bold text-yellow-400" x-text="videoProjectStats.generating"></div>
+            <div class="text-xs text-zinc-500">Generating</div>
+          </div>
+          <div class="bg-zinc-900/50 border border-white/5 rounded-lg p-4">
+            <div class="text-2xl font-bold text-green-400" x-text="videoProjectStats.ready"></div>
+            <div class="text-xs text-zinc-500">Ready</div>
+          </div>
+          <div class="bg-zinc-900/50 border border-white/5 rounded-lg p-4">
+            <div class="text-2xl font-bold text-purple-400" x-text="videoProjectStats.exported"></div>
+            <div class="text-xs text-zinc-500">Exported</div>
+          </div>
+        </div>
+
+        <!-- Projects Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <template x-for="project in filteredVideoProjects" :key="project.projectId">
+            <div class="bg-zinc-900/50 border border-white/10 rounded-xl overflow-hidden hover:border-purple-500/50 transition-all group" :data-testid="'project-card-' + project.projectId">
+              
+              <!-- Card Header -->
+              <div class="px-4 py-3 border-b border-white/5 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                    :class="{
+                      'bg-zinc-500/20 text-zinc-400': project.status === 'draft',
+                      'bg-yellow-500/20 text-yellow-400': project.status === 'generating',
+                      'bg-green-500/20 text-green-400': project.status === 'ready',
+                      'bg-purple-500/20 text-purple-400': project.status === 'exported',
+                      'bg-red-500/20 text-red-400': project.status === 'failed'
+                    }"
+                    x-text="project.status"></span>
+                </div>
+                <div class="flex items-center gap-1 text-xs text-zinc-500">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                  <span x-text="project.totalDuration + 's'"></span>
+                </div>
+              </div>
+              
+              <!-- Card Content -->
+              <div class="p-4">
+                <h3 class="font-medium text-white mb-2 line-clamp-2" x-text="project.title"></h3>
+                <p class="text-xs text-zinc-500 line-clamp-2" x-text="project.description"></p>
+                
+                <!-- Progress bar for generating status -->
+                <div x-show="project.status === 'generating'" class="mt-4">
+                  <div class="flex items-center justify-between text-xs text-zinc-400 mb-1">
+                    <span>Generating scenes...</span>
+                    <span x-text="project.scenesReady + '/' + project.totalScenes"></span>
+                  </div>
+                  <div class="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div class="h-full bg-gradient-to-r from-purple-600 to-teal-400 transition-all duration-500" 
+                         :style="'width: ' + (project.totalScenes > 0 ? (project.scenesReady / project.totalScenes * 100) : 0) + '%'"></div>
+                  </div>
+                </div>
+
+                <!-- Scene preview for ready projects -->
+                <div x-show="project.status === 'ready' || project.status === 'exported'" class="mt-4">
+                  <div class="text-xs text-zinc-400 mb-2" x-text="project.totalScenes + ' scenes'"></div>
+                </div>
+              </div>
+              
+              <!-- Card Footer -->
+              <div class="px-4 py-3 border-t border-white/5 flex items-center justify-between">
+                <span class="text-xs text-zinc-500" x-text="formatDate(project.createdAt)"></span>
+                <div class="flex items-center gap-2">
+                  <button 
+                    @click="viewVideoProject(project)"
+                    class="p-2 rounded-lg hover:bg-white/5 text-zinc-400 hover:text-white transition-colors"
+                    title="View Details"
+                    :data-testid="'view-project-' + project.projectId"
+                  >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                  </button>
+                  <button 
+                    x-show="project.status === 'draft'"
+                    @click="startVideoGeneration(project.projectId)"
+                    :disabled="isGeneratingProject"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-teal-500 text-white text-xs font-medium hover:from-purple-500 hover:to-teal-400 transition-all disabled:opacity-50"
+                    :data-testid="'generate-project-' + project.projectId"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    Generate
+                  </button>
+                  <button 
+                    x-show="project.status === 'ready'"
+                    @click="exportVideoProject(project.projectId)"
+                    :disabled="isExportingProject"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-green-600 to-emerald-500 text-white text-xs font-medium hover:from-green-500 hover:to-emerald-400 transition-all disabled:opacity-50"
+                    :data-testid="'export-project-' + project.projectId"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                    Export
+                  </button>
+                  <a 
+                    x-show="project.status === 'exported' && project.outputUrl"
+                    :href="project.outputUrl"
+                    target="_blank"
+                    class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-teal-600 text-white text-xs font-medium hover:bg-teal-500 transition-all"
+                    :data-testid="'download-project-' + project.projectId"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    Download
+                  </a>
+                </div>
+              </div>
+            </div>
+          </template>
+          
+          <!-- Empty State -->
+          <div x-show="filteredVideoProjects.length === 0" class="col-span-full text-center py-16">
+            <svg class="w-16 h-16 mx-auto text-zinc-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+            <h3 class="text-lg font-medium text-zinc-400 mb-2">No video projects yet</h3>
+            <p class="text-sm text-zinc-600">Create a video project from a video script in the Content Library.</p>
+          </div>
+        </div>
+      </div><!-- End Video Projects View -->
+
+      <!-- Video Project Detail Modal -->
+      <div x-show="showVideoProjectModal" x-cloak 
+           class="fixed inset-0 z-50 flex items-center justify-center p-4"
+           @click.self="showVideoProjectModal = false">
+        <div class="fixed inset-0 bg-black/80 backdrop-blur-sm"></div>
+        <div class="relative bg-zinc-900 border border-white/10 rounded-xl max-w-4xl w-full max-h-[85vh] overflow-hidden">
+          <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+            <div>
+              <h3 class="text-lg font-medium text-white" x-text="selectedVideoProject?.project?.title"></h3>
+              <div class="flex items-center gap-3 mt-1">
+                <span class="text-xs px-2 py-0.5 rounded-full"
+                  :class="{
+                    'bg-zinc-500/20 text-zinc-400': selectedVideoProject?.project?.status === 'draft',
+                    'bg-yellow-500/20 text-yellow-400': selectedVideoProject?.project?.status === 'generating',
+                    'bg-green-500/20 text-green-400': selectedVideoProject?.project?.status === 'ready',
+                    'bg-purple-500/20 text-purple-400': selectedVideoProject?.project?.status === 'exported',
+                    'bg-red-500/20 text-red-400': selectedVideoProject?.project?.status === 'failed'
+                  }"
+                  x-text="selectedVideoProject?.project?.status"></span>
+                <span class="text-xs text-zinc-500" x-text="selectedVideoProject?.project?.totalDuration + 's total duration'"></span>
+              </div>
+            </div>
+            <button @click="showVideoProjectModal = false" class="p-2 rounded-lg hover:bg-white/5 text-zinc-400 hover:text-white transition-colors">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+          </div>
+          
+          <div class="p-6 overflow-y-auto max-h-[60vh]">
+            <!-- Scenes List -->
+            <h4 class="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4">Scenes</h4>
+            <div class="space-y-3">
+              <template x-for="scene in selectedVideoProject?.scenes" :key="scene.sceneId">
+                <div class="bg-black/30 border border-white/5 rounded-lg p-4">
+                  <div class="flex items-start justify-between mb-2">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-mono text-purple-400" x-text="'Scene ' + scene.sceneNumber"></span>
+                      <span class="text-xs px-2 py-0.5 rounded-full"
+                        :class="{
+                          'bg-zinc-500/20 text-zinc-400': scene.status === 'pending',
+                          'bg-yellow-500/20 text-yellow-400': scene.status === 'generating',
+                          'bg-green-500/20 text-green-400': scene.status === 'ready',
+                          'bg-red-500/20 text-red-400': scene.status === 'failed'
+                        }"
+                        x-text="scene.status"></span>
+                    </div>
+                    <span class="text-xs text-zinc-500" x-text="scene.duration + 's'"></span>
+                  </div>
+                  <p class="text-sm text-zinc-300 mb-2" x-text="scene.title"></p>
+                  <p class="text-xs text-zinc-500" x-text="scene.voiceoverText"></p>
+                </div>
+              </template>
+            </div>
+
+            <!-- Generated Clips -->
+            <template x-if="selectedVideoProject?.clips?.length > 0">
+              <div class="mt-6">
+                <h4 class="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4">Generated Clips</h4>
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <template x-for="clip in selectedVideoProject?.clips" :key="clip.clipId">
+                    <div class="relative aspect-video bg-zinc-800 rounded-lg overflow-hidden">
+                      <template x-if="clip.videoUrl">
+                        <video :src="clip.videoUrl" class="w-full h-full object-cover" muted controls></video>
+                      </template>
+                      <template x-if="!clip.videoUrl">
+                        <div class="flex items-center justify-center h-full">
+                          <span class="text-xs text-zinc-500" x-text="clip.status"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+          
+          <div class="px-6 py-4 border-t border-white/10 flex items-center justify-end gap-3">
+            <button 
+              x-show="selectedVideoProject?.project?.status === 'draft'"
+              @click="startVideoGeneration(selectedVideoProject?.project?.projectId); showVideoProjectModal = false"
+              :disabled="isGeneratingProject"
+              class="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-teal-500 text-white hover:from-purple-500 hover:to-teal-400 transition-colors disabled:opacity-50"
+            >
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+              Start Generation
+            </button>
+            <button 
+              x-show="selectedVideoProject?.project?.status === 'ready'"
+              @click="exportVideoProject(selectedVideoProject?.project?.projectId); showVideoProjectModal = false"
+              :disabled="isExportingProject"
+              class="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-green-600 to-emerald-500 text-white hover:from-green-500 hover:to-emerald-400 transition-colors disabled:opacity-50"
+            >
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+              Export Final Video
+            </button>
+          </div>
+        </div>
+      </div>
 
       <!-- Content Preview Modal -->
       <div x-show="showContentModal" x-cloak 
@@ -618,6 +885,24 @@
           selectedContent: null,
           isGeneratingVideo: false,
           
+          // Video Projects
+          allVideoProjects: [],
+          filteredVideoProjects: [],
+          videoProjectFilter: {
+            status: ''
+          },
+          videoProjectStats: {
+            total: 0,
+            draft: 0,
+            generating: 0,
+            ready: 0,
+            exported: 0
+          },
+          showVideoProjectModal: false,
+          selectedVideoProject: null,
+          isGeneratingProject: false,
+          isExportingProject: false,
+          
           async initDashboard() {
             this.updateTime();
             setInterval(() => this.updateTime(), 1000);
@@ -637,7 +922,8 @@
                 this.loadPhaseChanges(),
                 this.loadApprovals(),
                 this.loadAlerts(),
-                this.loadClients()
+                this.loadClients(),
+                this.loadVideoProjects()
               ]);
             } catch (error) {
               console.error('Error loading data:', error);
@@ -950,6 +1236,138 @@
               alert('Failed to generate video. Please try again.');
             } finally {
               this.isGeneratingVideo = false;
+            }
+          },
+
+          // Video Projects Methods
+          async loadVideoProjects() {
+            try {
+              const response = await fetch('/api/video-projects');
+              const data = await response.json();
+              this.allVideoProjects = data.map(project => ({
+                ...project,
+                totalScenes: 0,
+                scenesReady: 0
+              }));
+              this.filterVideoProjects();
+              this.updateVideoProjectStats();
+            } catch (error) {
+              console.error('Error loading video projects:', error);
+            }
+          },
+
+          filterVideoProjects() {
+            this.filteredVideoProjects = this.allVideoProjects.filter(project => {
+              if (this.videoProjectFilter.status && project.status !== this.videoProjectFilter.status) return false;
+              return true;
+            });
+          },
+
+          updateVideoProjectStats() {
+            const total = this.allVideoProjects.length;
+            const draft = this.allVideoProjects.filter(p => p.status === 'draft').length;
+            const generating = this.allVideoProjects.filter(p => p.status === 'generating').length;
+            const ready = this.allVideoProjects.filter(p => p.status === 'ready').length;
+            const exported = this.allVideoProjects.filter(p => p.status === 'exported').length;
+            
+            this.videoProjectStats = { total, draft, generating, ready, exported };
+          },
+
+          async viewVideoProject(project) {
+            try {
+              const response = await fetch(`/api/video-projects/${project.projectId}`);
+              const data = await response.json();
+              this.selectedVideoProject = data;
+              this.showVideoProjectModal = true;
+            } catch (error) {
+              console.error('Error loading video project:', error);
+              alert('Failed to load project details.');
+            }
+          },
+
+          async startVideoGeneration(projectId) {
+            if (this.isGeneratingProject || !projectId) return;
+            
+            this.isGeneratingProject = true;
+            
+            try {
+              const response = await fetch(`/api/video-projects/${projectId}/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider: 'wan' })
+              });
+              
+              const data = await response.json();
+              
+              if (response.ok && data.success) {
+                alert('Video generation started! This may take several minutes. Refresh the page to check progress.');
+                
+                // Update local status
+                const project = this.allVideoProjects.find(p => p.projectId === projectId);
+                if (project) project.status = 'generating';
+                this.filterVideoProjects();
+                this.updateVideoProjectStats();
+              } else {
+                alert('Failed to start generation: ' + (data.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error starting video generation:', error);
+              alert('Failed to start generation. Please try again.');
+            } finally {
+              this.isGeneratingProject = false;
+            }
+          },
+
+          async exportVideoProject(projectId) {
+            if (this.isExportingProject || !projectId) return;
+            
+            this.isExportingProject = true;
+            
+            try {
+              const response = await fetch(`/api/video-projects/${projectId}/export`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              
+              const data = await response.json();
+              
+              if (response.ok && data.success) {
+                alert('Export started! The video will be assembled and ready for download shortly.');
+                
+                // Update local status
+                const project = this.allVideoProjects.find(p => p.projectId === projectId);
+                if (project) project.status = 'exporting';
+                this.filterVideoProjects();
+              } else {
+                alert('Failed to export: ' + (data.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error exporting video:', error);
+              alert('Failed to export video. Please try again.');
+            } finally {
+              this.isExportingProject = false;
+            }
+          },
+
+          async createVideoProject(contentId) {
+            try {
+              const response = await fetch('/api/video-projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contentId })
+              });
+              
+              const data = await response.json();
+              
+              if (response.ok) {
+                alert('Video project created! Go to Video Projects to start generation.');
+                await this.loadVideoProjects();
+              } else {
+                alert('Failed to create project: ' + (data.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error creating video project:', error);
+              alert('Failed to create project. Please try again.');
             }
           }
         }

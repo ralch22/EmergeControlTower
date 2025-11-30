@@ -691,5 +691,334 @@ export async function registerRoutes(
     }
   });
 
+  // ========== VIDEO PROJECTS ==========
+
+  // Get all video projects
+  app.get("/api/video-projects", async (req, res) => {
+    try {
+      const projects = await storage.getAllVideoProjects();
+      res.json(projects);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch video projects" });
+    }
+  });
+
+  // Get video project by ID with all data
+  app.get("/api/video-projects/:projectId", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const fullProject = await storage.getFullVideoProject(projectId);
+      
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+      
+      res.json(fullProject);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch video project" });
+    }
+  });
+
+  // Create video project from video script
+  app.post("/api/video-projects", async (req, res) => {
+    try {
+      const { contentId, clientId, title } = req.body;
+      
+      // Import scene parser
+      const { parseVideoScript, calculateTotalDuration } = await import("../01-content-factory/utils/scene-parser");
+      
+      // Get the source video script content
+      const allContent = await storage.getAllGeneratedContent();
+      const sourceContent = allContent.find(c => c.contentId === contentId);
+      
+      if (!sourceContent) {
+        return res.status(404).json({ error: "Source content not found" });
+      }
+      
+      if (sourceContent.type !== 'video_script') {
+        return res.status(400).json({ error: "Content is not a video script" });
+      }
+
+      // Parse the script into scenes
+      const parsedScenes = parseVideoScript(sourceContent.content);
+      const totalDuration = calculateTotalDuration(parsedScenes);
+
+      // Generate project ID
+      const projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      // Create the project
+      const project = await storage.createVideoProject({
+        projectId,
+        clientId: clientId || sourceContent.clientId,
+        sourceContentId: contentId,
+        title: title || sourceContent.title,
+        description: `Video project from: ${sourceContent.title}`,
+        totalDuration,
+        status: 'draft',
+      });
+
+      // Create scenes
+      for (const scene of parsedScenes) {
+        const sceneId = `scene_${projectId}_${scene.sceneNumber}`;
+        await storage.createVideoScene({
+          sceneId,
+          projectId,
+          sceneNumber: scene.sceneNumber,
+          title: scene.title,
+          visualPrompt: scene.visualPrompt,
+          voiceoverText: scene.voiceoverText,
+          duration: scene.duration,
+          startTime: scene.startTime,
+          status: 'pending',
+        });
+      }
+
+      const fullProject = await storage.getFullVideoProject(projectId);
+      res.status(201).json(fullProject);
+    } catch (error: any) {
+      console.error('Failed to create video project:', error);
+      res.status(500).json({ error: error.message || "Failed to create video project" });
+    }
+  });
+
+  // Start video generation for a project
+  app.post("/api/video-projects/:projectId/generate", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { provider = 'wan' } = req.body; // wan or runway
+      
+      const fullProject = await storage.getFullVideoProject(projectId);
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Update project status
+      await storage.updateVideoProject(projectId, { status: 'generating' });
+
+      // Start background generation process
+      generateVideoProjectAsync(projectId, provider, storage);
+
+      res.json({ 
+        success: true, 
+        message: "Video generation started",
+        projectId,
+        scenesToGenerate: fullProject.scenes.length,
+      });
+    } catch (error: any) {
+      console.error('Failed to start video generation:', error);
+      res.status(500).json({ error: error.message || "Failed to start generation" });
+    }
+  });
+
+  // Export video project using Shotstack
+  app.post("/api/video-projects/:projectId/export", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      
+      const fullProject = await storage.getFullVideoProject(projectId);
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Check all clips are ready
+      const pendingClips = fullProject.clips.filter(c => c.status !== 'ready');
+      if (pendingClips.length > 0) {
+        return res.status(400).json({ 
+          error: "Not all clips are ready",
+          pendingClips: pendingClips.length,
+        });
+      }
+
+      // Import Shotstack
+      const { createMultiSceneVideo, renderVideo, waitForRender } = await import("../01-content-factory/integrations/shotstack");
+
+      // Build scenes array for Shotstack
+      const scenes = fullProject.scenes.map(scene => {
+        const clip = fullProject.clips.find(c => c.sceneId === scene.sceneId);
+        const audio = fullProject.audioTracks.find(a => a.sceneId === scene.sceneId);
+        
+        return {
+          videoUrl: clip?.videoUrl || '',
+          audioUrl: audio?.audioUrl,
+          duration: scene.duration,
+        };
+      }).filter(s => s.videoUrl);
+
+      if (scenes.length === 0) {
+        return res.status(400).json({ error: "No video clips available for export" });
+      }
+
+      // Create and render
+      const edit = createMultiSceneVideo(scenes, { resolution: 'hd', transitions: true });
+      const renderResult = await renderVideo(edit);
+
+      if (!renderResult.success || !renderResult.renderId) {
+        return res.status(500).json({ error: renderResult.error || "Failed to start export" });
+      }
+
+      // Wait for render (in background for long videos)
+      waitForRender(renderResult.renderId, 600).then(async (result) => {
+        if (result.success && result.videoUrl) {
+          await storage.updateVideoProject(projectId, {
+            status: 'exported',
+            outputUrl: result.videoUrl,
+          });
+          console.log(`[VideoProject] Export complete: ${result.videoUrl}`);
+        } else {
+          await storage.updateVideoProject(projectId, { status: 'failed' });
+          console.error(`[VideoProject] Export failed: ${result.error}`);
+        }
+      });
+
+      res.json({
+        success: true,
+        message: "Export started",
+        renderId: renderResult.renderId,
+      });
+    } catch (error: any) {
+      console.error('Failed to export video project:', error);
+      res.status(500).json({ error: error.message || "Failed to export" });
+    }
+  });
+
   return httpServer;
+}
+
+// Background video generation function
+async function generateVideoProjectAsync(
+  projectId: string, 
+  provider: 'wan' | 'runway',
+  storage: any
+) {
+  try {
+    const fullProject = await storage.getFullVideoProject(projectId);
+    if (!fullProject) return;
+
+    console.log(`[VideoProject] Starting generation for ${projectId} with ${fullProject.scenes.length} scenes`);
+
+    for (const scene of fullProject.scenes) {
+      try {
+        // Update scene status
+        await storage.updateVideoScene(scene.sceneId, { status: 'generating' });
+
+        // Generate video clip
+        const clipId = `clip_${scene.sceneId}_${Date.now()}`;
+        
+        let clipResult;
+        if (provider === 'wan') {
+          const { generateVideoWithWan, waitForWanCompletion } = await import("../01-content-factory/integrations/wan");
+          
+          const taskResult = await generateVideoWithWan(scene.visualPrompt, {
+            duration: Math.min(scene.duration, 10),
+            resolution: '720p',
+          });
+
+          if (taskResult.success && taskResult.taskId) {
+            // Create clip record
+            await storage.createVideoClip({
+              clipId,
+              sceneId: scene.sceneId,
+              projectId,
+              provider: 'wan',
+              taskId: taskResult.taskId,
+              status: 'generating',
+            });
+
+            // Wait for completion
+            clipResult = await waitForWanCompletion(taskResult.taskId, 300);
+          }
+        } else {
+          // Use Runway
+          const { generateVideoFromText, waitForVideoCompletion } = await import("../01-content-factory/integrations/runway");
+          
+          const taskResult = await generateVideoFromText(scene.visualPrompt);
+
+          if (taskResult.success && taskResult.taskId) {
+            await storage.createVideoClip({
+              clipId,
+              sceneId: scene.sceneId,
+              projectId,
+              provider: 'runway',
+              taskId: taskResult.taskId,
+              status: 'generating',
+            });
+
+            clipResult = await waitForVideoCompletion(taskResult.taskId, 180);
+          }
+        }
+
+        // Update clip with result
+        if (clipResult?.success && clipResult.videoUrl) {
+          await storage.updateVideoClip(clipId, {
+            videoUrl: clipResult.videoUrl,
+            status: 'ready',
+          });
+          await storage.updateVideoScene(scene.sceneId, { status: 'ready' });
+          console.log(`[VideoProject] Scene ${scene.sceneNumber} clip ready`);
+        } else {
+          await storage.updateVideoClip(clipId, {
+            status: 'failed',
+            errorMessage: clipResult?.error || 'Generation failed',
+          });
+          await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
+        }
+
+        // Generate audio (ElevenLabs)
+        if (scene.voiceoverText) {
+          try {
+            const { generateVoiceoverWithUrl } = await import("../01-content-factory/integrations/elevenlabs");
+            const trackId = `audio_${scene.sceneId}_${Date.now()}`;
+            
+            await storage.createAudioTrack({
+              trackId,
+              sceneId: scene.sceneId,
+              projectId,
+              type: 'voiceover',
+              provider: 'elevenlabs',
+              text: scene.voiceoverText,
+              status: 'generating',
+            });
+
+            const audioResult = await generateVoiceoverWithUrl(scene.voiceoverText, {
+              voiceStyle: 'professional_male',
+            });
+
+            if (audioResult.success && audioResult.audioUrl) {
+              await storage.updateAudioTrack(trackId, {
+                audioUrl: audioResult.audioUrl,
+                duration: audioResult.duration,
+                status: 'ready',
+              });
+              console.log(`[VideoProject] Scene ${scene.sceneNumber} audio ready`);
+            } else {
+              await storage.updateAudioTrack(trackId, {
+                status: 'failed',
+                errorMessage: audioResult.error,
+              });
+            }
+          } catch (audioError) {
+            console.error(`[VideoProject] Audio generation failed for scene ${scene.sceneNumber}:`, audioError);
+          }
+        }
+
+      } catch (sceneError) {
+        console.error(`[VideoProject] Scene ${scene.sceneNumber} failed:`, sceneError);
+        await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
+      }
+    }
+
+    // Check if all scenes are ready
+    const updatedProject = await storage.getFullVideoProject(projectId);
+    const allReady = updatedProject?.scenes.every(s => s.status === 'ready');
+    
+    await storage.updateVideoProject(projectId, {
+      status: allReady ? 'ready' : 'failed',
+    });
+
+    console.log(`[VideoProject] Generation complete for ${projectId}, status: ${allReady ? 'ready' : 'failed'}`);
+
+  } catch (error) {
+    console.error(`[VideoProject] Generation failed for ${projectId}:`, error);
+    await storage.updateVideoProject(projectId, { status: 'failed' });
+  }
 }
