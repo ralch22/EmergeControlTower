@@ -140,8 +140,19 @@ Preferred communication style: Simple, everyday language.
 - **ClaudeProvider**: Claude Sonnet 4.5 via Replit AI Integrations (primary)
 - **GeminiProvider**: Gemini 1.5 Flash for speed (optional)
 - **ElevenLabsProvider**: Text-to-speech voiceovers (optional)
-- **RunwayProvider**: AI video generation (optional)
+- **RunwayProvider**: AI video generation (fallback)
 - **MidjourneyProvider**: Image generation via Replicate (optional)
+
+**Video Provider System (01-content-factory/integrations/)**
+- **Veo 3.1 Fast**: Google's latest video model (primary, priority 1)
+  - Native audio generation support
+  - 720p/1080p resolution options
+  - Aspect ratios: 16:9, 9:16 (1:1 returns explicit error)
+  - Durations: 4, 6, or 8 seconds (auto-snaps to nearest valid)
+  - Image-to-video support via imageUrl/imageBase64
+  - Uses AI_INTEGRATIONS_GEMINI_API_KEY
+- **Runway Gen-4**: High-quality video (fallback, priority 2)
+- **Multi-provider fallback**: Automatic failover across providers
 
 **Integrations (01-content-factory/python/integrations/)**
 - `slack.py` - Slack webhook notifications for QA approvals
