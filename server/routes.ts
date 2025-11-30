@@ -810,6 +810,55 @@ export async function registerRoutes(
     }
   });
 
+  // Regenerate failed video project (reset failed scenes and restart)
+  app.post("/api/video-projects/:projectId/regenerate", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { provider = 'runway' } = req.body;
+      
+      const fullProject = await storage.getFullVideoProject(projectId);
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Reset failed scenes to pending
+      const failedScenes = fullProject.scenes.filter(s => s.status === 'failed');
+      for (const scene of failedScenes) {
+        await storage.updateVideoScene(scene.sceneId, { status: 'pending' });
+      }
+
+      // Reset failed clips
+      const failedClips = fullProject.clips.filter(c => c.status === 'failed');
+      for (const clip of failedClips) {
+        await storage.updateVideoClip(clip.clipId, { status: 'pending', errorMessage: null });
+      }
+
+      // Reset failed audio tracks
+      const failedAudio = fullProject.audioTracks.filter(a => a.status === 'failed');
+      for (const audio of failedAudio) {
+        await storage.updateAudioTrack(audio.trackId, { status: 'pending', errorMessage: null });
+      }
+
+      // Update project status
+      await storage.updateVideoProject(projectId, { status: 'generating' });
+
+      // Start background regeneration process
+      generateVideoProjectAsync(projectId, provider, storage);
+
+      res.json({ 
+        success: true, 
+        message: "Video regeneration started",
+        projectId,
+        scenesToRegenerate: failedScenes.length,
+        clipsToRegenerate: failedClips.length,
+        audioToRegenerate: failedAudio.length,
+      });
+    } catch (error: any) {
+      console.error('Failed to regenerate video project:', error);
+      res.status(500).json({ error: error.message || "Failed to regenerate" });
+    }
+  });
+
   // Export video project using Shotstack
   app.post("/api/video-projects/:projectId/export", async (req, res) => {
     try {
