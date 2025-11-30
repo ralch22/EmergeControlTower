@@ -5,6 +5,7 @@ import { generateVideoWithLuma, checkLumaStatus, waitForLumaCompletion } from '.
 import { generateVideoWithVeo2, checkVeo2Status, waitForVeo2Completion } from './veo2';
 import { generateVideoWithVeo31, checkVeo31Status, waitForVeo31Completion, testVeo31Connection } from './veo31';
 import { generateSceneImageWithRetry, isDalleConfigured } from './dalle-images';
+import { generateImageWithNanoBananaPro } from './nano-banana-pro';
 
 export interface VideoProviderResult {
   success: boolean;
@@ -385,22 +386,44 @@ export async function generateUniqueSceneImage(prompt: string): Promise<{
   imageUrl?: string;
   error?: string;
 }> {
-  if (!isDalleConfigured()) {
-    console.log('[VideoProvider] DALL-E not configured for image generation');
-    return {
-      success: false,
-      error: 'DALL-E not configured - add OpenAI integration for unique scene images',
-    };
+  const geminiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  
+  if (geminiKey) {
+    console.log('[VideoProvider] Generating unique scene image with Nano Banana Pro (Gemini)...');
+    const result = await generateImageWithNanoBananaPro(prompt, {
+      resolution: '2K',
+      style: 'cinematic, professional, high quality video frame',
+    });
+    
+    if (result.success && result.imageDataUrl) {
+      console.log('[VideoProvider] Nano Banana Pro generated unique scene image');
+      const base64Data = result.imageDataUrl.split(',')[1];
+      return {
+        success: true,
+        imageBase64: base64Data,
+        imageUrl: result.imageUrl,
+      };
+    }
+    
+    console.log(`[VideoProvider] Nano Banana Pro failed: ${result.error}, trying DALL-E fallback...`);
+  }
+  
+  if (isDalleConfigured()) {
+    console.log('[VideoProvider] Falling back to DALL-E for image generation...');
+    const result = await generateSceneImageWithRetry(prompt, 2);
+    
+    if (result.success) {
+      console.log('[VideoProvider] DALL-E generated unique scene image');
+    }
+    
+    return result;
   }
 
-  console.log('[VideoProvider] Generating unique scene image with DALL-E...');
-  const result = await generateSceneImageWithRetry(prompt, 2);
-  
-  if (result.success) {
-    console.log('[VideoProvider] DALL-E generated unique scene image');
-  }
-  
-  return result;
+  console.log('[VideoProvider] No image generation providers configured');
+  return {
+    success: false,
+    error: 'No image providers configured - add Gemini or OpenAI keys',
+  };
 }
 
 export async function testProviderConnection(provider: VideoProvider): Promise<{ 
