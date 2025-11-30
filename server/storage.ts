@@ -27,6 +27,10 @@ import {
   type InsertAiProvider,
   type VideoIngredients,
   type InsertVideoIngredients,
+  type ControlEntity,
+  type InsertControlEntity,
+  type ControlEvent,
+  type InsertControlEvent,
   kpis,
   pods,
   phaseChanges,
@@ -40,7 +44,9 @@ import {
   videoClips,
   audioTracks,
   aiProviders,
-  videoIngredients
+  videoIngredients,
+  controlEntities,
+  controlEvents
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -143,6 +149,19 @@ export interface IStorage {
   clearAllGeneratedContent(): Promise<{ deletedCount: number }>;
   clearAllVideoProjects(): Promise<{ deletedCount: number }>;
   clearAllApprovalQueue(): Promise<{ deletedCount: number }>;
+
+  // Control Center
+  getControlEntities(): Promise<ControlEntity[]>;
+  getControlEntity(slug: string): Promise<ControlEntity | undefined>;
+  getControlEntitiesByCategory(category: string): Promise<ControlEntity[]>;
+  createControlEntity(entity: InsertControlEntity): Promise<ControlEntity>;
+  updateControlEntity(slug: string, updates: Partial<InsertControlEntity>): Promise<ControlEntity>;
+  toggleControlEntity(slug: string, isEnabled: boolean, triggeredBy?: string): Promise<ControlEntity>;
+  getControlEvents(limit?: number): Promise<ControlEvent[]>;
+  createControlEvent(event: InsertControlEvent): Promise<ControlEvent>;
+  initializeDefaultControlEntities(): Promise<void>;
+  killAllServices(triggeredBy?: string): Promise<void>;
+  resetAllServices(triggeredBy?: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -645,6 +664,156 @@ export class DatabaseStorage implements IStorage {
   async clearAllApprovalQueue(): Promise<{ deletedCount: number }> {
     const result = await db.delete(approvalQueue);
     return { deletedCount: result.rowCount || 0 };
+  }
+
+  // Control Center
+  async getControlEntities(): Promise<ControlEntity[]> {
+    return await db
+      .select()
+      .from(controlEntities)
+      .orderBy(controlEntities.category, controlEntities.priority);
+  }
+
+  async getControlEntity(slug: string): Promise<ControlEntity | undefined> {
+    const [entity] = await db
+      .select()
+      .from(controlEntities)
+      .where(eq(controlEntities.slug, slug));
+    return entity || undefined;
+  }
+
+  async getControlEntitiesByCategory(category: string): Promise<ControlEntity[]> {
+    return await db
+      .select()
+      .from(controlEntities)
+      .where(eq(controlEntities.category, category))
+      .orderBy(controlEntities.priority);
+  }
+
+  async createControlEntity(entity: InsertControlEntity): Promise<ControlEntity> {
+    const [result] = await db.insert(controlEntities).values(entity).returning();
+    return result;
+  }
+
+  async updateControlEntity(slug: string, updates: Partial<InsertControlEntity>): Promise<ControlEntity> {
+    const [entity] = await db
+      .update(controlEntities)
+      .set({ ...updates, changedAt: new Date() })
+      .where(eq(controlEntities.slug, slug))
+      .returning();
+    return entity;
+  }
+
+  async toggleControlEntity(slug: string, isEnabled: boolean, triggeredBy?: string): Promise<ControlEntity> {
+    const existingEntity = await this.getControlEntity(slug);
+    const previousState = existingEntity?.isEnabled;
+
+    const [entity] = await db
+      .update(controlEntities)
+      .set({ 
+        isEnabled, 
+        lastChangedBy: triggeredBy || 'system',
+        changedAt: new Date() 
+      })
+      .where(eq(controlEntities.slug, slug))
+      .returning();
+
+    await this.createControlEvent({
+      entitySlug: slug,
+      action: isEnabled ? 'enabled' : 'disabled',
+      previousState,
+      newState: isEnabled,
+      triggeredBy: triggeredBy || 'system',
+    });
+
+    return entity;
+  }
+
+  async getControlEvents(limit?: number): Promise<ControlEvent[]> {
+    const query = db
+      .select()
+      .from(controlEvents)
+      .orderBy(desc(controlEvents.createdAt));
+    
+    if (limit) {
+      return await query.limit(limit);
+    }
+    return await query;
+  }
+
+  async createControlEvent(event: InsertControlEvent): Promise<ControlEvent> {
+    const [result] = await db.insert(controlEvents).values(event).returning();
+    return result;
+  }
+
+  async initializeDefaultControlEntities(): Promise<void> {
+    const existing = await this.getControlEntities();
+    if (existing.length > 0) return;
+
+    const defaultEntities: InsertControlEntity[] = [
+      { slug: 'master-kill-switch', type: 'global', displayName: 'Master Kill Switch', description: 'Global emergency stop for all services', category: 'MASTER', isEnabled: true, priority: 0 },
+      
+      { slug: 'video-pipeline', type: 'pipeline', displayName: 'Video Pipeline', description: 'Main video generation pipeline', category: 'VIDEO', isEnabled: true, priority: 1 },
+      { slug: 'veo31-provider', type: 'provider', displayName: 'Veo 3.1 Provider', description: 'Google Veo 3.1 video generation', category: 'VIDEO', isEnabled: true, priority: 2, dependsOn: JSON.stringify(['video-pipeline']) },
+      { slug: 'runway-provider', type: 'provider', displayName: 'Runway Provider', description: 'Runway video generation', category: 'VIDEO', isEnabled: true, priority: 3, dependsOn: JSON.stringify(['video-pipeline']) },
+      { slug: 'alibaba-wan-provider', type: 'provider', displayName: 'Alibaba WAN Provider', description: 'Alibaba WAN video generation', category: 'VIDEO', isEnabled: true, priority: 4, dependsOn: JSON.stringify(['video-pipeline']) },
+      
+      { slug: 'audio-pipeline', type: 'pipeline', displayName: 'Audio Pipeline', description: 'Main audio generation pipeline', category: 'AUDIO', isEnabled: true, priority: 1 },
+      { slug: 'elevenlabs-provider', type: 'provider', displayName: 'ElevenLabs Provider', description: 'ElevenLabs voice synthesis', category: 'AUDIO', isEnabled: true, priority: 2, dependsOn: JSON.stringify(['audio-pipeline']) },
+      
+      { slug: 'content-pipeline', type: 'pipeline', displayName: 'Content Pipeline', description: 'Main content generation pipeline', category: 'CONTENT', isEnabled: true, priority: 1 },
+      { slug: 'topic-agent', type: 'agent', displayName: 'Topic Agent', description: 'Topic research and selection', category: 'CONTENT', isEnabled: true, priority: 2, dependsOn: JSON.stringify(['content-pipeline']) },
+      { slug: 'blog-agent', type: 'agent', displayName: 'Blog Agent', description: 'Blog post generation', category: 'CONTENT', isEnabled: true, priority: 3, dependsOn: JSON.stringify(['content-pipeline']) },
+      { slug: 'social-agent', type: 'agent', displayName: 'Social Agent', description: 'Social media content generation', category: 'CONTENT', isEnabled: true, priority: 4, dependsOn: JSON.stringify(['content-pipeline']) },
+      { slug: 'adcopy-agent', type: 'agent', displayName: 'AdCopy Agent', description: 'Advertisement copy generation', category: 'CONTENT', isEnabled: true, priority: 5, dependsOn: JSON.stringify(['content-pipeline']) },
+      { slug: 'qa-agent', type: 'agent', displayName: 'QA Agent', description: 'Quality assurance and review', category: 'CONTENT', isEnabled: true, priority: 6, dependsOn: JSON.stringify(['content-pipeline']) },
+      
+      { slug: 'image-pipeline', type: 'pipeline', displayName: 'Image Pipeline', description: 'Main image generation pipeline', category: 'IMAGE', isEnabled: true, priority: 1 },
+      { slug: 'gemini-image-provider', type: 'provider', displayName: 'Gemini Image Provider', description: 'Google Gemini image generation', category: 'IMAGE', isEnabled: true, priority: 2, dependsOn: JSON.stringify(['image-pipeline']) },
+      { slug: 'alibaba-image-provider', type: 'provider', displayName: 'Alibaba Image Provider', description: 'Alibaba image generation', category: 'IMAGE', isEnabled: true, priority: 3, dependsOn: JSON.stringify(['image-pipeline']) },
+    ];
+
+    for (const entity of defaultEntities) {
+      await this.createControlEntity(entity);
+    }
+  }
+
+  async killAllServices(triggeredBy?: string): Promise<void> {
+    await db
+      .update(controlEntities)
+      .set({ 
+        isEnabled: false, 
+        lastChangedBy: triggeredBy || 'system',
+        changedAt: new Date() 
+      });
+
+    await this.createControlEvent({
+      entitySlug: 'master-kill-switch',
+      action: 'kill',
+      previousState: true,
+      newState: false,
+      triggeredBy: triggeredBy || 'system',
+      reason: 'Kill all services command executed',
+    });
+  }
+
+  async resetAllServices(triggeredBy?: string): Promise<void> {
+    await db
+      .update(controlEntities)
+      .set({ 
+        isEnabled: true, 
+        lastChangedBy: triggeredBy || 'system',
+        changedAt: new Date() 
+      });
+
+    await this.createControlEvent({
+      entitySlug: 'master-kill-switch',
+      action: 'reset',
+      previousState: false,
+      newState: true,
+      triggeredBy: triggeredBy || 'system',
+      reason: 'Reset all services command executed',
+    });
   }
 }
 
