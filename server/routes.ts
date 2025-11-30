@@ -1020,6 +1020,43 @@ export async function registerRoutes(
         runway: async () => {
           const key = process.env.RUNWAY_API_KEY;
           if (!key) return { status: 'error', message: 'API key not configured' };
+          try {
+            const response = await fetch('https://api.dev.runwayml.com/v1/tasks?limit=1', {
+              headers: { 
+                'Authorization': `Bearer ${key}`,
+                'X-Runway-Version': '2024-11-06',
+              },
+            });
+            if (response.ok) return { status: 'working', message: 'Connected successfully' };
+            if (response.status === 401) return { status: 'error', message: 'Invalid API key' };
+            return { status: 'error', message: `API error: ${response.status}` };
+          } catch (e: any) {
+            return { status: 'error', message: e.message || 'Connection failed' };
+          }
+        },
+        wan: async () => {
+          const key = process.env.DASHSCOPE_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          return { status: 'working', message: 'API key configured' };
+        },
+        pika: async () => {
+          const key = process.env.PIKA_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          return { status: 'working', message: 'API key configured' };
+        },
+        luma: async () => {
+          const key = process.env.LUMA_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          return { status: 'working', message: 'API key configured' };
+        },
+        kling: async () => {
+          const key = process.env.KLING_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          return { status: 'working', message: 'API key configured' };
+        },
+        hailuo: async () => {
+          const key = process.env.HAILUO_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
           return { status: 'working', message: 'API key configured' };
         },
         gemini: async () => {
@@ -1027,8 +1064,32 @@ export async function registerRoutes(
           if (!key) return { status: 'error', message: 'API key not configured' };
           return { status: 'working', message: 'API key configured' };
         },
+        dalle: async () => {
+          const key = process.env.OPENAI_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          return { status: 'working', message: 'API key configured' };
+        },
+        replicate: async () => {
+          const key = process.env.REPLICATE_API_TOKEN;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          return { status: 'working', message: 'API key configured' };
+        },
         elevenlabs: async () => {
           const key = process.env.ELEVENLABS_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          try {
+            const response = await fetch('https://api.elevenlabs.io/v1/voices', {
+              headers: { 'xi-api-key': key },
+            });
+            if (response.ok) return { status: 'working', message: 'Connected successfully' };
+            if (response.status === 401) return { status: 'error', message: 'Invalid API key' };
+            return { status: 'error', message: `API error: ${response.status}` };
+          } catch (e: any) {
+            return { status: 'error', message: e.message || 'Connection failed' };
+          }
+        },
+        openai_tts: async () => {
+          const key = process.env.OPENAI_API_KEY;
           if (!key) return { status: 'error', message: 'API key not configured' };
           return { status: 'working', message: 'API key configured' };
         },

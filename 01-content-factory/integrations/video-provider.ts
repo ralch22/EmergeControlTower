@@ -1,0 +1,374 @@
+import { generateVideoWithRunway, checkVideoStatus, waitForVideoCompletion } from './runway';
+import { generateVideoWithWan, checkWanTaskStatus, waitForWanCompletion } from './wan';
+import { generateVideoWithPika, checkPikaStatus, waitForPikaCompletion } from './pika';
+import { generateVideoWithLuma, checkLumaStatus, waitForLumaCompletion } from './luma';
+
+export interface VideoProviderResult {
+  success: boolean;
+  provider?: string;
+  taskId?: string;
+  videoUrl?: string;
+  status?: 'pending' | 'processing' | 'completed' | 'failed';
+  error?: string;
+  imageUrl?: string;
+  fallbackAttempts?: number;
+}
+
+export type VideoProvider = 'runway' | 'wan' | 'pika' | 'luma' | 'kling' | 'hailuo';
+
+interface ProviderConfig {
+  name: VideoProvider;
+  displayName: string;
+  isConfigured: () => boolean;
+  generate: (prompt: string, options: VideoGenerationOptions) => Promise<VideoProviderResult>;
+  checkStatus: (taskId: string) => Promise<VideoProviderResult>;
+  waitForCompletion: (taskId: string, maxWait?: number, interval?: number) => Promise<VideoProviderResult>;
+}
+
+interface VideoGenerationOptions {
+  duration?: number;
+  aspectRatio?: '16:9' | '9:16' | '1:1';
+  imageUrl?: string;
+  style?: string;
+}
+
+const providerConfigs: Record<VideoProvider, ProviderConfig> = {
+  runway: {
+    name: 'runway',
+    displayName: 'Runway Gen-3',
+    isConfigured: () => !!process.env.RUNWAY_API_KEY,
+    generate: async (prompt, options) => {
+      const runwayAspect = options.aspectRatio === '1:1' ? '16:9' : (options.aspectRatio || '16:9');
+      const result = await generateVideoWithRunway(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: runwayAspect as '16:9' | '9:16',
+        imageUrl: options.imageUrl,
+      });
+      return {
+        ...result,
+        provider: 'runway',
+      };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkVideoStatus(taskId);
+      return { ...result, provider: 'runway' };
+    },
+    waitForCompletion: async (taskId, maxWait = 120, interval = 5) => {
+      const result = await waitForVideoCompletion(taskId, maxWait, interval);
+      return { ...result, provider: 'runway' };
+    },
+  },
+  
+  wan: {
+    name: 'wan',
+    displayName: 'Wan 2.5',
+    isConfigured: () => !!process.env.DASHSCOPE_API_KEY,
+    generate: async (prompt, options) => {
+      const result = await generateVideoWithWan(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: options.aspectRatio || '16:9',
+      });
+      return {
+        success: result.success,
+        provider: 'wan',
+        taskId: result.taskId,
+        status: result.status === 'running' ? 'processing' : result.status as any,
+        error: result.error,
+      };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkWanTaskStatus(taskId);
+      return {
+        success: result.success,
+        provider: 'wan',
+        taskId: result.taskId,
+        videoUrl: result.videoUrl,
+        status: result.status === 'succeeded' ? 'completed' : 
+                result.status === 'running' ? 'processing' : result.status as any,
+        error: result.error,
+      };
+    },
+    waitForCompletion: async (taskId, maxWait = 300, interval = 15) => {
+      const result = await waitForWanCompletion(taskId, maxWait, interval);
+      return {
+        success: result.success,
+        provider: 'wan',
+        taskId: result.taskId,
+        videoUrl: result.videoUrl,
+        status: result.status === 'succeeded' ? 'completed' : 
+                result.status === 'running' ? 'processing' : result.status as any,
+        error: result.error,
+      };
+    },
+  },
+  
+  pika: {
+    name: 'pika',
+    displayName: 'Pika Labs',
+    isConfigured: () => !!process.env.PIKA_API_KEY,
+    generate: async (prompt, options) => {
+      const result = await generateVideoWithPika(prompt, {
+        duration: options.duration || 3,
+        aspectRatio: options.aspectRatio || '16:9',
+        imageUrl: options.imageUrl,
+        style: options.style,
+      });
+      return { ...result, provider: 'pika' };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkPikaStatus(taskId);
+      return { ...result, provider: 'pika' };
+    },
+    waitForCompletion: async (taskId, maxWait = 180, interval = 10) => {
+      const result = await waitForPikaCompletion(taskId, maxWait, interval);
+      return { ...result, provider: 'pika' };
+    },
+  },
+  
+  luma: {
+    name: 'luma',
+    displayName: 'Luma Dream Machine',
+    isConfigured: () => !!process.env.LUMA_API_KEY,
+    generate: async (prompt, options) => {
+      const result = await generateVideoWithLuma(prompt, {
+        aspectRatio: options.aspectRatio || '16:9',
+        imageUrl: options.imageUrl,
+      });
+      return { ...result, provider: 'luma' };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkLumaStatus(taskId);
+      return { ...result, provider: 'luma' };
+    },
+    waitForCompletion: async (taskId, maxWait = 300, interval = 10) => {
+      const result = await waitForLumaCompletion(taskId, maxWait, interval);
+      return { ...result, provider: 'luma' };
+    },
+  },
+  
+  kling: {
+    name: 'kling',
+    displayName: 'Kling AI',
+    isConfigured: () => !!process.env.KLING_API_KEY,
+    generate: async () => ({
+      success: false,
+      provider: 'kling',
+      error: 'Kling integration not yet implemented',
+    }),
+    checkStatus: async () => ({
+      success: false,
+      provider: 'kling',
+      error: 'Kling integration not yet implemented',
+    }),
+    waitForCompletion: async () => ({
+      success: false,
+      provider: 'kling',
+      error: 'Kling integration not yet implemented',
+    }),
+  },
+  
+  hailuo: {
+    name: 'hailuo',
+    displayName: 'Hailuo AI',
+    isConfigured: () => !!process.env.HAILUO_API_KEY,
+    generate: async () => ({
+      success: false,
+      provider: 'hailuo',
+      error: 'Hailuo integration not yet implemented',
+    }),
+    checkStatus: async () => ({
+      success: false,
+      provider: 'hailuo',
+      error: 'Hailuo integration not yet implemented',
+    }),
+    waitForCompletion: async () => ({
+      success: false,
+      provider: 'hailuo',
+      error: 'Hailuo integration not yet implemented',
+    }),
+  },
+};
+
+export interface EnabledProvider {
+  name: VideoProvider;
+  priority: number;
+  isEnabled: boolean;
+}
+
+export async function generateVideoWithFallback(
+  prompt: string,
+  enabledProviders: EnabledProvider[],
+  options: VideoGenerationOptions = {}
+): Promise<VideoProviderResult> {
+  const sortedProviders = enabledProviders
+    .filter(p => p.isEnabled)
+    .sort((a, b) => a.priority - b.priority);
+  
+  if (sortedProviders.length === 0) {
+    return {
+      success: false,
+      error: 'No video providers are enabled. Please enable at least one in Settings.',
+    };
+  }
+
+  console.log(`[VideoProvider] Attempting generation with ${sortedProviders.length} providers in order:`, 
+    sortedProviders.map(p => p.name).join(' → '));
+
+  let lastError = '';
+  let attempts = 0;
+
+  for (const enabledProvider of sortedProviders) {
+    const config = providerConfigs[enabledProvider.name];
+    
+    if (!config) {
+      console.log(`[VideoProvider] Unknown provider: ${enabledProvider.name}`);
+      continue;
+    }
+
+    if (!config.isConfigured()) {
+      console.log(`[VideoProvider] ${config.displayName} not configured, trying next...`);
+      continue;
+    }
+
+    attempts++;
+    console.log(`[VideoProvider] Attempting with ${config.displayName}...`);
+
+    try {
+      const result = await config.generate(prompt, options);
+      
+      if (result.success) {
+        console.log(`[VideoProvider] ${config.displayName} started task: ${result.taskId}`);
+        return {
+          ...result,
+          fallbackAttempts: attempts,
+        };
+      }
+
+      console.log(`[VideoProvider] ${config.displayName} failed: ${result.error}`);
+      lastError = result.error || 'Unknown error';
+      
+      if (result.error?.includes('rate limit')) {
+        console.log(`[VideoProvider] Rate limited, trying next provider...`);
+        continue;
+      }
+      
+    } catch (error: any) {
+      console.error(`[VideoProvider] ${config.displayName} error:`, error);
+      lastError = error.message || 'Provider error';
+    }
+  }
+
+  return {
+    success: false,
+    error: `All providers failed. Last error: ${lastError}`,
+    fallbackAttempts: attempts,
+  };
+}
+
+export async function checkVideoStatusWithProvider(
+  taskId: string,
+  provider: VideoProvider
+): Promise<VideoProviderResult> {
+  const config = providerConfigs[provider];
+  
+  if (!config) {
+    return {
+      success: false,
+      error: `Unknown provider: ${provider}`,
+    };
+  }
+
+  return config.checkStatus(taskId);
+}
+
+export async function waitForVideoWithProvider(
+  taskId: string,
+  provider: VideoProvider,
+  maxWaitSeconds: number = 300,
+  pollIntervalSeconds: number = 10
+): Promise<VideoProviderResult> {
+  const config = providerConfigs[provider];
+  
+  if (!config) {
+    return {
+      success: false,
+      error: `Unknown provider: ${provider}`,
+    };
+  }
+
+  return config.waitForCompletion(taskId, maxWaitSeconds, pollIntervalSeconds);
+}
+
+export function getProviderConfig(provider: VideoProvider): ProviderConfig | undefined {
+  return providerConfigs[provider];
+}
+
+export function getAllProviders(): ProviderConfig[] {
+  return Object.values(providerConfigs);
+}
+
+export function getConfiguredProviders(): ProviderConfig[] {
+  return Object.values(providerConfigs).filter(p => p.isConfigured());
+}
+
+export async function testProviderConnection(provider: VideoProvider): Promise<{ 
+  success: boolean; 
+  message: string;
+  status: 'working' | 'error' | 'not_configured';
+}> {
+  const config = providerConfigs[provider];
+  
+  if (!config) {
+    return {
+      success: false,
+      message: `Unknown provider: ${provider}`,
+      status: 'error',
+    };
+  }
+
+  if (!config.isConfigured()) {
+    return {
+      success: false,
+      message: `${config.displayName} API key not configured`,
+      status: 'not_configured',
+    };
+  }
+
+  try {
+    switch (provider) {
+      case 'runway': {
+        const response = await fetch('https://api.dev.runwayml.com/v1/tasks?limit=1', {
+          headers: {
+            'Authorization': `Bearer ${process.env.RUNWAY_API_KEY}`,
+            'X-Runway-Version': '2024-11-06',
+          },
+        });
+        if (response.ok) {
+          return { success: true, message: `${config.displayName} connected`, status: 'working' };
+        }
+        return { success: false, message: `${config.displayName} API error: ${response.status}`, status: 'error' };
+      }
+
+      case 'wan': {
+        return { success: true, message: `${config.displayName} key configured`, status: 'working' };
+      }
+
+      case 'pika': {
+        return { success: true, message: `${config.displayName} key configured`, status: 'working' };
+      }
+
+      case 'luma': {
+        return { success: true, message: `${config.displayName} key configured`, status: 'working' };
+      }
+
+      default:
+        return { success: true, message: `${config.displayName} key configured`, status: 'working' };
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error.message || 'Connection test failed',
+      status: 'error',
+    };
+  }
+}
