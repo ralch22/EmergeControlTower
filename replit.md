@@ -213,6 +213,16 @@ Preferred communication style: Simple, everyday language.
   - Provider configuration check before generation
   - Status polling and completion waiting
 
+**Enhanced Prompt System (server/routes.ts)**
+- `buildEnhancedVideoPrompt()` - Combines visual prompt with narrative context
+  - Includes scene title and position in sequence
+  - Adds voiceover text context ("The narrator is saying: ...")
+  - Produces script-aligned video generation for cohesive storytelling
+- Force regeneration option: `POST /api/video-projects/:projectId/regenerate` with `force: true`
+  - Resets ALL scenes/clips/audio to pending (not just failed ones)
+  - Clears existing URLs to force fresh generation
+  - Useful for testing new prompt enhancements
+
 **Voiceover Fallback System**
 - `elevenlabs.ts` - ElevenLabs TTS with OpenAI fallback
   - Primary: ElevenLabs with voice style mapping (professional, friendly, energetic, calm)
