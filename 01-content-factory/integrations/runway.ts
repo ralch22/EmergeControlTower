@@ -97,19 +97,23 @@ async function generateImageWithGemini(prompt: string): Promise<{ success: boole
   }
 
   try {
+    // Use Gemini 2.0 Flash with image generation capability
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-goog-api-key': apiKey
+        },
         body: JSON.stringify({
-          instances: [{
-            prompt: `High-quality, cinematic image for video: ${prompt}. Visually striking, professional quality, suitable for video animation, 16:9 aspect ratio.`
+          contents: [{
+            parts: [{
+              text: `Generate a high-quality, cinematic image for a video scene: ${prompt}. Make it visually striking, professional quality, suitable for video animation, 16:9 aspect ratio, photorealistic.`
+            }]
           }],
-          parameters: {
-            sampleCount: 1,
-            aspectRatio: "16:9",
-            safetyFilterLevel: "block_only_high"
+          generationConfig: {
+            responseModalities: ["TEXT", "IMAGE"]
           }
         }),
       }
@@ -117,21 +121,30 @@ async function generateImageWithGemini(prompt: string): Promise<{ success: boole
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error("Gemini Imagen error:", response.status, errorText);
+      console.error("Gemini image generation error:", response.status, errorText);
       
       console.log("[Runway] Falling back to contextual sample image for:", prompt.substring(0, 50));
       return { success: true, imageUrl: getContextualFallbackImage(prompt) };
     }
 
     const result = await response.json();
-    const imageData = result.predictions?.[0]?.bytesBase64Encoded;
     
-    if (imageData) {
-      const dataUrl = `data:image/png;base64,${imageData}`;
-      return { success: true, imageUrl: dataUrl };
+    // Look for image data in the response
+    const candidates = result.candidates || [];
+    for (const candidate of candidates) {
+      const parts = candidate.content?.parts || [];
+      for (const part of parts) {
+        if (part.inlineData?.mimeType?.startsWith('image/')) {
+          const imageData = part.inlineData.data;
+          const mimeType = part.inlineData.mimeType;
+          const dataUrl = `data:${mimeType};base64,${imageData}`;
+          console.log("[Runway] Successfully generated image with Gemini 2.0 Flash");
+          return { success: true, imageUrl: dataUrl };
+        }
+      }
     }
     
-    console.log("[Runway] No image from Imagen, using contextual fallback");
+    console.log("[Runway] No image in Gemini response, using contextual fallback");
     return { success: true, imageUrl: getContextualFallbackImage(prompt) };
   } catch (error: any) {
     console.error("Gemini image generation error:", error);
