@@ -7,6 +7,7 @@ import NotFound from "@/pages/not-found";
 import VideoProjects from "@/pages/video-projects";
 import Settings from "@/pages/settings";
 import Dashboard from "@/pages/dashboard";
+import ControlTower from "@/pages/control-tower";
 
 function Router() {
   return (
@@ -15,6 +16,7 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/video-projects" component={VideoProjects} />
       <Route path="/settings" component={Settings} />
+      <Route path="/control-tower" component={ControlTower} />
       <Route component={NotFound} />
     </Switch>
   );
