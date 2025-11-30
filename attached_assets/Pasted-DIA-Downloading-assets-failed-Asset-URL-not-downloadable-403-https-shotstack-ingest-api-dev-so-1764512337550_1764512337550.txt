@@ -1,0 +1,669 @@
+DIA
+Downloading assets failed: Asset URL not downloadable (403): https://shotstack-ingest-api-dev-sources.s3.ap-southeast-2.amazonaws.com/aze2p7k2yc/zzz01j9n-d4ehb-ms7t9-e8n31-5tv3cb/source.mp3
+Thumbnail
+Not set
+Poster
+Not set
+Render ID	a363f9c1-67a2-4d42-829f-2302fd4cdce5
+Status	
+FAILED
+URL	—
+Aspect Ratio	16:9
+Width	1024px
+Height	576px
+Quality	medium
+FPS	25
+Format	MP4
+File Size	0GB
+Render Time	0s
+Created	30 Nov 2025 16:16:45.000 PM
+JSON
+{
+  "merge": [
+    {
+      "replace": "RAMI",
+      "find": "NAME"
+    },
+    {
+      "replace": "Hej",
+      "find": "HELLO_1"
+    },
+    {
+      "replace": "Merhaba",
+      "find": "HELLO_2"
+    },
+    {
+      "replace": "Aloha",
+      "find": "HELLO_3"
+    },
+    {
+      "replace": "Namaste",
+      "find": "HELLO_4"
+    },
+    {
+      "replace": "https://videos.pexels.com/video-files/27153539/12085853_640_360_30fps.mp4",
+      "find": "VIDEO_1"
+    },
+    {
+      "replace": "https://videos.pexels.com/video-files/3015482/3015482-sd_640_360_24fps.mp4",
+      "find": "VIDEO_2"
+    },
+    {
+      "replace": "https://videos.pexels.com/video-files/19197555/19197555-sd_640_360_30fps.mp4",
+      "find": "VIDEO_3"
+    }
+  ],
+  "output": {
+    "format": "mp4",
+    "fps": 25,
+    "size": {
+      "width": 1024,
+      "height": 576
+    }
+  },
+  "timeline": {
+    "background": "#000000",
+    "tracks": [
+      {
+        "clips": [
+          {
+            "fit": "none",
+            "transform": {
+              "rotate": {
+                "angle": [
+                  {
+                    "start": 0,
+                    "length": 0.01,
+                    "from": 0,
+                    "interpolation": "linear",
+                    "to": 0,
+                    "easing": "linear"
+                  },
+                  {
+                    "start": 0.01,
+                    "length": 1.74,
+                    "from": 0,
+                    "interpolation": "linear",
+                    "to": 0
+                  },
+                  {
+                    "start": 1.75,
+                    "length": 0.92,
+                    "from": 0,
+                    "interpolation": "linear",
+                    "to": 0
+                  }
+                ]
+              }
+            },
+            "offset": {
+              "x": [
+                {
+                  "start": 0,
+                  "length": 0.01,
+                  "from": 0,
+                  "interpolation": "linear",
+                  "to": 0,
+                  "easing": "linear"
+                },
+                {
+                  "start": 0.01,
+                  "length": 1.74,
+                  "from": 0,
+                  "interpolation": "linear",
+                  "to": 0
+                },
+                {
+                  "start": 1.75,
+                  "length": 0.92,
+                  "from": 0,
+                  "interpolation": "linear",
+                  "to": 0
+                }
+              ],
+              "y": [
+                {
+                  "start": 0,
+                  "length": 0.01,
+                  "from": 0,
+                  "interpolation": "linear",
+                  "to": 0,
+                  "easing": "linear"
+                },
+                {
+                  "start": 0.01,
+                  "length": 1.74,
+                  "from": 0,
+                  "interpolation": "linear",
+                  "to": 0
+                },
+                {
+                  "start": 1.75,
+                  "length": 0.92,
+                  "from": 0,
+                  "interpolation": "linear",
+                  "to": 0.063
+                }
+              ]
+            },
+            "start": 7.25,
+            "length": 2.69,
+            "scale": [
+              {
+                "start": 0,
+                "length": 0.01,
+                "from": 1,
+                "interpolation": "linear",
+                "to": 1,
+                "easing": "linear"
+              },
+              {
+                "start": 0.01,
+                "length": 1.74,
+                "from": 1,
+                "interpolation": "linear",
+                "to": 1.1
+              },
+              {
+                "start": 1.75,
+                "length": 0.92,
+                "from": 1.1,
+                "interpolation": "bezier",
+                "to": 200,
+                "easing": "easeOutQuad"
+              }
+            ],
+            "position": "center",
+            "asset": {
+              "width": 2000,
+              "text": "RAMI",
+              "type": "text",
+              "alignment": {
+                "horizontal": "center",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#ffffff",
+                "family": "Montserrat ExtraBold",
+                "size": 76
+              },
+              "height": 155
+            },
+            "opacity": [
+              {
+                "start": 0,
+                "length": 0.01,
+                "from": 1,
+                "interpolation": "linear",
+                "to": 1,
+                "easing": "linear"
+              },
+              {
+                "start": 0.01,
+                "length": 1.74,
+                "from": 1,
+                "interpolation": "linear",
+                "to": 1
+              },
+              {
+                "start": 1.75,
+                "length": 0.92,
+                "from": 1,
+                "interpolation": "linear",
+                "to": 1
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "fit": "none",
+            "offset": {
+              "x": 0,
+              "y": 0.171
+            },
+            "start": 6.42,
+            "length": 2.59,
+            "scale": 1,
+            "position": "center",
+            "asset": {
+              "width": 542,
+              "text": "SHOTSTACK",
+              "type": "text",
+              "alignment": {
+                "horizontal": "center",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#25d3d0",
+                "family": "Montserrat ExtraBold",
+                "size": 84
+              },
+              "height": 90
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "fit": "none",
+            "offset": {
+              "x": 0.212,
+              "y": 0.317
+            },
+            "start": 5.81,
+            "length": 3.03,
+            "scale": 1,
+            "position": "center",
+            "asset": {
+              "width": 117,
+              "text": "TO",
+              "type": "text",
+              "alignment": {
+                "horizontal": "right",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#ffffff",
+                "family": "Montserrat ExtraBold",
+                "size": 72
+              },
+              "height": 90
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "fit": "none",
+            "offset": {
+              "x": -0.055,
+              "y": 0.318
+            },
+            "start": 5.3297,
+            "length": 3.15,
+            "scale": 1,
+            "position": "center",
+            "asset": {
+              "width": 427,
+              "text": "WELCOME",
+              "type": "text",
+              "alignment": {
+                "horizontal": "left",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#ffffff",
+                "family": "Montserrat ExtraBold",
+                "size": 72
+              },
+              "height": 90
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "fit": "none",
+            "offset": {
+              "x": 0,
+              "y": -0.324
+            },
+            "start": 1.33,
+            "length": 3.72,
+            "scale": 1,
+            "position": "center",
+            "asset": {
+              "width": 2000,
+              "text": "Namaste",
+              "type": "text",
+              "alignment": {
+                "horizontal": "center",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#ffffff",
+                "family": "Montserrat ExtraBold",
+                "size": 150
+              },
+              "height": 151
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "fit": "none",
+            "offset": {
+              "x": 0,
+              "y": -0.102
+            },
+            "start": 1.11,
+            "length": 4,
+            "scale": 1,
+            "position": "center",
+            "asset": {
+              "width": 2000,
+              "text": "Aloha",
+              "type": "text",
+              "alignment": {
+                "horizontal": "center",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#ffffff",
+                "family": "Montserrat ExtraBold",
+                "size": 150
+              },
+              "height": 151
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "fit": "none",
+            "offset": {
+              "x": 0,
+              "y": 0.124
+            },
+            "start": 0.86,
+            "length": 4.32,
+            "scale": 1,
+            "position": "center",
+            "asset": {
+              "width": 2000,
+              "text": "Merhaba",
+              "type": "text",
+              "alignment": {
+                "horizontal": "center",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#ffffff",
+                "family": "Montserrat ExtraBold",
+                "size": 150
+              },
+              "height": 151
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "fit": "none",
+            "transform": {
+              "rotate": {
+                "angle": [
+                  {
+                    "start": 0,
+                    "length": 0.65,
+                    "from": 0,
+                    "interpolation": "linear",
+                    "to": 0
+                  },
+                  {
+                    "start": 0.65,
+                    "length": 2.17,
+                    "from": 0,
+                    "interpolation": "linear",
+                    "to": 0
+                  }
+                ]
+              }
+            },
+            "offset": {
+              "x": [
+                {
+                  "start": 0,
+                  "length": 0.65,
+                  "from": -0.305,
+                  "interpolation": "linear",
+                  "to": 0
+                },
+                {
+                  "start": 0.65,
+                  "length": 2.17,
+                  "from": 0,
+                  "interpolation": "linear",
+                  "to": 0
+                }
+              ],
+              "y": [
+                {
+                  "start": 0,
+                  "length": 0.65,
+                  "from": 0.392,
+                  "interpolation": "linear",
+                  "to": 0.351
+                },
+                {
+                  "start": 0.65,
+                  "length": 2.17,
+                  "from": 0.351,
+                  "interpolation": "linear",
+                  "to": 0.351
+                }
+              ]
+            },
+            "start": 0,
+            "length": 5.26,
+            "scale": [
+              {
+                "start": 0,
+                "length": 0.65,
+                "from": 100,
+                "interpolation": "bezier",
+                "to": 1,
+                "easing": "easeInOutSine"
+              },
+              {
+                "start": 0.65,
+                "length": 2.17,
+                "from": 1,
+                "interpolation": "linear",
+                "to": 1
+              }
+            ],
+            "position": "center",
+            "asset": {
+              "width": 2000,
+              "text": "Hej",
+              "type": "text",
+              "alignment": {
+                "horizontal": "center",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#ffffff",
+                "family": "Montserrat ExtraBold",
+                "size": 150
+              },
+              "height": 171
+            },
+            "opacity": [
+              {
+                "start": 0,
+                "length": 0.65,
+                "from": 0,
+                "interpolation": "linear",
+                "to": 1
+              },
+              {
+                "start": 0.65,
+                "length": 2.17,
+                "from": 1,
+                "interpolation": "linear",
+                "to": 1
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "fit": "none",
+            "offset": {
+              "x": -0.001,
+              "y": 0.002
+            },
+            "start": 3.1,
+            "length": 0.1,
+            "scale": 1,
+            "position": "center",
+            "asset": {
+              "background": {
+                "color": "#000000"
+              },
+              "width": 2000,
+              "text": "",
+              "type": "text",
+              "alignment": {
+                "horizontal": "center",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#000000",
+                "family": "Montserrat ExtraBold",
+                "size": 72
+              },
+              "height": 582
+            }
+          },
+          {
+            "fit": "none",
+            "offset": {
+              "x": -0.001,
+              "y": 0.002
+            },
+            "start": 3.4,
+            "length": 0.1,
+            "scale": 1,
+            "position": "center",
+            "asset": {
+              "background": {
+                "color": "#000000"
+              },
+              "width": 2000,
+              "text": "",
+              "type": "text",
+              "alignment": {
+                "horizontal": "center",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#000000",
+                "family": "Montserrat ExtraBold",
+                "size": 72
+              },
+              "height": 582
+            }
+          },
+          {
+            "fit": "none",
+            "offset": {
+              "x": -0.001,
+              "y": 0.002
+            },
+            "start": 3.7,
+            "length": 0.2,
+            "scale": 1,
+            "position": "center",
+            "asset": {
+              "background": {
+                "color": "#000000"
+              },
+              "width": 2000,
+              "text": "",
+              "type": "text",
+              "alignment": {
+                "horizontal": "center",
+                "vertical": "center"
+              },
+              "font": {
+                "lineHeight": 1,
+                "color": "#000000",
+                "family": "Montserrat ExtraBold",
+                "size": 72
+              },
+              "height": 582
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "length": 2.65,
+            "asset": {
+              "type": "video",
+              "volume": 1,
+              "src": "https://videos.pexels.com/video-files/19197555/19197555-sd_640_360_30fps.mp4"
+            },
+            "start": 2.62
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "length": 3.51,
+            "asset": {
+              "type": "video",
+              "volume": 1,
+              "src": "https://videos.pexels.com/video-files/3015482/3015482-sd_640_360_24fps.mp4"
+            },
+            "start": 1.76
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "length": 4.44,
+            "start": 0.83,
+            "scale": 1,
+            "asset": {
+              "type": "video",
+              "volume": 1,
+              "src": "https://videos.pexels.com/video-files/27153539/12085853_640_360_30fps.mp4"
+            }
+          }
+        ]
+      },
+      {
+        "clips": [
+          {
+            "length": 11,
+            "asset": {
+              "volume": 1,
+              "type": "audio",
+              "src": "https://shotstack-ingest-api-dev-sources.s3.ap-southeast-2.amazonaws.com/aze2p7k2yc/zzz01j9n-d4ehb-ms7t9-e8n31-5tv3cb/source.mp3",
+              "effect": "fadeOut"
+            },
+            "start": 0
+          }
+        ]
+      }
+    ]
+  }
+}
