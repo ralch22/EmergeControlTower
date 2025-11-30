@@ -82,10 +82,11 @@ export class ContentPipeline {
 
   async run(): Promise<ContentRunResult> {
     this.updateState({ status: "running" });
+    console.log(`[Pipeline] Starting run for client: ${this.state.config.clientBrief.clientName}`);
 
     try {
       // Step 1: Generate Topics
-      console.log(`[Pipeline] Generating ${this.state.config.topicCount} topics...`);
+      console.log(`[Pipeline] Step 1: Generating ${this.state.config.topicCount} topics...`);
       const topicsResult = await generateTopics(
         this.state.config.clientBrief,
         this.state.config.topicCount,
@@ -93,13 +94,16 @@ export class ContentPipeline {
       );
 
       if (!topicsResult.success || !topicsResult.data) {
+        console.error(`[Pipeline] ERROR: Topic generation failed: ${topicsResult.error}`);
         throw new Error(topicsResult.error || "Failed to generate topics");
       }
 
       this.updateState({ topics: topicsResult.data });
-      console.log(`[Pipeline] Generated ${topicsResult.data.length} topics`);
+      console.log(`[Pipeline] Step 1 complete: Generated ${topicsResult.data.length} topics`);
+      topicsResult.data.forEach((t, i) => console.log(`  - Topic ${i+1}: ${t.title}`));
 
       // Step 2: Run parallel content generation pipelines for each topic
+      console.log(`[Pipeline] Step 2: Generating content for ${this.state.topics.length} topics...`);
       const contentPromises: Promise<GeneratedContent[]>[] = [];
 
       for (const topic of this.state.topics) {
@@ -108,6 +112,7 @@ export class ContentPipeline {
 
       const allContents = await Promise.all(contentPromises);
       const flatContents = allContents.flat();
+      console.log(`[Pipeline] Step 2 complete: Generated ${flatContents.length} content pieces`);
 
       this.updateState({
         contents: flatContents,
@@ -118,17 +123,22 @@ export class ContentPipeline {
       });
 
       // Step 3: Run QA on all content
-      console.log(`[Pipeline] Running QA on ${flatContents.length} pieces...`);
+      console.log(`[Pipeline] Step 3: Running QA on ${flatContents.length} pieces...`);
       await this.runQAGate();
+      console.log(`[Pipeline] Step 3 complete: QA finished. Passed: ${this.state.stats.totalPassed}, Failed: ${this.state.stats.totalFailed}`);
 
       // Step 4: Finalize
+      console.log(`[Pipeline] Step 4: Finalizing run...`);
       this.updateState({
         status: "completed",
         completedAt: new Date(),
       });
+      console.log(`[Pipeline] Run completed successfully!`);
 
       return this.getResult();
     } catch (error: any) {
+      console.error(`[Pipeline] FATAL ERROR: ${error.message}`);
+      console.error(error.stack);
       this.updateState({
         status: "failed",
         errors: [...this.state.errors, error.message],
@@ -141,6 +151,7 @@ export class ContentPipeline {
   private async generateContentForTopic(topic: ContentTopic): Promise<GeneratedContent[]> {
     const contents: GeneratedContent[] = [];
     const { contentTypes, clientBrief } = this.state.config;
+    console.log(`[Pipeline] Generating content for topic: "${topic.title}"`);
 
     // Run content generation in parallel based on content types
     const promises: Promise<void>[] = [];
@@ -149,11 +160,19 @@ export class ContentPipeline {
     if (contentTypes.includes("blog") && topic.contentTypes.includes("blog")) {
       promises.push(
         (async () => {
-          const result = await generateBlogPost(topic, clientBrief);
-          if (result.success && result.data) {
-            contents.push(result.data);
-            await this.incrementCounter(1);
-            this.updateStats("blog");
+          try {
+            console.log(`[Pipeline]   -> Generating blog for: ${topic.title}`);
+            const result = await generateBlogPost(topic, clientBrief);
+            if (result.success && result.data) {
+              contents.push(result.data);
+              await this.incrementCounter(1);
+              this.updateStats("blog");
+              console.log(`[Pipeline]   <- Blog generated successfully`);
+            } else {
+              console.error(`[Pipeline]   <- Blog generation failed: ${result.error}`);
+            }
+          } catch (err: any) {
+            console.error(`[Pipeline]   <- Blog generation error: ${err.message}`);
           }
         })()
       );
@@ -169,13 +188,21 @@ export class ContentPipeline {
     if (socialPlatforms.length > 0) {
       promises.push(
         (async () => {
-          const result = await generateAllSocialPosts(topic, clientBrief, socialPlatforms);
-          if (result.success && result.data) {
-            contents.push(...result.data);
-            await this.incrementCounter(result.data.length);
-            for (const content of result.data) {
-              this.updateStats(content.type);
+          try {
+            console.log(`[Pipeline]   -> Generating social posts (${socialPlatforms.join(', ')}) for: ${topic.title}`);
+            const result = await generateAllSocialPosts(topic, clientBrief, socialPlatforms);
+            if (result.success && result.data) {
+              contents.push(...result.data);
+              await this.incrementCounter(result.data.length);
+              for (const content of result.data) {
+                this.updateStats(content.type);
+              }
+              console.log(`[Pipeline]   <- Social posts generated: ${result.data.length} pieces`);
+            } else {
+              console.error(`[Pipeline]   <- Social posts generation failed: ${result.error}`);
             }
+          } catch (err: any) {
+            console.error(`[Pipeline]   <- Social posts generation error: ${err.message}`);
           }
         })()
       );
@@ -188,13 +215,21 @@ export class ContentPipeline {
     ) {
       promises.push(
         (async () => {
-          const result = await generateAllAdCopy(topic, clientBrief);
-          if (result.success && result.data) {
-            contents.push(...result.data);
-            await this.incrementCounter(result.data.length);
-            for (const content of result.data) {
-              this.updateStats(content.type);
+          try {
+            console.log(`[Pipeline]   -> Generating ad copy for: ${topic.title}`);
+            const result = await generateAllAdCopy(topic, clientBrief);
+            if (result.success && result.data) {
+              contents.push(...result.data);
+              await this.incrementCounter(result.data.length);
+              for (const content of result.data) {
+                this.updateStats(content.type);
+              }
+              console.log(`[Pipeline]   <- Ad copy generated: ${result.data.length} pieces`);
+            } else {
+              console.error(`[Pipeline]   <- Ad copy generation failed: ${result.error}`);
             }
+          } catch (err: any) {
+            console.error(`[Pipeline]   <- Ad copy generation error: ${err.message}`);
           }
         })()
       );
@@ -207,17 +242,26 @@ export class ContentPipeline {
     ) {
       promises.push(
         (async () => {
-          const result = await generateVideoScript(topic, clientBrief);
-          if (result.success && result.data) {
-            contents.push(result.data);
-            await this.incrementCounter(1);
-            this.updateStats("video_script");
+          try {
+            console.log(`[Pipeline]   -> Generating video script for: ${topic.title}`);
+            const result = await generateVideoScript(topic, clientBrief);
+            if (result.success && result.data) {
+              contents.push(result.data);
+              await this.incrementCounter(1);
+              this.updateStats("video_script");
+              console.log(`[Pipeline]   <- Video script generated successfully`);
+            } else {
+              console.error(`[Pipeline]   <- Video script generation failed: ${result.error}`);
+            }
+          } catch (err: any) {
+            console.error(`[Pipeline]   <- Video script generation error: ${err.message}`);
           }
         })()
       );
     }
 
     await Promise.all(promises);
+    console.log(`[Pipeline] Topic "${topic.title}" complete: ${contents.length} pieces generated`);
     return contents;
   }
 
