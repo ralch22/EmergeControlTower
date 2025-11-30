@@ -1600,6 +1600,117 @@ export function registerVideoIngredientsRoutes(app: Express) {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // Generate video using Python LangGraph pipeline
+  app.post("/api/video-ingredients/:ingredientId/generate-python", async (req, res) => {
+    try {
+      const { ingredientId } = req.params;
+      
+      // Get the ingredients from database
+      const allIngredients = await storage.getAllVideoIngredients();
+      const ingredients = allIngredients.find(i => i.ingredientId === ingredientId);
+      
+      if (!ingredients) {
+        return res.status(404).json({ error: "Ingredients not found" });
+      }
+
+      // Parse scenes from JSON string
+      let scenes;
+      try {
+        scenes = JSON.parse(ingredients.scenes || "[]");
+      } catch (e) {
+        return res.status(400).json({ error: "Invalid scenes data" });
+      }
+
+      if (!scenes || scenes.length === 0) {
+        return res.status(400).json({ error: "No scenes defined in ingredients" });
+      }
+
+      // Import the Python bridge
+      const { triggerIngredientGeneration } = await import("../01-content-factory/integrations/dashboard-bridge");
+
+      // Build the ingredient bundle for Python API
+      const bundle = {
+        scenes: scenes.map((scene: any, index: number) => ({
+          id: scene.id || `scene_${index}`,
+          prompt: scene.prompt || "",
+          duration: scene.duration || 5,
+          imageUrl: scene.imageUrl || undefined,
+          order: scene.order ?? index,
+        })),
+        voiceoverScript: ingredients.voiceoverScript || "",
+        voiceStyle: ingredients.voiceStyle || "default",
+        aspectRatio: ingredients.aspectRatio || "16:9",
+        resolution: ingredients.resolution || "1080p",
+      };
+
+      // Call the Python API
+      const result = await triggerIngredientGeneration(bundle);
+
+      if (!result.success) {
+        // Update status to failed
+        await storage.updateVideoIngredients(ingredientId, { 
+          status: "failed",
+          errorMessage: result.error,
+        });
+        return res.status(500).json({ error: result.error });
+      }
+
+      // Update ingredients status to processing
+      await storage.updateVideoIngredients(ingredientId, { status: "processing" });
+
+      res.json({
+        success: true,
+        generationId: result.generationId,
+        status: result.status,
+        message: result.message,
+        ingredientId,
+      });
+    } catch (error: any) {
+      console.error("Error generating from ingredients via Python:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get generation status from Python API
+  app.get("/api/video-ingredients/generation/:generationId", async (req, res) => {
+    try {
+      const { generationId } = req.params;
+      
+      // Import the Python bridge
+      const { getGenerationStatus } = await import("../01-content-factory/integrations/dashboard-bridge");
+      
+      const result = await getGenerationStatus(generationId);
+
+      if (!result.success) {
+        return res.status(404).json({ error: result.error });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error getting generation status:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Check Python API health
+  app.get("/api/python-api/health", async (req, res) => {
+    try {
+      const { checkPythonApiHealth, getPythonApiUrl } = await import("../01-content-factory/integrations/dashboard-bridge");
+      
+      const health = await checkPythonApiHealth();
+      
+      res.json({
+        ...health,
+        pythonApiUrl: getPythonApiUrl(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ 
+        healthy: false, 
+        error: error.message 
+      });
+    }
+  });
 }
 
 // Helper to split voiceover script across scenes
@@ -1671,7 +1782,7 @@ async function generateFromIngredients(projectId: string, ingredients: any) {
 
           // Wait for completion
           const providerName = (videoResult.provider || 'veo31') as 'veo31' | 'veo2' | 'runway' | 'pika' | 'luma' | 'kling' | 'hailuo' | 'wan';
-          const completed = await waitForVideoWithProvider(providerName, videoResult.taskId);
+          const completed = await waitForVideoWithProvider(videoResult.taskId, providerName);
           
           if (completed.success && completed.videoUrl) {
             await storage.updateVideoClip(clipId, {

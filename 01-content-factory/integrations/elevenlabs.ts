@@ -1,3 +1,10 @@
+import { 
+  generateVoiceoverWithOpenAI, 
+  generateVoiceoverWithOpenAIUrl, 
+  isOpenAIConfigured,
+  type OpenAIVoice 
+} from './openai-tts';
+
 const ELEVENLABS_BASE_URL = "https://api.elevenlabs.io/v1";
 
 export interface VoiceoverResult {
@@ -8,6 +15,10 @@ export interface VoiceoverResult {
   error?: string;
 }
 
+export interface VoiceoverResultWithProvider extends VoiceoverResult {
+  provider?: 'elevenlabs' | 'openai';
+}
+
 export interface Voice {
   voice_id: string;
   name: string;
@@ -15,20 +26,47 @@ export interface Voice {
   labels?: Record<string, string>;
 }
 
-const DEFAULT_VOICES: Record<string, string> = {
+export type VoiceStyle = 
+  | 'professional_male' 
+  | 'professional_female' 
+  | 'friendly_male' 
+  | 'friendly_female' 
+  | 'energetic' 
+  | 'calm'
+  | 'warm_male'
+  | 'warm_female';
+
+const DEFAULT_VOICES: Record<VoiceStyle, string> = {
   professional_male: "pNInz6obpgDQGcFmaJgB", // Adam
   professional_female: "21m00Tcm4TlvDq8ikWAM", // Rachel
+  friendly_male: "IKne3meq5aSn9XLyUdCD", // Charlie
+  friendly_female: "LcfcDJNUP1GQjkzn1xUU", // Emily
+  energetic: "TxGEqnHWrfWFTfGW9XjX", // Josh
+  calm: "ZQe5CZNOzWyzPSCn5a3c", // James
   warm_male: "VR6AewLTigWG4xSOukaG", // Arnold
   warm_female: "EXAVITQu4vr4xnSDxMaL", // Bella
-  energetic: "ErXwobaYiN019PkySvjV", // Antoni
-  calm: "MF3mGyEYCl7XYWbV9V6O", // Elli
 };
+
+const VOICE_STYLE_TO_OPENAI: Record<VoiceStyle, OpenAIVoice> = {
+  professional_male: 'onyx',
+  professional_female: 'nova',
+  friendly_male: 'alloy',
+  friendly_female: 'shimmer',
+  energetic: 'echo',
+  calm: 'fable',
+  warm_male: 'onyx',
+  warm_female: 'nova',
+};
+
+export function isElevenLabsConfigured(): boolean {
+  return !!process.env.ELEVENLABS_API_KEY;
+}
 
 export async function generateVoiceover(
   text: string,
   options: {
     voiceId?: string;
-    voiceStyle?: keyof typeof DEFAULT_VOICES;
+    voiceStyle?: VoiceStyle;
     stability?: number;
     similarityBoost?: number;
     speed?: number;
@@ -108,7 +146,7 @@ export async function generateVoiceoverWithUrl(
   text: string,
   options: {
     voiceId?: string;
-    voiceStyle?: keyof typeof DEFAULT_VOICES;
+    voiceStyle?: VoiceStyle;
   } = {}
 ): Promise<VoiceoverResult> {
   const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -133,6 +171,110 @@ export async function generateVoiceoverWithUrl(
     success: true,
     audioUrl,
     duration: result.duration,
+  };
+}
+
+export async function generateVoiceoverWithFallback(
+  text: string,
+  options: {
+    voiceId?: string;
+    voiceStyle?: VoiceStyle;
+    stability?: number;
+    similarityBoost?: number;
+    speed?: number;
+    preferredProvider?: 'elevenlabs' | 'openai';
+  } = {}
+): Promise<VoiceoverResultWithProvider> {
+  const { voiceStyle, preferredProvider, speed = 1.0, ...elevenLabsOptions } = options;
+  
+  const elevenlabsConfigured = isElevenLabsConfigured();
+  const openaiConfigured = isOpenAIConfigured();
+
+  if (preferredProvider === 'openai' && openaiConfigured) {
+    console.log("[Voiceover] Using OpenAI TTS as preferred provider");
+    const openaiResult = await generateVoiceoverWithOpenAIUrl(text, {
+      voiceStyle,
+      speed,
+    });
+    
+    if (openaiResult.success) {
+      return {
+        ...openaiResult,
+        provider: 'openai',
+      };
+    }
+    
+    if (elevenlabsConfigured) {
+      console.log("[Voiceover] OpenAI TTS failed, falling back to ElevenLabs");
+      const elevenLabsResult = await generateVoiceoverWithUrl(text, { voiceStyle, ...elevenLabsOptions });
+      return {
+        ...elevenLabsResult,
+        provider: elevenLabsResult.success ? 'elevenlabs' : undefined,
+      };
+    }
+    
+    return {
+      ...openaiResult,
+      provider: undefined,
+    };
+  }
+
+  if (elevenlabsConfigured) {
+    console.log("[Voiceover] Trying ElevenLabs first");
+    const elevenLabsResult = await generateVoiceoverWithUrl(text, { voiceStyle, ...elevenLabsOptions });
+    
+    if (elevenLabsResult.success) {
+      return {
+        ...elevenLabsResult,
+        provider: 'elevenlabs',
+      };
+    }
+
+    console.log("[Voiceover] ElevenLabs failed, attempting OpenAI TTS fallback");
+    
+    if (openaiConfigured) {
+      const openaiResult = await generateVoiceoverWithOpenAIUrl(text, {
+        voiceStyle,
+        speed,
+      });
+      
+      if (openaiResult.success) {
+        return {
+          ...openaiResult,
+          provider: 'openai',
+        };
+      }
+      
+      return {
+        success: false,
+        error: `Both providers failed. ElevenLabs: ${elevenLabsResult.error}. OpenAI: ${openaiResult.error}`,
+        provider: undefined,
+      };
+    }
+    
+    return {
+      ...elevenLabsResult,
+      provider: undefined,
+    };
+  }
+
+  if (openaiConfigured) {
+    console.log("[Voiceover] ElevenLabs not configured, using OpenAI TTS");
+    const openaiResult = await generateVoiceoverWithOpenAIUrl(text, {
+      voiceStyle,
+      speed,
+    });
+    
+    return {
+      ...openaiResult,
+      provider: openaiResult.success ? 'openai' : undefined,
+    };
+  }
+
+  return {
+    success: false,
+    error: "No TTS provider configured. Please add ELEVENLABS_API_KEY or OPENAI_API_KEY to your secrets.",
+    provider: undefined,
   };
 }
 
@@ -173,4 +315,4 @@ export async function estimateAudioDuration(text: string): Promise<number> {
   return Math.ceil(words / 2.5);
 }
 
-export { DEFAULT_VOICES };
+export { DEFAULT_VOICES, VOICE_STYLE_TO_OPENAI };

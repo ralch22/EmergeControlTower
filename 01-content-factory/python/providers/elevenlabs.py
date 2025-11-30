@@ -37,7 +37,7 @@ class ElevenLabsProvider:
                 response = await client.post(
                     f"{self.BASE_URL}/text-to-speech/{voice}",
                     headers={
-                        "xi-api-key": self.api_key,
+                        "xi-api-key": self.api_key or "",
                         "Content-Type": "application/json",
                     },
                     json={
@@ -70,7 +70,7 @@ class ElevenLabsProvider:
             try:
                 response = await client.get(
                     f"{self.BASE_URL}/voices",
-                    headers={"xi-api-key": self.api_key},
+                    headers={"xi-api-key": self.api_key or ""},
                 )
                 
                 if response.status_code == 200:
