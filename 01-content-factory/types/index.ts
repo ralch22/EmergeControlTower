@@ -1,0 +1,75 @@
+export interface ClientBrief {
+  clientId: string;
+  clientName: string;
+  industry: string;
+  brandVoice: string;
+  targetAudience: string;
+  keywords: string[];
+  contentGoals: string[];
+}
+
+export interface ContentTopic {
+  id: string;
+  title: string;
+  angle: string;
+  keywords: string[];
+  contentTypes: ContentType[];
+  priority: 'high' | 'medium' | 'low';
+}
+
+export type ContentType = 'blog' | 'linkedin' | 'twitter' | 'instagram' | 'facebook_ad' | 'google_ad' | 'video_script';
+
+export interface GeneratedContent {
+  id: string;
+  topicId: string;
+  clientId: string;
+  type: ContentType;
+  title: string;
+  content: string;
+  metadata: ContentMetadata;
+  status: 'draft' | 'pending_review' | 'approved' | 'rejected' | 'published';
+  createdAt: Date;
+}
+
+export interface ContentMetadata {
+  wordCount?: number;
+  characterCount?: number;
+  hashtags?: string[];
+  callToAction?: string;
+  mediaUrls?: string[];
+  voiceoverUrl?: string;
+  videoUrl?: string;
+}
+
+export interface ContentRunConfig {
+  clientId: string;
+  clientBrief: ClientBrief;
+  topicCount: number;
+  contentTypes: ContentType[];
+  runType: 'single' | 'daily' | 'weekly';
+}
+
+export interface ContentRunResult {
+  runId: string;
+  clientId: string;
+  startedAt: Date;
+  completedAt?: Date;
+  totalPieces: number;
+  successfulPieces: number;
+  failedPieces: number;
+  contents: GeneratedContent[];
+}
+
+export interface AgentResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  tokenUsage?: number;
+}
+
+export interface QAResult {
+  passed: boolean;
+  score: number;
+  issues: string[];
+  suggestions: string[];
+}

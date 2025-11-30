@@ -78,3 +78,56 @@ export const alerts = pgTable("alerts", {
 export const insertAlertSchema = createInsertSchema(alerts).omit({ id: true, createdAt: true });
 export type InsertAlert = z.infer<typeof insertAlertSchema>;
 export type Alert = typeof alerts.$inferSelect;
+
+// Content Factory - Clients
+export const clients = pgTable("clients", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  industry: text("industry").notNull(),
+  brandVoice: text("brand_voice").notNull(),
+  targetAudience: text("target_audience").notNull(),
+  keywords: text("keywords").notNull(),
+  contentGoals: text("content_goals").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
+export type InsertClient = z.infer<typeof insertClientSchema>;
+export type Client = typeof clients.$inferSelect;
+
+// Content Factory - Runs
+export const contentRuns = pgTable("content_runs", {
+  id: serial("id").primaryKey(),
+  runId: text("run_id").notNull().unique(),
+  clientId: integer("client_id").notNull(),
+  status: text("status").notNull().default("pending"),
+  totalPieces: integer("total_pieces").notNull().default(0),
+  successfulPieces: integer("successful_pieces").notNull().default(0),
+  failedPieces: integer("failed_pieces").notNull().default(0),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertContentRunSchema = createInsertSchema(contentRuns).omit({ id: true, startedAt: true });
+export type InsertContentRun = z.infer<typeof insertContentRunSchema>;
+export type ContentRun = typeof contentRuns.$inferSelect;
+
+// Content Factory - Generated Content
+export const generatedContent = pgTable("generated_content", {
+  id: serial("id").primaryKey(),
+  contentId: text("content_id").notNull().unique(),
+  runId: text("run_id").notNull(),
+  clientId: integer("client_id").notNull(),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  metadata: text("metadata"),
+  status: text("status").notNull().default("draft"),
+  qaScore: integer("qa_score"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertGeneratedContentSchema = createInsertSchema(generatedContent).omit({ id: true, createdAt: true });
+export type InsertGeneratedContent = z.infer<typeof insertGeneratedContentSchema>;
+export type GeneratedContentRecord = typeof generatedContent.$inferSelect;

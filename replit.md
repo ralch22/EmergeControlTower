@@ -114,3 +114,46 @@ Preferred communication style: Simple, everyday language.
 - Tailwind CSS with custom configuration
 - class-variance-authority for component variant management
 - clsx and tailwind-merge for className utilities
+
+### Content Factory System
+
+**AI Content Generation Pipeline (01-content-factory/)**
+- Modular AI agent architecture for content generation
+- LangGraph-style orchestrator for parallel content creation
+- Anthropic Claude integration via Replit AI Integrations
+
+**Agent Types**
+- **Topic Agent**: Generates SEO-optimized content topics from client briefs
+- **Blog Agent**: Creates long-form blog posts with headings and CTAs
+- **Social Agent**: Generates LinkedIn, Twitter, and Instagram posts
+- **Ad Copy Agent**: Creates Facebook and Google ad variations
+- **Video Script Agent**: Generates video scripts with hooks and CTAs
+- **QA Agent**: Reviews content for quality, brand voice, and guidelines
+
+**Orchestrator (01-content-factory/orchestrator/)**
+- ContentPipeline class for managing content generation runs
+- Parallel execution of content generation across topics
+- Progress callbacks for real-time dashboard updates
+- Automatic KPI counter increments as content is generated
+
+**Integrations**
+- Slack notifications for content approval workflows
+- Buffer auto-publishing for approved social content
+
+**API Endpoints**
+- `GET /api/clients` - List content factory clients
+- `POST /api/clients` - Create new client
+- `GET /api/content-runs` - List content generation runs
+- `POST /api/content-factory/run` - Start content generation for a client
+- `POST /api/content-factory/run-week` - Generate a week of content (7 topics, all types)
+
+**Database Tables**
+- `clients` - Client profiles with brand voice, audience, keywords, goals
+- `content_runs` - Tracking for content generation runs
+- `generated_content` - Storage for all generated content pieces
+
+**Frontend Features**
+- Client dropdown in dashboard header
+- "Run Week" button with loading state
+- Real-time AI Output counter updates
+- Generated content appears in approval queue

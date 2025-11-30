@@ -1,8 +1,10 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertApprovalQueueSchema, insertKpiSchema, insertPodSchema, insertPhaseChangeSchema, insertAlertSchema } from "@shared/schema";
+import { insertApprovalQueueSchema, insertKpiSchema, insertPodSchema, insertPhaseChangeSchema, insertAlertSchema, insertClientSchema } from "@shared/schema";
 import { fromError } from "zod-validation-error";
+import { runContentPipeline } from "../01-content-factory/orchestrator";
+import type { ClientBrief, ContentType } from "../01-content-factory/types";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -175,6 +177,214 @@ export async function registerRoutes(
       res.json(alert);
     } catch (error) {
       res.status(500).json({ error: "Failed to resolve alert" });
+    }
+  });
+
+  // ===== CONTENT FACTORY ROUTES =====
+
+  // Get all clients
+  app.get("/api/clients", async (req, res) => {
+    try {
+      const clients = await storage.getClients();
+      res.json(clients);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch clients" });
+    }
+  });
+
+  // Create a client
+  app.post("/api/clients", async (req, res) => {
+    try {
+      const validated = insertClientSchema.parse(req.body);
+      const client = await storage.createClient(validated);
+      res.status(201).json(client);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        res.status(400).json({ error: fromError(error).toString() });
+      } else {
+        res.status(500).json({ error: "Failed to create client" });
+      }
+    }
+  });
+
+  // Get content runs
+  app.get("/api/content-runs", async (req, res) => {
+    try {
+      const runs = await storage.getContentRuns();
+      res.json(runs);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch content runs" });
+    }
+  });
+
+  // Run content factory for a client
+  app.post("/api/content-factory/run", async (req, res) => {
+    try {
+      const { clientId, topicCount = 5, contentTypes = ['blog', 'linkedin', 'twitter'] } = req.body;
+      
+      const client = await storage.getClient(clientId);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+
+      const clientBrief: ClientBrief = {
+        clientId: client.id.toString(),
+        clientName: client.name,
+        industry: client.industry,
+        brandVoice: client.brandVoice,
+        targetAudience: client.targetAudience,
+        keywords: client.keywords.split(',').map(k => k.trim()),
+        contentGoals: client.contentGoals.split(',').map(g => g.trim()),
+      };
+
+      const runId = `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      await storage.createContentRun({
+        runId,
+        clientId: client.id,
+        status: 'running',
+        totalPieces: 0,
+        successfulPieces: 0,
+        failedPieces: 0,
+      });
+
+      res.json({ 
+        message: "Content run started", 
+        runId,
+        status: 'running'
+      });
+
+      runContentPipeline(
+        {
+          clientId: client.id.toString(),
+          clientBrief,
+          topicCount,
+          contentTypes: contentTypes as ContentType[],
+          runType: 'single',
+        },
+        {
+          onContentCreated: async (count) => {
+            await storage.incrementAiOutput(count);
+          },
+          onProgress: async (state) => {
+            await storage.updateContentRun(runId, {
+              status: state.status,
+              totalPieces: state.stats.totalGenerated,
+              successfulPieces: state.stats.totalPassed,
+              failedPieces: state.stats.totalFailed,
+              completedAt: state.completedAt,
+            });
+
+            for (const content of state.contents) {
+              try {
+                await storage.createGeneratedContent({
+                  contentId: content.id,
+                  runId,
+                  clientId: client.id,
+                  type: content.type,
+                  title: content.title,
+                  content: content.content,
+                  metadata: JSON.stringify(content.metadata),
+                  status: content.status,
+                  qaScore: state.qaResults.get(content.id)?.score || null,
+                });
+
+                if (content.status === 'pending_review') {
+                  await storage.createApprovalItem({
+                    client: client.name,
+                    type: content.type,
+                    author: 'Content Factory AI',
+                    thumbnail: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=100&h=100&fit=crop',
+                    status: 'pending',
+                  });
+                }
+              } catch {
+              }
+            }
+          },
+        }
+      ).catch(console.error);
+
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to start content run" });
+    }
+  });
+
+  // Run week for client (generates 7 days of content)
+  app.post("/api/content-factory/run-week", async (req, res) => {
+    try {
+      const { clientId } = req.body;
+      
+      const client = await storage.getClient(clientId);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+
+      const clientBrief: ClientBrief = {
+        clientId: client.id.toString(),
+        clientName: client.name,
+        industry: client.industry,
+        brandVoice: client.brandVoice,
+        targetAudience: client.targetAudience,
+        keywords: client.keywords.split(',').map(k => k.trim()),
+        contentGoals: client.contentGoals.split(',').map(g => g.trim()),
+      };
+
+      const runId = `week_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      await storage.createContentRun({
+        runId,
+        clientId: client.id,
+        status: 'running',
+        totalPieces: 0,
+        successfulPieces: 0,
+        failedPieces: 0,
+      });
+
+      res.json({ 
+        message: "Weekly content run started", 
+        runId,
+        status: 'running',
+        estimatedPieces: 42
+      });
+
+      runContentPipeline(
+        {
+          clientId: client.id.toString(),
+          clientBrief,
+          topicCount: 7,
+          contentTypes: ['blog', 'linkedin', 'twitter', 'instagram', 'facebook_ad', 'video_script'],
+          runType: 'weekly',
+        },
+        {
+          onContentCreated: async (count) => {
+            await storage.incrementAiOutput(count);
+          },
+          onProgress: async (state) => {
+            await storage.updateContentRun(runId, {
+              status: state.status,
+              totalPieces: state.stats.totalGenerated,
+              successfulPieces: state.stats.totalPassed,
+              failedPieces: state.stats.totalFailed,
+              completedAt: state.completedAt,
+            });
+          },
+        }
+      ).catch(console.error);
+
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to start weekly content run" });
+    }
+  });
+
+  // Increment AI output counter
+  app.post("/api/kpis/increment-ai-output", async (req, res) => {
+    try {
+      const { count = 1 } = req.body;
+      const kpi = await storage.incrementAiOutput(count);
+      res.json(kpi);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to increment AI output" });
     }
   });
 

@@ -66,6 +66,30 @@
         </div>
         
         <div class="flex items-center gap-6">
+          <!-- Content Factory Quick Action -->
+          <div class="hidden lg:flex items-center gap-2" x-show="clients.length > 0">
+            <select 
+              x-model="selectedClient" 
+              data-testid="select-client"
+              class="bg-zinc-900 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none"
+            >
+              <option value="">Select Client</option>
+              <template x-for="client in clients" :key="client.id">
+                <option :value="client.id" x-text="client.name"></option>
+              </template>
+            </select>
+            <button 
+              @click="runWeekForClient()"
+              :disabled="!selectedClient || isRunning"
+              data-testid="button-run-week"
+              class="flex items-center gap-2 px-4 py-1.5 bg-gradient-to-r from-purple-600 to-teal-500 rounded-lg text-sm font-medium text-white hover:from-purple-500 hover:to-teal-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <svg x-show="!isRunning" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+              <svg x-show="isRunning" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+              <span x-text="isRunning ? 'Generating...' : 'Run Week'"></span>
+            </button>
+          </div>
+          
           <div class="hidden md:flex flex-col items-end">
             <div class="text-sm font-mono text-teal-400" x-text="time"></div>
             <div class="text-xs text-zinc-500 uppercase tracking-wider">Dubai Standard Time</div>
@@ -278,6 +302,10 @@
           phases: [],
           queue: [],
           alerts: [],
+          clients: [],
+          selectedClient: '',
+          isRunning: false,
+          lastRunId: null,
           
           async initDashboard() {
             this.updateTime();
@@ -297,7 +325,8 @@
                 this.loadPods(),
                 this.loadPhaseChanges(),
                 this.loadApprovals(),
-                this.loadAlerts()
+                this.loadAlerts(),
+                this.loadClients()
               ]);
             } catch (error) {
               console.error('Error loading data:', error);
@@ -423,6 +452,51 @@
              } catch (error) {
                console.error('Error rejecting item:', error);
              }
+          },
+
+          async loadClients() {
+            try {
+              const response = await fetch('/api/clients');
+              const data = await response.json();
+              this.clients = data.map(client => ({
+                id: client.id,
+                name: client.name,
+                industry: client.industry
+              }));
+            } catch (error) {
+              console.error('Error loading clients:', error);
+            }
+          },
+
+          async runWeekForClient() {
+            if (!this.selectedClient || this.isRunning) return;
+            
+            this.isRunning = true;
+            
+            try {
+              const response = await fetch('/api/content-factory/run-week', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId: parseInt(this.selectedClient) })
+              });
+              
+              const data = await response.json();
+              
+              if (response.ok) {
+                this.lastRunId = data.runId;
+                console.log('Content run started:', data.runId);
+              } else {
+                console.error('Failed to start content run:', data.error);
+                alert('Failed to start content generation: ' + data.error);
+              }
+            } catch (error) {
+              console.error('Error starting content run:', error);
+              alert('Failed to start content generation. Please try again.');
+            } finally {
+              setTimeout(() => {
+                this.isRunning = false;
+              }, 5000);
+            }
           }
         }
       }
