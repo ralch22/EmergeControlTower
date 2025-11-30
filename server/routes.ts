@@ -819,32 +819,45 @@ export async function registerRoutes(
   });
 
   // Regenerate failed video project (reset failed scenes and restart with fallback)
+  // Use force=true to regenerate ALL scenes, not just failed ones
   app.post("/api/video-projects/:projectId/regenerate", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const { provider = null } = req.body; // Optional preferred provider (fallback system handles priority)
+      const { provider = null, force = false } = req.body; // force=true to reset ALL scenes
       
       const fullProject = await storage.getFullVideoProject(projectId);
       if (!fullProject) {
         return res.status(404).json({ error: "Project not found" });
       }
 
-      // Reset failed scenes to pending
-      const failedScenes = fullProject.scenes.filter(s => s.status === 'failed');
-      for (const scene of failedScenes) {
+      let scenesToReset, clipsToReset, audioToReset;
+      
+      if (force) {
+        // Force mode: Reset ALL scenes/clips/audio to pending
+        scenesToReset = fullProject.scenes;
+        clipsToReset = fullProject.clips;
+        audioToReset = fullProject.audioTracks;
+        console.log(`[VideoProject] Force regenerating ALL ${scenesToReset.length} scenes`);
+      } else {
+        // Normal mode: Only reset failed items
+        scenesToReset = fullProject.scenes.filter(s => s.status === 'failed');
+        clipsToReset = fullProject.clips.filter(c => c.status === 'failed');
+        audioToReset = fullProject.audioTracks.filter(a => a.status === 'failed');
+      }
+
+      // Reset scenes to pending
+      for (const scene of scenesToReset) {
         await storage.updateVideoScene(scene.sceneId, { status: 'pending' });
       }
 
-      // Reset failed clips
-      const failedClips = fullProject.clips.filter(c => c.status === 'failed');
-      for (const clip of failedClips) {
-        await storage.updateVideoClip(clip.clipId, { status: 'pending', errorMessage: null });
+      // Reset clips
+      for (const clip of clipsToReset) {
+        await storage.updateVideoClip(clip.clipId, { status: 'pending', errorMessage: null, videoUrl: force ? null : clip.videoUrl });
       }
 
-      // Reset failed audio tracks
-      const failedAudio = fullProject.audioTracks.filter(a => a.status === 'failed');
-      for (const audio of failedAudio) {
-        await storage.updateAudioTrack(audio.trackId, { status: 'pending', errorMessage: null });
+      // Reset audio tracks
+      for (const audio of audioToReset) {
+        await storage.updateAudioTrack(audio.trackId, { status: 'pending', errorMessage: null, audioUrl: force ? null : audio.audioUrl });
       }
 
       // Update project status
@@ -855,11 +868,12 @@ export async function registerRoutes(
 
       res.json({ 
         success: true, 
-        message: "Video regeneration started with automatic provider fallback",
+        message: force ? "Full regeneration started (all scenes)" : "Video regeneration started with automatic provider fallback",
         projectId,
-        scenesToRegenerate: failedScenes.length,
-        clipsToRegenerate: failedClips.length,
-        audioToRegenerate: failedAudio.length,
+        scenesToRegenerate: scenesToReset.length,
+        clipsToRegenerate: clipsToReset.length,
+        audioToRegenerate: audioToReset.length,
+        forceMode: force,
       });
     } catch (error: any) {
       console.error('Failed to regenerate video project:', error);
@@ -1203,6 +1217,44 @@ export async function registerRoutes(
   return httpServer;
 }
 
+// Helper function to build enhanced video prompts with voiceover context
+function buildEnhancedVideoPrompt(
+  scene: { 
+    sceneNumber: number; 
+    title: string; 
+    visualPrompt: string; 
+    voiceoverText?: string | null;
+    duration: number;
+  },
+  allScenes: Array<{ sceneNumber: number; title: string; voiceoverText?: string | null }>
+): string {
+  const parts: string[] = [];
+  
+  // Add visual description as the foundation
+  parts.push(scene.visualPrompt);
+  
+  // Add voiceover context - this is critical for alignment
+  if (scene.voiceoverText) {
+    parts.push(`The narrator is saying: "${scene.voiceoverText}"`);
+  }
+  
+  // Add scene context for narrative flow
+  const scenePosition = scene.sceneNumber === 1 ? 'opening' : 
+                        scene.sceneNumber === allScenes.length ? 'closing' : 'middle';
+  parts.push(`This is the ${scenePosition} scene (${scene.sceneNumber} of ${allScenes.length})`);
+  
+  // Add title context if meaningful
+  if (scene.title && scene.title !== `Scene ${scene.sceneNumber}`) {
+    parts.push(`Scene purpose: ${scene.title}`);
+  }
+  
+  // Add production quality cues
+  parts.push('Professional quality, smooth motion, cinematic lighting');
+  
+  // Combine into a coherent prompt
+  return parts.join('. ') + '.';
+}
+
 // Background video generation function with multi-provider fallback
 async function generateVideoProjectAsync(
   projectId: string, 
@@ -1268,6 +1320,10 @@ async function generateVideoProjectAsync(
         if (clipNeedsGeneration) {
           console.log(`[VideoProject] Generating clip for scene ${scene.sceneNumber} using fallback system`);
           
+          // Build enhanced prompt with voiceover context and scene narrative
+          const enhancedPrompt = buildEnhancedVideoPrompt(scene, fullProject.scenes);
+          console.log(`[VideoProject] Enhanced prompt: ${enhancedPrompt.substring(0, 150)}...`);
+          
           // Try each provider in order until one succeeds
           for (const providerConfig of enabledProviders) {
             console.log(`[VideoProject] Trying provider: ${providerConfig.name}`);
@@ -1275,7 +1331,7 @@ async function generateVideoProjectAsync(
             // Use the fallback system to generate video with this specific provider
             const singleProvider = [providerConfig];
             const taskResult = await generateVideoWithFallback(
-              scene.visualPrompt,
+              enhancedPrompt,
               singleProvider,
               {
                 duration: Math.min(scene.duration, 10),
@@ -1412,13 +1468,71 @@ async function generateVideoProjectAsync(
 
     // Check if all scenes are ready
     const updatedProject = await storage.getFullVideoProject(projectId);
-    const allReady = updatedProject?.scenes.every((s: { status: string }) => s.status === 'ready');
+    const allScenesReady = updatedProject?.scenes.every((s: { status: string }) => s.status === 'ready');
+    const allClipsReady = updatedProject?.clips.every((c: { status: string }) => c.status === 'ready');
+    const allAudioReady = updatedProject?.audioTracks.every((a: { status: string }) => a.status === 'ready');
     
-    await storage.updateVideoProject(projectId, {
-      status: allReady ? 'ready' : 'failed',
-    });
-
-    console.log(`[VideoProject] Generation complete for ${projectId}, status: ${allReady ? 'ready' : 'failed'}`);
+    const allReady = allScenesReady && allClipsReady && allAudioReady;
+    
+    if (allReady && updatedProject) {
+      console.log(`[VideoProject] All assets ready, triggering Shotstack assembly for ${projectId}`);
+      await storage.updateVideoProject(projectId, { status: 'assembling' });
+      
+      // Trigger Shotstack assembly
+      try {
+        const { assembleFinalVideo } = await import("../01-content-factory/integrations/shotstack");
+        
+        const assemblyResult = await assembleFinalVideo(
+          updatedProject.project,
+          updatedProject.scenes,
+          updatedProject.clips,
+          updatedProject.audioTracks,
+          {
+            resolution: 'hd',
+            aspectRatio: '16:9',
+            transitions: 'fade',
+            voiceoverVolume: 1.0,
+            backgroundMusicVolume: 0.3,
+          }
+        );
+        
+        if (assemblyResult.success && assemblyResult.videoUrl) {
+          await storage.updateVideoProject(projectId, {
+            status: 'completed',
+            outputUrl: assemblyResult.videoUrl,
+          });
+          console.log(`[VideoProject] Assembly complete for ${projectId}: ${assemblyResult.videoUrl}`);
+        } else if (assemblyResult.renderId) {
+          // Shotstack is processing - poll for completion
+          console.log(`[VideoProject] Shotstack render started: ${assemblyResult.renderId}`);
+          
+          const { waitForRender } = await import("../01-content-factory/integrations/shotstack");
+          const finalResult = await waitForRender(assemblyResult.renderId, 600, 15);
+          
+          if (finalResult.success && finalResult.videoUrl) {
+            await storage.updateVideoProject(projectId, {
+              status: 'completed',
+              outputUrl: finalResult.videoUrl,
+            });
+            console.log(`[VideoProject] Final video ready: ${finalResult.videoUrl}`);
+          } else {
+            throw new Error(finalResult.error || 'Shotstack render failed');
+          }
+        } else {
+          throw new Error(assemblyResult.error || 'Assembly failed');
+        }
+      } catch (assemblyError: any) {
+        console.error(`[VideoProject] Assembly failed for ${projectId}:`, assemblyError);
+        await storage.updateVideoProject(projectId, {
+          status: 'failed',
+        });
+      }
+    } else {
+      await storage.updateVideoProject(projectId, {
+        status: allReady ? 'ready' : 'failed',
+      });
+      console.log(`[VideoProject] Generation complete for ${projectId}, status: ${allReady ? 'ready' : 'failed'}`);
+    }
 
   } catch (error) {
     console.error(`[VideoProject] Generation failed for ${projectId}:`, error);
