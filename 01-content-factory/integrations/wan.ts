@@ -1,4 +1,14 @@
-const DASHSCOPE_BASE_URL = "https://dashscope-intl.aliyuncs.com/api/v1";
+function getApiBaseUrl(): string {
+  const useInternational = process.env.DASHSCOPE_REGION === 'international' || 
+                           process.env.DASHSCOPE_REGION === 'intl' ||
+                           process.env.DASHSCOPE_REGION === 'singapore';
+  
+  if (useInternational) {
+    return 'https://dashscope-intl.aliyuncs.com/api/v1';
+  }
+  
+  return 'https://dashscope.aliyuncs.com/api/v1';
+}
 
 export interface WanVideoResult {
   success: boolean;
@@ -35,7 +45,7 @@ export async function generateVideoWithWan(
 
   try {
     const response = await fetch(
-      `${DASHSCOPE_BASE_URL}/services/aigc/video-generation/video-synthesis`,
+      `${getApiBaseUrl()}/services/aigc/video-generation/video-synthesis`,
       {
         method: 'POST',
         headers: {
@@ -104,7 +114,7 @@ export async function checkWanTaskStatus(taskId: string): Promise<WanVideoResult
 
   try {
     const response = await fetch(
-      `${DASHSCOPE_BASE_URL}/tasks/${taskId}`,
+      `${getApiBaseUrl()}/tasks/${taskId}`,
       {
         method: 'GET',
         headers: {
@@ -210,7 +220,7 @@ export async function generateImageToVideoWithWan(
 
   try {
     const response = await fetch(
-      `${DASHSCOPE_BASE_URL}/services/aigc/video-generation/video-synthesis`,
+      `${getApiBaseUrl()}/services/aigc/video-generation/video-synthesis`,
       {
         method: 'POST',
         headers: {

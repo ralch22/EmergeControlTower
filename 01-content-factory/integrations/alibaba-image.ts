@@ -11,6 +11,19 @@ export interface AlibabaImageOptions {
   size?: '1024*1024' | '720*1280' | '1280*720';
   style?: string;
   negativePrompt?: string;
+  model?: 'wanx2.1-t2i-turbo' | 'wanx2.1-t2i-plus' | 'wan2.5-t2i-preview' | 'wan2.2-t2i-flash';
+}
+
+function getApiBaseUrl(): string {
+  const useInternational = process.env.DASHSCOPE_REGION === 'international' || 
+                           process.env.DASHSCOPE_REGION === 'intl' ||
+                           process.env.DASHSCOPE_REGION === 'singapore';
+  
+  if (useInternational) {
+    return 'https://dashscope-intl.aliyuncs.com/api/v1';
+  }
+  
+  return 'https://dashscope.aliyuncs.com/api/v1';
 }
 
 async function submitImageTask(
@@ -27,42 +40,58 @@ async function submitImageTask(
   }
 
   try {
-    const { size = '1280*720', style = '', negativePrompt = '' } = options;
+    const { 
+      size = '1280*720', 
+      style = '', 
+      negativePrompt = '',
+      model = 'wanx2.1-t2i-turbo'
+    } = options;
     
     const enhancedPrompt = style 
       ? `${prompt}, ${style}, professional quality, cinematic lighting`
       : `${prompt}, professional quality, cinematic lighting, 4K resolution`;
     
+    const baseUrl = getApiBaseUrl();
+    const endpoint = `${baseUrl}/services/aigc/text2image/image-synthesis`;
+    
+    console.log(`[AlibabaImage] Using endpoint: ${endpoint}`);
+    console.log(`[AlibabaImage] Using model: ${model}`);
     console.log(`[AlibabaImage] Submitting image generation task...`);
     console.log(`[AlibabaImage] Prompt: ${enhancedPrompt.substring(0, 100)}...`);
 
-    const response = await fetch(
-      'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis',
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'X-DashScope-Async': 'enable',
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-DashScope-Async': 'enable',
+      },
+      body: JSON.stringify({
+        model: model,
+        input: {
+          prompt: enhancedPrompt,
+          negative_prompt: negativePrompt || 'blurry, low quality, watermark, text overlay',
         },
-        body: JSON.stringify({
-          model: 'wanx-v1',
-          input: {
-            prompt: enhancedPrompt,
-            negative_prompt: negativePrompt || 'blurry, low quality, watermark, text overlay',
-          },
-          parameters: {
-            size: size,
-            n: 1,
-            style: '<auto>',
-          },
-        }),
-      }
-    );
+        parameters: {
+          size: size,
+          n: 1,
+        },
+      }),
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error('[AlibabaImage] API error:', response.status, errorText);
+      
+      if (response.status === 401) {
+        const currentRegion = baseUrl.includes('intl') ? 'international' : 'beijing';
+        const suggestedRegion = currentRegion === 'international' ? 'beijing' : 'international';
+        return {
+          success: false,
+          error: `Invalid API key. Currently using ${currentRegion} endpoint. Try setting DASHSCOPE_REGION=${suggestedRegion} if your API key is from a different region.`,
+        };
+      }
+      
       return {
         success: false,
         error: `Alibaba Image API error: ${response.status} - ${errorText}`,
@@ -104,8 +133,9 @@ async function checkImageTaskStatus(taskId: string): Promise<AlibabaImageResult>
   }
 
   try {
+    const baseUrl = getApiBaseUrl();
     const response = await fetch(
-      `https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`,
+      `${baseUrl}/tasks/${taskId}`,
       {
         method: 'GET',
         headers: {
@@ -146,7 +176,7 @@ async function checkImageTaskStatus(taskId: string): Promise<AlibabaImageResult>
     }
 
     if (taskStatus === 'FAILED') {
-      const errorMessage = result.output?.message || 'Task failed';
+      const errorMessage = result.output?.message || result.message || 'Task failed';
       console.error(`[AlibabaImage] Task ${taskId} failed: ${errorMessage}`);
       return {
         success: false,
@@ -241,6 +271,7 @@ export async function generateSceneImageWithAlibaba(
   return generateImageWithAlibaba(cinematicPrompt, {
     size: sizeMap[aspectRatio],
     style: 'cinematic, professional, high quality video frame',
+    model: 'wanx2.1-t2i-turbo',
   });
 }
 
@@ -252,6 +283,7 @@ export async function testAlibabaImageConnection(): Promise<{
   success: boolean;
   message: string;
   status: 'working' | 'error' | 'not_configured';
+  region?: string;
 }> {
   if (!process.env.DASHSCOPE_API_KEY) {
     return {
@@ -261,53 +293,63 @@ export async function testAlibabaImageConnection(): Promise<{
     };
   }
 
+  const baseUrl = getApiBaseUrl();
+  const region = baseUrl.includes('intl') ? 'international (Singapore)' : 'beijing (China)';
+
   try {
     const response = await fetch(
-      'https://dashscope.aliyuncs.com/api/v1/services/aigc/text2image/image-synthesis',
+      `${baseUrl}/services/aigc/text2image/image-synthesis`,
       {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${process.env.DASHSCOPE_API_KEY}`,
           'Content-Type': 'application/json',
+          'X-DashScope-Async': 'enable',
         },
         body: JSON.stringify({
-          model: 'wanx-v1',
+          model: 'wanx2.1-t2i-turbo',
           input: {
-            prompt: 'test connection',
+            prompt: 'test connection - simple blue sky',
           },
           parameters: {
+            size: '1024*1024',
             n: 1,
           },
         }),
       }
     );
 
-    if (response.ok || response.status === 400) {
+    if (response.ok) {
       return {
         success: true,
-        message: 'Alibaba Image (Wanx) API connected',
+        message: `Alibaba Image (Wanx) API connected - using ${region}`,
         status: 'working',
+        region,
       };
     }
 
     if (response.status === 401) {
       return {
         success: false,
-        message: 'Invalid DASHSCOPE_API_KEY',
+        message: `Invalid DASHSCOPE_API_KEY for ${region}. Try setting DASHSCOPE_REGION=international if your key is from the international console.`,
         status: 'error',
+        region,
       };
     }
 
+    const errorText = await response.text();
     return {
       success: false,
-      message: `API error: ${response.status}`,
+      message: `API error (${region}): ${response.status} - ${errorText}`,
       status: 'error',
+      region,
     };
   } catch (error: any) {
     return {
       success: false,
       message: error.message || 'Connection test failed',
       status: 'error',
+      region,
     };
   }
 }
