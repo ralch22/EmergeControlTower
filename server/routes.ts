@@ -839,10 +839,10 @@ export async function registerRoutes(
         
         return {
           videoUrl: clip?.videoUrl || '',
-          audioUrl: audio?.audioUrl,
+          audioUrl: audio?.audioUrl || undefined,
           duration: scene.duration,
         };
-      }).filter(s => s.videoUrl);
+      }).filter((s): s is { videoUrl: string; audioUrl: string | undefined; duration: number } => !!s.videoUrl);
 
       if (scenes.length === 0) {
         return res.status(400).json({ error: "No video clips available for export" });
@@ -1009,7 +1009,7 @@ async function generateVideoProjectAsync(
 
     // Check if all scenes are ready
     const updatedProject = await storage.getFullVideoProject(projectId);
-    const allReady = updatedProject?.scenes.every(s => s.status === 'ready');
+    const allReady = updatedProject?.scenes.every((s: { status: string }) => s.status === 'ready');
     
     await storage.updateVideoProject(projectId, {
       status: allReady ? 'ready' : 'failed',
