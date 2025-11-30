@@ -1,4 +1,5 @@
 import { generateWithClaude } from "../integrations/anthropic";
+import { generateAdCreativeImage } from "../integrations/gemini-image";
 import type { ClientBrief, ContentTopic, GeneratedContent, ContentType, AgentResponse } from "../types";
 
 const AD_CONFIGS = {
@@ -45,7 +46,7 @@ export async function generateAdCopy(
 
 ${platform === 'facebook_ad' ? `
 **Facebook Ad Requirements:**
-- Primary Text: Max ${config.primaryTextLimit} characters
+- Primary Text: Max ${(config as typeof AD_CONFIGS['facebook_ad']).primaryTextLimit} characters
 - Headline: Max ${config.headlineLimit} characters
 - Description: Max ${config.descriptionLimit} characters
 ` : `
@@ -82,6 +83,24 @@ Format output as JSON:
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     const adData = jsonMatch ? JSON.parse(jsonMatch[0]) : { variations: [] };
 
+    let imageDataUrl: string | undefined;
+    
+    if (process.env.AI_INTEGRATIONS_GEMINI_API_KEY && platform === 'facebook_ad') {
+      try {
+        const imageResult = await generateAdCreativeImage(
+          `${brief.clientName} - ${topic.title}`,
+          platform
+        );
+        
+        if (imageResult.success && imageResult.imageDataUrl) {
+          imageDataUrl = imageResult.imageDataUrl;
+          console.log(`[AdCopyAgent] Image generated for ${platform}`);
+        }
+      } catch (imageError) {
+        console.log(`[AdCopyAgent] Image generation skipped for ${platform}:`, imageError);
+      }
+    }
+
     const generatedContent: GeneratedContent = {
       id: `${platform}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       topicId: topic.id,
@@ -90,7 +109,8 @@ Format output as JSON:
       title: `${topic.title} - Ad Copy`,
       content: JSON.stringify(adData, null, 2),
       metadata: {
-        callToAction: topic.contentGoals[0] || 'Learn More',
+        callToAction: brief.contentGoals?.[0] || 'Learn More',
+        imageDataUrl,
       },
       status: 'draft',
       createdAt: new Date(),

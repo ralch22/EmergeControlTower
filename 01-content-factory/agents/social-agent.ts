@@ -1,4 +1,5 @@
 import { generateWithClaude } from "../integrations/anthropic";
+import { generateSocialMediaImage } from "../integrations/gemini-image";
 import type { ClientBrief, ContentTopic, GeneratedContent, ContentType, AgentResponse } from "../types";
 
 const PLATFORM_CONFIGS = {
@@ -65,6 +66,25 @@ Output ONLY the post content, ready to publish.`;
 
     const hashtagMatch = content.match(/#\w+/g);
     
+    let imageDataUrl: string | undefined;
+    
+    if (process.env.AI_INTEGRATIONS_GEMINI_API_KEY && (platform === 'instagram' || platform === 'linkedin')) {
+      try {
+        const imageResult = await generateSocialMediaImage(
+          topic.title,
+          platform,
+          brief.brandVoice
+        );
+        
+        if (imageResult.success && imageResult.imageDataUrl) {
+          imageDataUrl = imageResult.imageDataUrl;
+          console.log(`[SocialAgent] Image generated for ${platform} post`);
+        }
+      } catch (imageError) {
+        console.log(`[SocialAgent] Image generation skipped for ${platform}:`, imageError);
+      }
+    }
+    
     const generatedContent: GeneratedContent = {
       id: `${platform}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       topicId: topic.id,
@@ -75,6 +95,7 @@ Output ONLY the post content, ready to publish.`;
       metadata: {
         characterCount: content.length,
         hashtags: hashtagMatch || [],
+        imageDataUrl,
       },
       status: 'draft',
       createdAt: new Date(),

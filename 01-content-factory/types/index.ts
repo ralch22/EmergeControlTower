@@ -39,6 +39,8 @@ export interface ContentMetadata {
   mediaUrls?: string[];
   voiceoverUrl?: string;
   videoUrl?: string;
+  videoTaskId?: string;
+  imageDataUrl?: string;
 }
 
 export interface ContentRunConfig {

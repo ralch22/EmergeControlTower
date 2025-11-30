@@ -1,4 +1,5 @@
 import { generateWithClaude } from "../integrations/anthropic";
+import { generateVideoFromText, waitForVideoCompletion } from "../integrations/runway";
 import type { ClientBrief, ContentTopic, GeneratedContent, AgentResponse } from "../types";
 
 const SYSTEM_PROMPT = `You are a video content strategist and scriptwriter. You create engaging video scripts optimized for:
@@ -87,6 +88,40 @@ Output as JSON:
 
     const scriptData: VideoScript = JSON.parse(jsonMatch[0]);
 
+    let videoUrl: string | undefined;
+    let videoTaskId: string | undefined;
+    
+    if (process.env.RUNWAY_API_KEY) {
+      try {
+        const videoPrompt = scriptData.scenes
+          .map(s => s.visualDescription)
+          .slice(0, 2)
+          .join('. ');
+        
+        const videoResult = await generateVideoFromText(
+          videoPrompt,
+          style === 'animated' ? 'animated, motion graphics' : 'cinematic, professional'
+        );
+        
+        if (videoResult.success && videoResult.taskId) {
+          videoTaskId = videoResult.taskId;
+          console.log(`[VideoAgent] Video generation started, task ID: ${videoTaskId}`);
+          
+          const completedVideo = await waitForVideoCompletion(videoTaskId, 120, 10);
+          if (completedVideo.success && completedVideo.videoUrl) {
+            videoUrl = completedVideo.videoUrl;
+            console.log(`[VideoAgent] Video generated: ${videoUrl}`);
+          } else if (completedVideo.status === 'processing') {
+            console.log(`[VideoAgent] Video still processing, task ID saved for later retrieval`);
+          } else {
+            console.log(`[VideoAgent] Video generation failed: ${completedVideo.error}`);
+          }
+        }
+      } catch (videoError) {
+        console.log("[VideoAgent] Video generation skipped:", videoError);
+      }
+    }
+
     const generatedContent: GeneratedContent = {
       id: `video_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       topicId: topic.id,
@@ -96,6 +131,8 @@ Output as JSON:
       content: JSON.stringify(scriptData, null, 2),
       metadata: {
         wordCount: scriptData.voiceoverText?.split(/\s+/).length || 0,
+        videoTaskId,
+        videoUrl,
       },
       status: 'draft',
       createdAt: new Date(),
