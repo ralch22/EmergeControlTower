@@ -69,6 +69,17 @@
           selectedVideoProject: null,
           isGeneratingProject: false,
           isExportingProject: false,
+          videoProjectStats: {
+            total: 0,
+            draft: 0,
+            generating: 0,
+            ready: 0,
+            exported: 0
+          },
+          showVideoProjectModal: false,
+          selectedVideoProject: null,
+          isGeneratingProject: false,
+          isExportingProject: false,
           
           async initDashboard() {
             this.updateTime();
