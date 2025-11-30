@@ -388,5 +388,36 @@ export async function registerRoutes(
     }
   });
 
+  // Get all generated content
+  app.get("/api/content", async (req, res) => {
+    try {
+      const { clientId } = req.query;
+      let content;
+      if (clientId) {
+        content = await storage.getGeneratedContentByClient(Number(clientId));
+      } else {
+        content = await storage.getAllGeneratedContent();
+      }
+      res.json(content);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch content" });
+    }
+  });
+
+  // Update content status (approve/reject)
+  app.patch("/api/content/:contentId/status", async (req, res) => {
+    try {
+      const { contentId } = req.params;
+      const { status } = req.body;
+      if (!['approved', 'rejected', 'draft', 'pending_review'].includes(status)) {
+        return res.status(400).json({ error: "Invalid status" });
+      }
+      const content = await storage.updateGeneratedContentStatus(contentId, status);
+      res.json(content);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update content status" });
+    }
+  });
+
   return httpServer;
 }

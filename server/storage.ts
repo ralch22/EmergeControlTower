@@ -67,6 +67,9 @@ export interface IStorage {
 
   // Generated Content
   getGeneratedContent(runId: string): Promise<GeneratedContentRecord[]>;
+  getGeneratedContentByClient(clientId: number): Promise<GeneratedContentRecord[]>;
+  getAllGeneratedContent(): Promise<GeneratedContentRecord[]>;
+  updateGeneratedContentStatus(contentId: string, status: string): Promise<GeneratedContentRecord>;
   createGeneratedContent(content: InsertGeneratedContent): Promise<GeneratedContentRecord>;
 }
 
@@ -231,6 +234,30 @@ export class DatabaseStorage implements IStorage {
       .from(generatedContent)
       .where(eq(generatedContent.runId, runId))
       .orderBy(desc(generatedContent.createdAt));
+  }
+
+  async getGeneratedContentByClient(clientId: number): Promise<GeneratedContentRecord[]> {
+    return await db
+      .select()
+      .from(generatedContent)
+      .where(eq(generatedContent.clientId, clientId))
+      .orderBy(desc(generatedContent.createdAt));
+  }
+
+  async getAllGeneratedContent(): Promise<GeneratedContentRecord[]> {
+    return await db
+      .select()
+      .from(generatedContent)
+      .orderBy(desc(generatedContent.createdAt));
+  }
+
+  async updateGeneratedContentStatus(contentId: string, status: string): Promise<GeneratedContentRecord> {
+    const [content] = await db
+      .update(generatedContent)
+      .set({ status })
+      .where(eq(generatedContent.contentId, contentId))
+      .returning();
+    return content;
   }
 
   async createGeneratedContent(insertContent: InsertGeneratedContent): Promise<GeneratedContentRecord> {
