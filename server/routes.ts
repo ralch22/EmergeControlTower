@@ -434,7 +434,27 @@ export async function registerRoutes(
       } else {
         content = await storage.getAllGeneratedContent();
       }
-      res.json(content);
+      
+      // Parse metadata and extract media URLs
+      const enrichedContent = content.map(item => {
+        let metadata: any = {};
+        if (item.metadata) {
+          try {
+            metadata = JSON.parse(item.metadata);
+          } catch (e) {
+            // Not valid JSON, keep as-is
+          }
+        }
+        
+        return {
+          ...item,
+          videoUrl: metadata.videoUrl || null,
+          imageDataUrl: metadata.imageDataUrl || metadata.imageUrl || null,
+          videoTaskId: metadata.videoTaskId || null,
+        };
+      });
+      
+      res.json(enrichedContent);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch content" });
     }
