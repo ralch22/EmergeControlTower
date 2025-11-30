@@ -30,6 +30,37 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 
+type VideoProjectApiResponse = {
+  project: {
+    projectId: string;
+    title: string;
+    description?: string;
+    status: string;
+    totalDuration?: number;
+    outputUrl?: string;
+    createdAt: string;
+  };
+  scenes: Array<{
+    sceneId: string;
+    sceneNumber: number;
+    title: string;
+    status: string;
+    duration: number;
+  }>;
+  clips: Array<{
+    clipId: string;
+    sceneId: string;
+    status: string;
+    videoUrl?: string;
+  }>;
+  audioTracks: Array<{
+    trackId: string;
+    sceneId: string;
+    status: string;
+    audioUrl?: string;
+  }>;
+};
+
 type VideoProject = {
   projectId: string;
   title: string;
@@ -131,9 +162,15 @@ export default function VideoProjectsPage() {
     resolution: "1080p",
   });
 
-  const { data: projects = [], isLoading } = useQuery<VideoProject[]>({
+  const { data: projects = [], isLoading } = useQuery<VideoProjectApiResponse[], Error, VideoProject[]>({
     queryKey: ["/api/video-projects"],
     refetchInterval: 5000,
+    select: (data) => data.map(item => ({
+      ...item.project,
+      scenes: item.scenes ?? [],
+      clips: item.clips ?? [],
+      audioTracks: item.audioTracks ?? [],
+    })),
   });
 
   const { data: videoIngredients = [] } = useQuery<VideoIngredient[]>({
