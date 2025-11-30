@@ -578,6 +578,99 @@ export async function registerRoutes(
     }
   });
 
+  // Generate video for existing video script
+  app.post("/api/content/:contentId/generate-video", async (req, res) => {
+    try {
+      const { contentId } = req.params;
+      
+      // Get the content
+      const allContent = await storage.getAllGeneratedContent();
+      const content = allContent.find(c => c.contentId === contentId);
+      
+      if (!content) {
+        return res.status(404).json({ error: "Content not found" });
+      }
+      
+      if (content.type !== 'video_script') {
+        return res.status(400).json({ error: "Content is not a video script" });
+      }
+      
+      // Import Runway functions
+      const { generateVideoFromText, waitForVideoCompletion } = await import("../01-content-factory/integrations/runway");
+      
+      // Parse the script content
+      let scriptData;
+      try {
+        scriptData = JSON.parse(content.content);
+      } catch (e) {
+        return res.status(400).json({ error: "Invalid video script format" });
+      }
+      
+      // Generate video prompt from scenes
+      const videoPrompt = scriptData.scenes
+        ?.map((s: any) => s.visualDescription)
+        .slice(0, 2)
+        .join('. ') || scriptData.voiceoverText?.substring(0, 200) || content.title;
+      
+      console.log(`[API] Starting video generation for ${contentId}`);
+      
+      // Start video generation
+      const videoResult = await generateVideoFromText(videoPrompt, 'cinematic, professional');
+      
+      if (!videoResult.success || !videoResult.taskId) {
+        return res.status(500).json({ error: videoResult.error || "Failed to start video generation" });
+      }
+      
+      console.log(`[API] Video task started: ${videoResult.taskId}`);
+      
+      // Wait for completion (with timeout)
+      const completedVideo = await waitForVideoCompletion(videoResult.taskId, 180, 10);
+      
+      if (completedVideo.success && completedVideo.videoUrl) {
+        // Update the content metadata
+        const existingMetadata = content.metadata ? JSON.parse(content.metadata) : {};
+        const newMetadata = {
+          ...existingMetadata,
+          videoTaskId: videoResult.taskId,
+          videoUrl: completedVideo.videoUrl,
+        };
+        
+        await storage.updateGeneratedContentMetadata(contentId, JSON.stringify(newMetadata));
+        
+        console.log(`[API] Video generated successfully: ${completedVideo.videoUrl}`);
+        res.json({ 
+          success: true, 
+          videoUrl: completedVideo.videoUrl,
+          taskId: videoResult.taskId,
+        });
+      } else if (completedVideo.status === 'processing') {
+        // Still processing - save task ID for later
+        const existingMetadata = content.metadata ? JSON.parse(content.metadata) : {};
+        const newMetadata = {
+          ...existingMetadata,
+          videoTaskId: videoResult.taskId,
+          videoStatus: 'processing',
+        };
+        await storage.updateGeneratedContentMetadata(contentId, JSON.stringify(newMetadata));
+        
+        res.json({ 
+          success: true, 
+          status: 'processing',
+          taskId: videoResult.taskId,
+          message: "Video is still being generated. Check back in a few minutes.",
+        });
+      } else {
+        res.status(500).json({ 
+          error: completedVideo.error || "Video generation failed",
+          taskId: videoResult.taskId,
+        });
+      }
+    } catch (error: any) {
+      console.error('[API] Video generation error:', error);
+      res.status(500).json({ error: error.message || "Failed to generate video" });
+    }
+  });
+
   // Get preview content (last 10 pieces)
   app.get("/api/preview", async (req, res) => {
     try {

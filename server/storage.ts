@@ -260,6 +260,15 @@ export class DatabaseStorage implements IStorage {
     return content;
   }
 
+  async updateGeneratedContentMetadata(contentId: string, metadata: string): Promise<GeneratedContentRecord> {
+    const [content] = await db
+      .update(generatedContent)
+      .set({ metadata })
+      .where(eq(generatedContent.contentId, contentId))
+      .returning();
+    return content;
+  }
+
   async createGeneratedContent(insertContent: InsertGeneratedContent): Promise<GeneratedContentRecord> {
     const [content] = await db.insert(generatedContent).values(insertContent).returning();
     return content;
