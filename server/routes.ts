@@ -881,6 +881,57 @@ export async function registerRoutes(
     }
   });
 
+  // Cancel/Stop video generation for a project
+  app.post("/api/video-projects/:projectId/cancel", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      
+      const fullProject = await storage.getFullVideoProject(projectId);
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      if (fullProject.project.status !== 'generating') {
+        return res.status(400).json({ error: "Project is not currently generating" });
+      }
+
+      // Reset all in-progress scenes back to pending
+      for (const scene of fullProject.scenes) {
+        if (scene.status === 'generating') {
+          await storage.updateVideoScene(scene.sceneId, { status: 'pending' });
+        }
+      }
+
+      // Reset all in-progress clips back to pending
+      for (const clip of fullProject.clips) {
+        if (clip.status === 'generating') {
+          await storage.updateVideoClip(clip.clipId, { status: 'pending', errorMessage: null });
+        }
+      }
+
+      // Reset all in-progress audio back to pending
+      for (const audio of fullProject.audioTracks) {
+        if (audio.status === 'generating') {
+          await storage.updateAudioTrack(audio.trackId, { status: 'pending', errorMessage: null });
+        }
+      }
+
+      // Set project status to 'pending' (stopped)
+      await storage.updateVideoProject(projectId, { status: 'pending' });
+
+      console.log(`[VideoProject] Generation cancelled for project ${projectId}`);
+
+      res.json({ 
+        success: true, 
+        message: "Video generation cancelled",
+        projectId,
+      });
+    } catch (error: any) {
+      console.error('Failed to cancel video generation:', error);
+      res.status(500).json({ error: error.message || "Failed to cancel generation" });
+    }
+  });
+
   // Export video project using Shotstack
   app.post("/api/video-projects/:projectId/export", async (req, res) => {
     try {

@@ -25,7 +25,8 @@ import {
   Settings,
   Sparkles,
   Trash2,
-  Image as ImageIcon
+  Image as ImageIcon,
+  StopCircle
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -279,6 +280,24 @@ export default function VideoProjectsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/video-projects"] });
       toast({ title: "Export started", description: "Video export has been initiated" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async (projectId: string) => {
+      const res = await fetch(`/api/video-projects/${projectId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/video-projects"] });
+      toast({ title: "Cancelled", description: "Video generation has been stopped" });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -875,6 +894,23 @@ export default function VideoProjectsPage() {
                               <Play className="w-4 h-4 mr-2" />
                             )}
                             Generate
+                          </Button>
+                        )}
+
+                        {isGenerating && (
+                          <Button
+                            size="sm"
+                            onClick={() => cancelMutation.mutate(project.projectId)}
+                            disabled={cancelMutation.isPending}
+                            className="flex-1 bg-red-600 hover:bg-red-500"
+                            data-testid={`button-cancel-${project.projectId}`}
+                          >
+                            {cancelMutation.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            ) : (
+                              <StopCircle className="w-4 h-4 mr-2" />
+                            )}
+                            Stop
                           </Button>
                         )}
 
