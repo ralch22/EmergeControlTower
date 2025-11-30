@@ -1358,11 +1358,11 @@ async function generateVideoProjectAsync(
         const existingAudio = latestProject?.audioTracks.find((a: { sceneId: string; status: string; trackId: string }) => a.sceneId === scene.sceneId);
         const audioNeedsGeneration = !existingAudio || existingAudio.status === 'pending' || existingAudio.status === 'failed';
 
-        // Generate audio (ElevenLabs)
+        // Generate audio (ElevenLabs with OpenAI TTS fallback)
         if (scene.voiceoverText && audioNeedsGeneration) {
           try {
             console.log(`[VideoProject] Generating audio for scene ${scene.sceneNumber}`);
-            const { generateVoiceoverWithUrl } = await import("../01-content-factory/integrations/elevenlabs");
+            const { generateVoiceoverWithFallback } = await import("../01-content-factory/integrations/elevenlabs");
             const trackId = existingAudio?.trackId || `audio_${scene.sceneId}_${Date.now()}`;
             
             if (!existingAudio) {
@@ -1379,7 +1379,7 @@ async function generateVideoProjectAsync(
               await storage.updateAudioTrack(trackId, { status: 'generating' });
             }
 
-            const audioResult = await generateVoiceoverWithUrl(scene.voiceoverText, {
+            const audioResult = await generateVoiceoverWithFallback(scene.voiceoverText, {
               voiceStyle: 'professional_male',
             });
 
@@ -1388,8 +1388,9 @@ async function generateVideoProjectAsync(
                 audioUrl: audioResult.audioUrl,
                 duration: audioResult.duration,
                 status: 'ready',
+                provider: audioResult.provider || 'elevenlabs',
               });
-              console.log(`[VideoProject] Scene ${scene.sceneNumber} audio ready`);
+              console.log(`[VideoProject] Scene ${scene.sceneNumber} audio ready (via ${audioResult.provider})`);
             } else {
               await storage.updateAudioTrack(trackId, {
                 status: 'failed',
@@ -1734,7 +1735,7 @@ async function generateFromIngredients(projectId: string, ingredients: any) {
 
     // Import video and audio providers
     const { generateVideoWithFallback, waitForVideoWithProvider } = await import("../01-content-factory/integrations/video-provider");
-    const { generateVoiceoverWithUrl } = await import("../01-content-factory/integrations/elevenlabs");
+    const { generateVoiceoverWithFallback } = await import("../01-content-factory/integrations/elevenlabs");
     
     // Get enabled video providers
     const enabledProviders = await storage.getEnabledProviders('video');
@@ -1799,7 +1800,7 @@ async function generateFromIngredients(projectId: string, ingredients: any) {
           }
         }
 
-        // Generate voiceover if scene has text
+        // Generate voiceover if scene has text (with ElevenLabs/OpenAI TTS fallback)
         if (scene.voiceoverText) {
           const trackId = `audio_${scene.sceneId}_${Date.now()}`;
           await storage.createAudioTrack({
@@ -1813,7 +1814,7 @@ async function generateFromIngredients(projectId: string, ingredients: any) {
             status: 'generating',
           });
 
-          const audioResult = await generateVoiceoverWithUrl(scene.voiceoverText, {
+          const audioResult = await generateVoiceoverWithFallback(scene.voiceoverText, {
             voiceStyle: ingredients.voiceStyle || 'professional_male',
           });
 
@@ -1822,7 +1823,9 @@ async function generateFromIngredients(projectId: string, ingredients: any) {
               audioUrl: audioResult.audioUrl,
               duration: audioResult.duration,
               status: 'ready',
+              provider: audioResult.provider || 'elevenlabs',
             });
+            console.log(`[IngredientsToVideo] Scene ${scene.sceneNumber} audio ready (via ${audioResult.provider})`);
           } else {
             await storage.updateAudioTrack(trackId, {
               status: 'failed',

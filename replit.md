@@ -194,3 +194,63 @@ Preferred communication style: Simple, everyday language.
 - Real-time AI Output counter updates
 - Content Library page with filtering and preview modals
 - Approve/Reject buttons in content cards
+- Video Projects page with scene builder and ingredient mode
+- Dashboard with video project status cards and progress tracking
+
+### Ingredients to Video System
+
+**Video Ingredients Schema (shared/schema.ts)**
+- `videoIngredients`: Bundles containing scenes, voiceover script, music, reference images
+- `videoProjects`: Video projects with status tracking and output URLs
+- `videoScenes`: Individual scenes with prompts, durations, and status
+- `videoClips`: Generated video clips with provider information
+- `audioTracks`: Voiceover and music tracks per scene
+
+**Video Provider Orchestration (01-content-factory/integrations/)**
+- `video-provider.ts` - Multi-provider fallback orchestration
+  - Supports: Veo 3.1, Veo 2.0, Runway, Wan 2.5, Pika Labs, Luma Dream Machine
+  - Priority-based fallback with automatic retry on failure
+  - Provider configuration check before generation
+  - Status polling and completion waiting
+
+**Voiceover Fallback System**
+- `elevenlabs.ts` - ElevenLabs TTS with OpenAI fallback
+  - Primary: ElevenLabs with voice style mapping (professional, friendly, energetic, calm)
+  - Fallback: OpenAI TTS (alloy, echo, fable, onyx, nova, shimmer)
+  - `generateVoiceoverWithFallback()` tries ElevenLabs first, falls back to OpenAI
+- `openai-tts.ts` - OpenAI Text-to-Speech integration
+  - Voice style to OpenAI voice mapping
+  - tts-1 and tts-1-hd model support
+
+**Shotstack Video Assembly (01-content-factory/integrations/shotstack.ts)**
+- Timeline-based video assembly from scenes, clips, and audio
+- Audio layering (voiceover + background music with volume control)
+- Transition support (fade, cut, dissolve, wipe, zoom)
+- Text overlay capabilities
+- Render status polling with completion waiting
+- Mock mode when API key not configured
+
+**API-Python Bridge (01-content-factory/integrations/dashboard-bridge.ts)**
+- `triggerIngredientGeneration()` - Call Python API for ingredient-based generation
+- `getGenerationStatus()` - Check generation progress
+- `checkPythonApiHealth()` - Verify Python API connectivity
+- Configurable via PYTHON_API_URL environment variable (default: http://localhost:8000)
+
+**API Endpoints (Express.js)**
+- `POST /api/video-ingredients` - Create new ingredient bundle
+- `GET /api/video-ingredients/:id` - Get ingredient bundle details
+- `POST /api/video-ingredients/:id/generate` - Start video generation from ingredients
+- `POST /api/video-ingredients/:id/generate-python` - Trigger Python API generation
+- `GET /api/video-ingredients/generation/:id` - Check Python generation status
+- `GET /api/video-projects` - List video projects with scenes/clips
+- `GET /api/video-projects/:id` - Get full project with all assets
+
+**Dashboard Improvements**
+- Approval Queue with status filtering (Pending, Approved, Rejected, All)
+- Badge counts for each status
+- Processed timestamps for approved/rejected items
+- Video Projects section with:
+  - Status badges (generating, completed, failed, draft)
+  - Scene progress bars with completion percentage
+  - Auto-refresh every 5 seconds for generating projects
+  - Quick action buttons (View, Retry)
