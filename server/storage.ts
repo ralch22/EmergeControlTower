@@ -31,6 +31,12 @@ import {
   type InsertControlEntity,
   type ControlEvent,
   type InsertControlEvent,
+  type AgentMetric,
+  type InsertAgentMetric,
+  type HealingAlert,
+  type InsertHealingAlert,
+  type AnomalyModel,
+  type InsertAnomalyModel,
   kpis,
   pods,
   phaseChanges,
@@ -46,10 +52,13 @@ import {
   aiProviders,
   videoIngredients,
   controlEntities,
-  controlEvents
+  controlEvents,
+  agentMetrics,
+  healingAlerts,
+  anomalyModels
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, sql, gte, lte, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // KPIs
@@ -162,6 +171,27 @@ export interface IStorage {
   initializeDefaultControlEntities(): Promise<void>;
   killAllServices(triggeredBy?: string): Promise<void>;
   resetAllServices(triggeredBy?: string): Promise<void>;
+
+  // Agent Metrics
+  recordAgentMetric(metric: InsertAgentMetric): Promise<AgentMetric>;
+  recordAgentMetrics(metrics: InsertAgentMetric[]): Promise<AgentMetric[]>;
+  getAgentMetrics(agentSlug: string, options?: { metricType?: string; startDate?: Date; endDate?: Date; limit?: number }): Promise<AgentMetric[]>;
+  getLatestAgentMetrics(agentSlug: string): Promise<AgentMetric[]>;
+  getMetricsForAnomalyDetection(metricTypes: string[], hours?: number): Promise<AgentMetric[]>;
+
+  // Healing Alerts
+  createHealingAlert(alert: InsertHealingAlert): Promise<HealingAlert>;
+  getHealingAlerts(options?: { status?: string; agentSlug?: string; limit?: number }): Promise<HealingAlert[]>;
+  getActiveHealingAlerts(): Promise<HealingAlert[]>;
+  acknowledgeHealingAlert(id: number, acknowledgedBy: string): Promise<HealingAlert>;
+  resolveHealingAlert(id: number, resolvedBy: string): Promise<HealingAlert>;
+  dismissHealingAlert(id: number, dismissedBy: string): Promise<HealingAlert>;
+
+  // Anomaly Models
+  getAnomalyModels(): Promise<AnomalyModel[]>;
+  getActiveAnomalyModel(metricType: string): Promise<AnomalyModel | undefined>;
+  updateAnomalyModel(id: number, updates: Partial<InsertAnomalyModel>): Promise<AnomalyModel>;
+  createAnomalyModel(model: InsertAnomalyModel): Promise<AnomalyModel>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -814,6 +844,190 @@ export class DatabaseStorage implements IStorage {
       triggeredBy: triggeredBy || 'system',
       reason: 'Reset all services command executed',
     });
+  }
+
+  // Agent Metrics
+  async recordAgentMetric(metric: InsertAgentMetric): Promise<AgentMetric> {
+    const [result] = await db.insert(agentMetrics).values(metric).returning();
+    return result;
+  }
+
+  async recordAgentMetrics(metrics: InsertAgentMetric[]): Promise<AgentMetric[]> {
+    if (metrics.length === 0) return [];
+    const results = await db.insert(agentMetrics).values(metrics).returning();
+    return results;
+  }
+
+  async getAgentMetrics(
+    agentSlug: string, 
+    options?: { metricType?: string; startDate?: Date; endDate?: Date; limit?: number }
+  ): Promise<AgentMetric[]> {
+    const conditions = [eq(agentMetrics.agentSlug, agentSlug)];
+    
+    if (options?.metricType) {
+      conditions.push(eq(agentMetrics.metricType, options.metricType));
+    }
+    if (options?.startDate) {
+      conditions.push(gte(agentMetrics.recordedAt, options.startDate));
+    }
+    if (options?.endDate) {
+      conditions.push(lte(agentMetrics.recordedAt, options.endDate));
+    }
+
+    const query = db
+      .select()
+      .from(agentMetrics)
+      .where(and(...conditions))
+      .orderBy(desc(agentMetrics.recordedAt));
+
+    if (options?.limit) {
+      return await query.limit(options.limit);
+    }
+    return await query;
+  }
+
+  async getLatestAgentMetrics(agentSlug: string): Promise<AgentMetric[]> {
+    const result = await db
+      .select()
+      .from(agentMetrics)
+      .where(eq(agentMetrics.agentSlug, agentSlug))
+      .orderBy(desc(agentMetrics.recordedAt));
+    
+    const latestByType = new Map<string, AgentMetric>();
+    for (const metric of result) {
+      if (!latestByType.has(metric.metricType)) {
+        latestByType.set(metric.metricType, metric);
+      }
+    }
+    return Array.from(latestByType.values());
+  }
+
+  async getMetricsForAnomalyDetection(metricTypes: string[], hours: number = 24): Promise<AgentMetric[]> {
+    const startDate = new Date(Date.now() - hours * 60 * 60 * 1000);
+    
+    return await db
+      .select()
+      .from(agentMetrics)
+      .where(
+        and(
+          inArray(agentMetrics.metricType, metricTypes),
+          gte(agentMetrics.recordedAt, startDate)
+        )
+      )
+      .orderBy(agentMetrics.agentSlug, agentMetrics.metricType, desc(agentMetrics.recordedAt));
+  }
+
+  // Healing Alerts
+  async createHealingAlert(alert: InsertHealingAlert): Promise<HealingAlert> {
+    const [result] = await db.insert(healingAlerts).values(alert).returning();
+    return result;
+  }
+
+  async getHealingAlerts(options?: { status?: string; agentSlug?: string; limit?: number }): Promise<HealingAlert[]> {
+    const conditions: ReturnType<typeof eq>[] = [];
+    
+    if (options?.status) {
+      conditions.push(eq(healingAlerts.status, options.status));
+    }
+    if (options?.agentSlug) {
+      conditions.push(eq(healingAlerts.agentSlug, options.agentSlug));
+    }
+
+    const query = conditions.length > 0 
+      ? db.select().from(healingAlerts).where(and(...conditions)).orderBy(desc(healingAlerts.createdAt))
+      : db.select().from(healingAlerts).orderBy(desc(healingAlerts.createdAt));
+
+    if (options?.limit) {
+      return await query.limit(options.limit);
+    }
+    return await query;
+  }
+
+  async getActiveHealingAlerts(): Promise<HealingAlert[]> {
+    return await db
+      .select()
+      .from(healingAlerts)
+      .where(eq(healingAlerts.status, 'active'))
+      .orderBy(desc(healingAlerts.createdAt));
+  }
+
+  async acknowledgeHealingAlert(id: number, acknowledgedBy: string): Promise<HealingAlert> {
+    const [result] = await db
+      .update(healingAlerts)
+      .set({ 
+        status: 'acknowledged',
+        resolvedBy: acknowledgedBy
+      })
+      .where(eq(healingAlerts.id, id))
+      .returning();
+    return result;
+  }
+
+  async resolveHealingAlert(id: number, resolvedBy: string): Promise<HealingAlert> {
+    const [result] = await db
+      .update(healingAlerts)
+      .set({ 
+        status: 'resolved',
+        resolvedBy,
+        resolvedAt: new Date()
+      })
+      .where(eq(healingAlerts.id, id))
+      .returning();
+    return result;
+  }
+
+  async dismissHealingAlert(id: number, dismissedBy: string): Promise<HealingAlert> {
+    const [result] = await db
+      .update(healingAlerts)
+      .set({ 
+        status: 'dismissed',
+        resolvedBy: dismissedBy,
+        resolvedAt: new Date()
+      })
+      .where(eq(healingAlerts.id, id))
+      .returning();
+    return result;
+  }
+
+  // Anomaly Models
+  async getAnomalyModels(): Promise<AnomalyModel[]> {
+    return await db
+      .select()
+      .from(anomalyModels)
+      .orderBy(anomalyModels.modelName);
+  }
+
+  async getActiveAnomalyModel(metricType: string): Promise<AnomalyModel | undefined> {
+    const results = await db
+      .select()
+      .from(anomalyModels)
+      .where(eq(anomalyModels.isActive, true));
+    
+    for (const model of results) {
+      try {
+        const targetMetrics = JSON.parse(model.targetMetrics) as string[];
+        if (targetMetrics.includes(metricType)) {
+          return model;
+        }
+      } catch {
+        continue;
+      }
+    }
+    return undefined;
+  }
+
+  async updateAnomalyModel(id: number, updates: Partial<InsertAnomalyModel>): Promise<AnomalyModel> {
+    const [result] = await db
+      .update(anomalyModels)
+      .set(updates)
+      .where(eq(anomalyModels.id, id))
+      .returning();
+    return result;
+  }
+
+  async createAnomalyModel(model: InsertAnomalyModel): Promise<AnomalyModel> {
+    const [result] = await db.insert(anomalyModels).values(model).returning();
+    return result;
   }
 }
 

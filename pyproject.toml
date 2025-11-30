@@ -13,7 +13,9 @@ dependencies = [
     "langchain-anthropic>=0.3.22",
     "langchain-google-genai>=2.0.10",
     "langgraph>=1.0.1",
+    "numpy>=2.3.5",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
+    "scikit-learn>=1.7.2",
     "uvicorn>=0.38.0",
 ]

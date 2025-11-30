@@ -4,7 +4,7 @@ hidden = [".config", ".git", "generated-icon.png", "node_modules", "dist"]
 
 [nix]
 channel = "stable-24_05"
-packages = ["libxcrypt", "jq", "openjdk"]
+packages = ["glibcLocales", "jq", "libxcrypt", "openjdk"]
 
 [deployment]
 deploymentTarget = "autoscale"
@@ -14,10 +14,6 @@ run = ["npm", "run", "start"]
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 38549
-externalPort = 3003
 
 [[ports]]
 localPort = 41063

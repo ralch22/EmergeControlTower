@@ -343,3 +343,62 @@ export const controlEvents = pgTable("control_events", {
 export const insertControlEventSchema = createInsertSchema(controlEvents).omit({ id: true, createdAt: true });
 export type InsertControlEvent = z.infer<typeof insertControlEventSchema>;
 export type ControlEvent = typeof controlEvents.$inferSelect;
+
+// Agent Metrics - Performance Tracking for ML Anomaly Detection
+export const agentMetrics = pgTable("agent_metrics", {
+  id: serial("id").primaryKey(),
+  agentSlug: text("agent_slug").notNull(), // Reference to control entity
+  metricType: text("metric_type").notNull(), // qa_score, api_failure_rate, response_time, cost, throughput
+  value: decimal("value", { precision: 12, scale: 4 }).notNull(),
+  unit: text("unit"), // seconds, dollars, percent, count
+  context: text("context"), // JSON with additional context (clientId, runId, etc.)
+  recordedAt: timestamp("recorded_at").defaultNow().notNull(),
+});
+
+export const insertAgentMetricSchema = createInsertSchema(agentMetrics).omit({ id: true, recordedAt: true });
+export type InsertAgentMetric = z.infer<typeof insertAgentMetricSchema>;
+export type AgentMetric = typeof agentMetrics.$inferSelect;
+
+// Healing Alerts - ML-Detected Anomalies with Suggested Actions
+export const healingAlerts = pgTable("healing_alerts", {
+  id: serial("id").primaryKey(),
+  agentSlug: text("agent_slug").notNull(),
+  alertType: text("alert_type").notNull(), // anomaly, threshold_breach, trend_decline, prediction
+  severity: text("severity").notNull().default("warning"), // info, warning, critical
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  metricType: text("metric_type"), // Which metric triggered this
+  currentValue: decimal("current_value", { precision: 12, scale: 4 }),
+  expectedValue: decimal("expected_value", { precision: 12, scale: 4 }),
+  anomalyScore: decimal("anomaly_score", { precision: 6, scale: 4 }), // ML confidence score
+  suggestedAction: text("suggested_action").notNull(), // retrain, restart, investigate, scale_down, scale_up
+  actionDetails: text("action_details"), // JSON with specific action parameters
+  status: text("status").notNull().default("active"), // active, acknowledged, resolved, dismissed
+  resolvedBy: text("resolved_by"),
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertHealingAlertSchema = createInsertSchema(healingAlerts).omit({ id: true, createdAt: true, resolvedAt: true });
+export type InsertHealingAlert = z.infer<typeof insertHealingAlertSchema>;
+export type HealingAlert = typeof healingAlerts.$inferSelect;
+
+// Anomaly Detection Models - Track ML model performance
+export const anomalyModels = pgTable("anomaly_models", {
+  id: serial("id").primaryKey(),
+  modelName: text("model_name").notNull().unique(),
+  modelType: text("model_type").notNull(), // isolation_forest, autoencoder, lstm
+  targetMetrics: text("target_metrics").notNull(), // JSON array of metric types this model handles
+  hyperparameters: text("hyperparameters"), // JSON model parameters
+  trainingDataStart: timestamp("training_data_start"),
+  trainingDataEnd: timestamp("training_data_end"),
+  trainingSamples: integer("training_samples").default(0),
+  accuracy: decimal("accuracy", { precision: 5, scale: 4 }),
+  lastTrainedAt: timestamp("last_trained_at"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAnomalyModelSchema = createInsertSchema(anomalyModels).omit({ id: true, createdAt: true });
+export type InsertAnomalyModel = z.infer<typeof insertAnomalyModelSchema>;
+export type AnomalyModel = typeof anomalyModels.$inferSelect;

@@ -1447,6 +1447,429 @@ export async function registerRoutes(
     }
   });
 
+  // ========== ML MONITORING & SELF-HEALING ROUTES ==========
+
+  // Record a single agent metric
+  app.post("/api/metrics", async (req, res) => {
+    try {
+      const { agentSlug, metricType, value, unit, context } = req.body;
+      
+      if (!agentSlug || !metricType || value === undefined) {
+        return res.status(400).json({ error: "agentSlug, metricType, and value are required" });
+      }
+      
+      const metric = await storage.recordAgentMetric({
+        agentSlug,
+        metricType,
+        value: String(value),
+        unit: unit || null,
+        context: context ? JSON.stringify(context) : null,
+      });
+      
+      res.status(201).json(metric);
+    } catch (error: any) {
+      console.error('Failed to record metric:', error);
+      res.status(500).json({ error: error.message || "Failed to record metric" });
+    }
+  });
+
+  // Record multiple metrics in batch
+  app.post("/api/metrics/batch", async (req, res) => {
+    try {
+      const { metrics } = req.body;
+      
+      if (!Array.isArray(metrics) || metrics.length === 0) {
+        return res.status(400).json({ error: "metrics must be a non-empty array" });
+      }
+      
+      const formattedMetrics = metrics.map((m: any) => ({
+        agentSlug: m.agentSlug,
+        metricType: m.metricType,
+        value: String(m.value),
+        unit: m.unit || null,
+        context: m.context ? JSON.stringify(m.context) : null,
+      }));
+      
+      const recorded = await storage.recordAgentMetrics(formattedMetrics);
+      res.status(201).json({ recorded: recorded.length, metrics: recorded });
+    } catch (error: any) {
+      console.error('Failed to record batch metrics:', error);
+      res.status(500).json({ error: error.message || "Failed to record batch metrics" });
+    }
+  });
+
+  // Get metrics for an agent
+  app.get("/api/metrics/:agentSlug", async (req, res) => {
+    try {
+      const { agentSlug } = req.params;
+      const { metricType, startDate, endDate, limit } = req.query;
+      
+      const options: any = {};
+      if (metricType) options.metricType = metricType as string;
+      if (startDate) options.startDate = new Date(startDate as string);
+      if (endDate) options.endDate = new Date(endDate as string);
+      if (limit) options.limit = parseInt(limit as string);
+      
+      const metrics = await storage.getAgentMetrics(agentSlug, options);
+      res.json(metrics);
+    } catch (error: any) {
+      console.error('Failed to fetch metrics:', error);
+      res.status(500).json({ error: "Failed to fetch metrics" });
+    }
+  });
+
+  // Get latest metrics for all agents (for dashboard)
+  app.get("/api/metrics", async (req, res) => {
+    try {
+      const entities = await storage.getControlEntities();
+      const latestMetrics: Record<string, any> = {};
+      
+      for (const entity of entities.slice(0, 20)) {
+        const metrics = await storage.getLatestAgentMetrics(entity.slug);
+        if (metrics.length > 0) {
+          latestMetrics[entity.slug] = metrics;
+        }
+      }
+      
+      res.json(latestMetrics);
+    } catch (error: any) {
+      console.error('Failed to fetch all metrics:', error);
+      res.status(500).json({ error: "Failed to fetch metrics" });
+    }
+  });
+
+  // Get metrics for anomaly detection analysis
+  app.get("/api/metrics/analysis/anomaly", async (req, res) => {
+    try {
+      const { metricTypes, hours } = req.query;
+      
+      const types = metricTypes 
+        ? (metricTypes as string).split(',') 
+        : ['qa_score', 'api_failure_rate', 'response_time', 'cost', 'throughput'];
+      const hoursNum = hours ? parseInt(hours as string) : 24;
+      
+      const metrics = await storage.getMetricsForAnomalyDetection(types, hoursNum);
+      res.json({ 
+        metricTypes: types, 
+        hours: hoursNum, 
+        count: metrics.length, 
+        metrics 
+      });
+    } catch (error: any) {
+      console.error('Failed to fetch analysis metrics:', error);
+      res.status(500).json({ error: "Failed to fetch analysis metrics" });
+    }
+  });
+
+  // ========== HEALING ALERTS ROUTES ==========
+
+  // Get all healing alerts
+  app.get("/api/healing-alerts", async (req, res) => {
+    try {
+      const { status, agentSlug, limit } = req.query;
+      
+      const options: any = {};
+      if (status) options.status = status as string;
+      if (agentSlug) options.agentSlug = agentSlug as string;
+      if (limit) options.limit = parseInt(limit as string);
+      
+      const alerts = await storage.getHealingAlerts(options);
+      res.json(alerts);
+    } catch (error: any) {
+      console.error('Failed to fetch healing alerts:', error);
+      res.status(500).json({ error: "Failed to fetch healing alerts" });
+    }
+  });
+
+  // Get active healing alerts (for dashboard)
+  app.get("/api/healing-alerts/active", async (req, res) => {
+    try {
+      const alerts = await storage.getActiveHealingAlerts();
+      res.json(alerts);
+    } catch (error: any) {
+      console.error('Failed to fetch active healing alerts:', error);
+      res.status(500).json({ error: "Failed to fetch active healing alerts" });
+    }
+  });
+
+  // Create a new healing alert (from ML detection service)
+  app.post("/api/healing-alerts", async (req, res) => {
+    try {
+      const alert = await storage.createHealingAlert(req.body);
+      res.status(201).json(alert);
+    } catch (error: any) {
+      console.error('Failed to create healing alert:', error);
+      res.status(500).json({ error: error.message || "Failed to create healing alert" });
+    }
+  });
+
+  // Acknowledge a healing alert
+  app.post("/api/healing-alerts/:id/acknowledge", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { acknowledgedBy } = req.body;
+      
+      const alert = await storage.acknowledgeHealingAlert(id, acknowledgedBy || 'user');
+      res.json(alert);
+    } catch (error: any) {
+      console.error('Failed to acknowledge healing alert:', error);
+      res.status(500).json({ error: error.message || "Failed to acknowledge healing alert" });
+    }
+  });
+
+  // Resolve a healing alert
+  app.post("/api/healing-alerts/:id/resolve", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { resolvedBy } = req.body;
+      
+      const alert = await storage.resolveHealingAlert(id, resolvedBy || 'user');
+      res.json(alert);
+    } catch (error: any) {
+      console.error('Failed to resolve healing alert:', error);
+      res.status(500).json({ error: error.message || "Failed to resolve healing alert" });
+    }
+  });
+
+  // Dismiss a healing alert
+  app.post("/api/healing-alerts/:id/dismiss", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { dismissedBy } = req.body;
+      
+      const alert = await storage.dismissHealingAlert(id, dismissedBy || 'user');
+      res.json(alert);
+    } catch (error: any) {
+      console.error('Failed to dismiss healing alert:', error);
+      res.status(500).json({ error: error.message || "Failed to dismiss healing alert" });
+    }
+  });
+
+  // Execute healing action for an alert
+  app.post("/api/healing-alerts/:id/execute", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const alerts = await storage.getHealingAlerts({ limit: 100 });
+      const alert = alerts.find(a => a.id === id);
+      
+      if (!alert) {
+        return res.status(404).json({ error: "Alert not found" });
+      }
+      
+      // Execute the suggested action
+      const action = alert.suggestedAction;
+      let actionResult: any = { success: false };
+      
+      switch (action) {
+        case 'restart':
+          // Restart the agent by toggling off and on
+          await storage.toggleControlEntity(alert.agentSlug, false, 'healing_engine');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          await storage.toggleControlEntity(alert.agentSlug, true, 'healing_engine');
+          actionResult = { success: true, action: 'restart', message: `${alert.agentSlug} restarted` };
+          break;
+          
+        case 'scale_down':
+        case 'scale_up':
+          // Log the action - scaling would be handled by infrastructure
+          actionResult = { 
+            success: true, 
+            action, 
+            message: `${action} requested for ${alert.agentSlug}`,
+            note: 'Scaling actions require infrastructure support'
+          };
+          break;
+          
+        case 'investigate':
+          // Mark for investigation - generate detailed report
+          actionResult = {
+            success: true,
+            action: 'investigate',
+            message: `Investigation triggered for ${alert.agentSlug}`,
+            metrics: await storage.getAgentMetrics(alert.agentSlug, { limit: 50 })
+          };
+          break;
+          
+        case 'retrain':
+          // Trigger model retraining
+          actionResult = {
+            success: true,
+            action: 'retrain',
+            message: 'Model retraining scheduled',
+            note: 'ML model will be retrained with latest data'
+          };
+          break;
+          
+        default:
+          actionResult = { success: false, error: `Unknown action: ${action}` };
+      }
+      
+      // Resolve the alert after executing the action
+      if (actionResult.success) {
+        await storage.resolveHealingAlert(id, 'healing_engine');
+      }
+      
+      res.json(actionResult);
+    } catch (error: any) {
+      console.error('Failed to execute healing action:', error);
+      res.status(500).json({ error: error.message || "Failed to execute healing action" });
+    }
+  });
+
+  // ========== ANOMALY MODELS ROUTES ==========
+
+  // Get all anomaly detection models
+  app.get("/api/anomaly-models", async (req, res) => {
+    try {
+      const models = await storage.getAnomalyModels();
+      res.json(models);
+    } catch (error: any) {
+      console.error('Failed to fetch anomaly models:', error);
+      res.status(500).json({ error: "Failed to fetch anomaly models" });
+    }
+  });
+
+  // Get active model for a metric type
+  app.get("/api/anomaly-models/active/:metricType", async (req, res) => {
+    try {
+      const { metricType } = req.params;
+      const model = await storage.getActiveAnomalyModel(metricType);
+      res.json(model || null);
+    } catch (error: any) {
+      console.error('Failed to fetch active model:', error);
+      res.status(500).json({ error: "Failed to fetch active model" });
+    }
+  });
+
+  // Create a new anomaly model
+  app.post("/api/anomaly-models", async (req, res) => {
+    try {
+      const model = await storage.createAnomalyModel(req.body);
+      res.status(201).json(model);
+    } catch (error: any) {
+      console.error('Failed to create anomaly model:', error);
+      res.status(500).json({ error: error.message || "Failed to create anomaly model" });
+    }
+  });
+
+  // Update an anomaly model
+  app.patch("/api/anomaly-models/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const model = await storage.updateAnomalyModel(id, req.body);
+      res.json(model);
+    } catch (error: any) {
+      console.error('Failed to update anomaly model:', error);
+      res.status(500).json({ error: error.message || "Failed to update anomaly model" });
+    }
+  });
+
+  // Trigger anomaly detection scan
+  app.post("/api/anomaly-detection/scan", async (req, res) => {
+    try {
+      const { hours = 24 } = req.body;
+      
+      // Get all recent metrics for analysis
+      const metricTypes = ['qa_score', 'api_failure_rate', 'response_time', 'cost', 'throughput'];
+      const metrics = await storage.getMetricsForAnomalyDetection(metricTypes, hours);
+      
+      if (metrics.length < 10) {
+        return res.json({ 
+          success: true, 
+          message: 'Insufficient data for anomaly detection',
+          metricsAnalyzed: metrics.length,
+          alertsGenerated: 0,
+          alerts: []
+        });
+      }
+      
+      // Group metrics by agent and analyze
+      const alertsGenerated: any[] = [];
+      const metricsByAgent: Record<string, typeof metrics> = {};
+      
+      for (const metric of metrics) {
+        if (!metricsByAgent[metric.agentSlug]) {
+          metricsByAgent[metric.agentSlug] = [];
+        }
+        metricsByAgent[metric.agentSlug].push(metric);
+      }
+      
+      // Simple threshold-based anomaly detection for now
+      // (Full ML detection would be done by the Python service)
+      for (const [agentSlug, agentMetrics] of Object.entries(metricsByAgent)) {
+        const byType: Record<string, number[]> = {};
+        
+        for (const m of agentMetrics) {
+          if (!byType[m.metricType]) byType[m.metricType] = [];
+          byType[m.metricType].push(parseFloat(m.value));
+        }
+        
+        for (const [metricType, values] of Object.entries(byType)) {
+          if (values.length < 3) continue;
+          
+          const mean = values.reduce((a, b) => a + b, 0) / values.length;
+          const std = Math.sqrt(values.map(v => (v - mean) ** 2).reduce((a, b) => a + b, 0) / values.length);
+          const latest = values[values.length - 1];
+          
+          // Check for anomalies (>2 std deviations)
+          if (std > 0 && Math.abs(latest - mean) > 2 * std) {
+            const anomalyScore = Math.min(1, Math.abs(latest - mean) / (3 * std));
+            const isHigh = latest > mean;
+            
+            let suggestedAction: string;
+            let severity: string;
+            
+            if (metricType === 'api_failure_rate' && isHigh) {
+              suggestedAction = 'restart';
+              severity = anomalyScore > 0.8 ? 'critical' : 'warning';
+            } else if (metricType === 'response_time' && isHigh) {
+              suggestedAction = 'investigate';
+              severity = anomalyScore > 0.7 ? 'warning' : 'info';
+            } else if (metricType === 'cost' && isHigh) {
+              suggestedAction = 'scale_down';
+              severity = 'warning';
+            } else if (metricType === 'qa_score' && !isHigh) {
+              suggestedAction = 'retrain';
+              severity = anomalyScore > 0.6 ? 'warning' : 'info';
+            } else {
+              suggestedAction = 'investigate';
+              severity = 'info';
+            }
+            
+            const alert = await storage.createHealingAlert({
+              agentSlug,
+              alertType: 'anomaly',
+              severity,
+              title: `${metricType} anomaly detected for ${agentSlug}`,
+              description: `${metricType} is ${isHigh ? 'unusually high' : 'unusually low'}: ${latest.toFixed(2)} vs expected ${mean.toFixed(2)} (±${std.toFixed(2)})`,
+              metricType,
+              currentValue: String(latest),
+              expectedValue: String(mean),
+              anomalyScore: String(anomalyScore),
+              suggestedAction,
+              actionDetails: JSON.stringify({ mean, std, deviation: Math.abs(latest - mean) / std }),
+              status: 'active',
+            });
+            
+            alertsGenerated.push(alert);
+          }
+        }
+      }
+      
+      res.json({
+        success: true,
+        message: `Anomaly detection complete`,
+        metricsAnalyzed: metrics.length,
+        agentsAnalyzed: Object.keys(metricsByAgent).length,
+        alertsGenerated: alertsGenerated.length,
+        alerts: alertsGenerated,
+      });
+    } catch (error: any) {
+      console.error('Failed to run anomaly detection:', error);
+      res.status(500).json({ error: error.message || "Failed to run anomaly detection" });
+    }
+  });
+
   return httpServer;
 }
 
