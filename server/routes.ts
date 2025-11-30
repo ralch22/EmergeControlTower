@@ -275,30 +275,34 @@ export async function registerRoutes(
               completedAt: state.completedAt,
             });
 
-            for (const content of state.contents) {
-              try {
-                await storage.createGeneratedContent({
-                  contentId: content.id,
-                  runId,
-                  clientId: client.id,
-                  type: content.type,
-                  title: content.title,
-                  content: content.content,
-                  metadata: JSON.stringify(content.metadata),
-                  status: content.status,
-                  qaScore: state.qaResults.get(content.id)?.score || null,
-                });
-
-                if (content.status === 'pending_review') {
-                  await storage.createApprovalItem({
-                    client: client.name,
+            // Only save content when run is completed
+            if (state.status === 'completed') {
+              for (const content of state.contents) {
+                try {
+                  await storage.createGeneratedContent({
+                    contentId: content.id,
+                    runId,
+                    clientId: client.id,
                     type: content.type,
-                    author: 'Content Factory AI',
-                    thumbnail: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=100&h=100&fit=crop',
-                    status: 'pending',
+                    title: content.title,
+                    content: content.content,
+                    metadata: JSON.stringify(content.metadata),
+                    status: content.status,
+                    qaScore: state.qaResults.get(content.id)?.score || null,
                   });
+
+                  if (content.status === 'pending_review') {
+                    await storage.createApprovalItem({
+                      client: client.name,
+                      type: content.type,
+                      author: 'Content Factory AI',
+                      thumbnail: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=100&h=100&fit=crop',
+                      status: 'pending',
+                    });
+                  }
+                } catch {
+                  // Content may already exist, skip duplicates
                 }
-              } catch {
               }
             }
           },
@@ -368,6 +372,38 @@ export async function registerRoutes(
               failedPieces: state.stats.totalFailed,
               completedAt: state.completedAt,
             });
+
+            // Only save content when run is completed
+            if (state.status === 'completed') {
+              for (const content of state.contents) {
+                try {
+                  await storage.createGeneratedContent({
+                    contentId: content.id,
+                    runId,
+                    clientId: client.id,
+                    type: content.type,
+                    title: content.title,
+                    content: content.content,
+                    metadata: JSON.stringify(content.metadata),
+                    status: content.status,
+                    qaScore: state.qaResults.get(content.id)?.score || null,
+                  });
+
+                  // Add to approval queue if pending review
+                  if (content.status === 'pending_review') {
+                    await storage.createApprovalItem({
+                      client: client.name,
+                      type: content.type,
+                      author: 'Content Factory AI',
+                      thumbnail: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=100&h=100&fit=crop',
+                      status: 'pending',
+                    });
+                  }
+                } catch (err) {
+                  // Content may already exist, skip duplicates
+                }
+              }
+            }
           },
         }
       ).catch(console.error);
