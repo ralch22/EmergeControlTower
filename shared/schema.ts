@@ -213,3 +213,23 @@ export const audioTracks = pgTable("audio_tracks", {
 export const insertAudioTrackSchema = createInsertSchema(audioTracks).omit({ id: true, createdAt: true });
 export type InsertAudioTrack = z.infer<typeof insertAudioTrackSchema>;
 export type AudioTrack = typeof audioTracks.$inferSelect;
+
+// AI Provider Settings - for fallback system
+export const aiProviders = pgTable("ai_providers", {
+  id: serial("id").primaryKey(),
+  category: text("category").notNull(), // 'video', 'image', 'voiceover', 'llm'
+  name: text("name").notNull(), // 'runway', 'pika', 'luma', 'gemini', 'elevenlabs', etc.
+  displayName: text("display_name").notNull(),
+  isEnabled: boolean("is_enabled").notNull().default(false),
+  priority: integer("priority").notNull().default(100), // lower = higher priority
+  apiKeyConfigured: boolean("api_key_configured").notNull().default(false),
+  lastStatus: text("last_status").default("unknown"), // 'working', 'error', 'rate_limited', 'unknown'
+  lastChecked: timestamp("last_checked"),
+  config: text("config"), // JSON string for provider-specific config
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAiProviderSchema = createInsertSchema(aiProviders).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertAiProvider = z.infer<typeof insertAiProviderSchema>;
+export type AiProvider = typeof aiProviders.$inferSelect;

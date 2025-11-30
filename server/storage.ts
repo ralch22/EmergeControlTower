@@ -23,6 +23,8 @@ import {
   type InsertVideoClip,
   type AudioTrack,
   type InsertAudioTrack,
+  type AiProvider,
+  type InsertAiProvider,
   kpis,
   pods,
   phaseChanges,
@@ -34,7 +36,8 @@ import {
   videoProjects,
   videoScenes,
   videoClips,
-  audioTracks
+  audioTracks,
+  aiProviders
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -114,6 +117,15 @@ export interface IStorage {
     clips: VideoClip[];
     audioTracks: AudioTrack[];
   } | null>;
+
+  // AI Providers
+  getAiProviders(): Promise<AiProvider[]>;
+  getAiProvidersByCategory(category: string): Promise<AiProvider[]>;
+  getEnabledProviders(category: string): Promise<AiProvider[]>;
+  getAiProvider(id: number): Promise<AiProvider | undefined>;
+  createAiProvider(provider: InsertAiProvider): Promise<AiProvider>;
+  updateAiProvider(id: number, updates: Partial<InsertAiProvider>): Promise<AiProvider>;
+  initializeDefaultProviders(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -453,6 +465,82 @@ export class DatabaseStorage implements IStorage {
       clips,
       audioTracks: audio,
     };
+  }
+
+  // AI Providers
+  async getAiProviders(): Promise<AiProvider[]> {
+    return await db.select().from(aiProviders).orderBy(aiProviders.category, aiProviders.priority);
+  }
+
+  async getAiProvidersByCategory(category: string): Promise<AiProvider[]> {
+    return await db
+      .select()
+      .from(aiProviders)
+      .where(eq(aiProviders.category, category))
+      .orderBy(aiProviders.priority);
+  }
+
+  async getEnabledProviders(category: string): Promise<AiProvider[]> {
+    return await db
+      .select()
+      .from(aiProviders)
+      .where(and(eq(aiProviders.category, category), eq(aiProviders.isEnabled, true)))
+      .orderBy(aiProviders.priority);
+  }
+
+  async getAiProvider(id: number): Promise<AiProvider | undefined> {
+    const [provider] = await db.select().from(aiProviders).where(eq(aiProviders.id, id));
+    return provider || undefined;
+  }
+
+  async createAiProvider(provider: InsertAiProvider): Promise<AiProvider> {
+    const [result] = await db.insert(aiProviders).values(provider).returning();
+    return result;
+  }
+
+  async updateAiProvider(id: number, updates: Partial<InsertAiProvider>): Promise<AiProvider> {
+    const [provider] = await db
+      .update(aiProviders)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(aiProviders.id, id))
+      .returning();
+    return provider;
+  }
+
+  async initializeDefaultProviders(): Promise<void> {
+    const existing = await this.getAiProviders();
+    if (existing.length > 0) return;
+
+    const defaultProviders: InsertAiProvider[] = [
+      // Video Providers
+      { category: 'video', name: 'runway', displayName: 'Runway Gen-3', isEnabled: true, priority: 1, apiKeyConfigured: !!process.env.RUNWAY_API_KEY },
+      { category: 'video', name: 'pika', displayName: 'Pika', isEnabled: false, priority: 2, apiKeyConfigured: false },
+      { category: 'video', name: 'luma', displayName: 'Luma Ray', isEnabled: false, priority: 3, apiKeyConfigured: false },
+      { category: 'video', name: 'kling', displayName: 'Kling', isEnabled: false, priority: 4, apiKeyConfigured: false },
+      { category: 'video', name: 'hailuo', displayName: 'Hailuo', isEnabled: false, priority: 5, apiKeyConfigured: false },
+      
+      // Image Providers
+      { category: 'image', name: 'gemini', displayName: 'Gemini 2.0 Flash', isEnabled: true, priority: 1, apiKeyConfigured: !!(process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY) },
+      { category: 'image', name: 'dalle', displayName: 'DALL-E 3', isEnabled: false, priority: 2, apiKeyConfigured: false },
+      { category: 'image', name: 'replicate', displayName: 'Replicate SDXL', isEnabled: false, priority: 3, apiKeyConfigured: false },
+      
+      // Voiceover Providers
+      { category: 'voiceover', name: 'elevenlabs', displayName: 'ElevenLabs', isEnabled: true, priority: 1, apiKeyConfigured: !!process.env.ELEVENLABS_API_KEY },
+      { category: 'voiceover', name: 'openai_tts', displayName: 'OpenAI TTS', isEnabled: false, priority: 2, apiKeyConfigured: false },
+      
+      // LLM Providers
+      { category: 'llm', name: 'claude', displayName: 'Claude Sonnet 3.5', isEnabled: true, priority: 1, apiKeyConfigured: !!process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY },
+      { category: 'llm', name: 'gemini_llm', displayName: 'Gemini 1.5 Flash', isEnabled: false, priority: 2, apiKeyConfigured: !!(process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY) },
+    ];
+
+    for (const provider of defaultProviders) {
+      await this.createAiProvider(provider);
+    }
+  }
+
+  // Video Projects (fixing interface requirement)
+  async getVideoProjects(): Promise<VideoProject[]> {
+    return this.getAllVideoProjects();
   }
 }
 

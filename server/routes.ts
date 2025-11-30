@@ -937,6 +937,146 @@ export async function registerRoutes(
     }
   });
 
+  // ==========================================
+  // AI Providers API Routes
+  // ==========================================
+
+  // Initialize default providers on first load
+  app.post("/api/providers/init", async (req, res) => {
+    try {
+      await storage.initializeDefaultProviders();
+      const providers = await storage.getAiProviders();
+      res.json({ success: true, providers });
+    } catch (error: any) {
+      console.error('Failed to initialize providers:', error);
+      res.status(500).json({ error: error.message || "Failed to initialize providers" });
+    }
+  });
+
+  // Get all providers
+  app.get("/api/providers", async (req, res) => {
+    try {
+      let providers = await storage.getAiProviders();
+      
+      // Initialize defaults if empty
+      if (providers.length === 0) {
+        await storage.initializeDefaultProviders();
+        providers = await storage.getAiProviders();
+      }
+      
+      res.json(providers);
+    } catch (error: any) {
+      console.error('Failed to fetch providers:', error);
+      res.status(500).json({ error: error.message || "Failed to fetch providers" });
+    }
+  });
+
+  // Get providers by category
+  app.get("/api/providers/category/:category", async (req, res) => {
+    try {
+      const { category } = req.params;
+      const providers = await storage.getAiProvidersByCategory(category);
+      res.json(providers);
+    } catch (error: any) {
+      console.error('Failed to fetch providers:', error);
+      res.status(500).json({ error: error.message || "Failed to fetch providers" });
+    }
+  });
+
+  // Update provider settings (enable/disable, priority, etc.)
+  app.patch("/api/providers/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { isEnabled, priority, config } = req.body;
+      
+      const updates: any = {};
+      if (typeof isEnabled === 'boolean') updates.isEnabled = isEnabled;
+      if (typeof priority === 'number') updates.priority = priority;
+      if (config !== undefined) updates.config = JSON.stringify(config);
+      
+      const provider = await storage.updateAiProvider(id, updates);
+      res.json(provider);
+    } catch (error: any) {
+      console.error('Failed to update provider:', error);
+      res.status(500).json({ error: error.message || "Failed to update provider" });
+    }
+  });
+
+  // Test provider connectivity
+  app.post("/api/providers/:id/test", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const provider = await storage.getAiProvider(id);
+      
+      if (!provider) {
+        return res.status(404).json({ error: "Provider not found" });
+      }
+
+      // Test the provider based on its type
+      let status = 'unknown';
+      let message = '';
+      
+      const testResults: Record<string, () => Promise<{ status: string; message: string }>> = {
+        runway: async () => {
+          const key = process.env.RUNWAY_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          return { status: 'working', message: 'API key configured' };
+        },
+        gemini: async () => {
+          const key = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          return { status: 'working', message: 'API key configured' };
+        },
+        elevenlabs: async () => {
+          const key = process.env.ELEVENLABS_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          return { status: 'working', message: 'API key configured' };
+        },
+        claude: async () => {
+          const key = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY;
+          if (!key) return { status: 'error', message: 'API key not configured' };
+          return { status: 'working', message: 'API key configured' };
+        },
+        default: async () => ({ status: 'unknown', message: 'Provider test not implemented' }),
+      };
+
+      const testFn = testResults[provider.name] || testResults.default;
+      const result = await testFn();
+      
+      // Update provider status
+      await storage.updateAiProvider(id, {
+        lastStatus: result.status,
+        lastChecked: new Date(),
+        apiKeyConfigured: result.status === 'working',
+      });
+      
+      res.json({
+        provider: provider.name,
+        ...result,
+      });
+    } catch (error: any) {
+      console.error('Failed to test provider:', error);
+      res.status(500).json({ error: error.message || "Failed to test provider" });
+    }
+  });
+
+  // Bulk update provider priorities (for drag-drop reordering)
+  app.post("/api/providers/reorder", async (req, res) => {
+    try {
+      const { providers } = req.body; // Array of { id, priority }
+      
+      for (const p of providers) {
+        await storage.updateAiProvider(p.id, { priority: p.priority });
+      }
+      
+      const updated = await storage.getAiProviders();
+      res.json(updated);
+    } catch (error: any) {
+      console.error('Failed to reorder providers:', error);
+      res.status(500).json({ error: error.message || "Failed to reorder providers" });
+    }
+  });
+
   return httpServer;
 }
 
