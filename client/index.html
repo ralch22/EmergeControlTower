@@ -411,10 +411,13 @@
             try {
               const response = await fetch('/api/video-projects');
               const data = await response.json();
-              this.allVideoProjects = data.map(project => ({
-                ...project,
-                totalScenes: 0,
-                scenesReady: 0
+              this.allVideoProjects = data.map(item => ({
+                ...item.project,
+                scenes: item.scenes || [],
+                clips: item.clips || [],
+                audioTracks: item.audioTracks || [],
+                totalScenes: item.scenes?.length || 0,
+                scenesReady: (item.scenes || []).filter(s => s.status === 'ready' || s.status === 'completed').length
               }));
               this.filterVideoProjects();
               this.updateVideoProjectStats();
