@@ -95,6 +95,191 @@ export interface TextOverlay {
   color?: string;
 }
 
+export interface IngestUploadResult {
+  success: boolean;
+  sourceId?: string;
+  sourceUrl?: string;
+  error?: string;
+}
+
+const SHOTSTACK_INGEST_STAGE_URL = "https://api.shotstack.io/ingest/stage";
+const SHOTSTACK_INGEST_V1_URL = "https://api.shotstack.io/ingest/v1";
+
+function getIngestApiUrl(): string {
+  const useProduction = process.env.SHOTSTACK_USE_PRODUCTION === 'true';
+  return useProduction ? SHOTSTACK_INGEST_V1_URL : SHOTSTACK_INGEST_STAGE_URL;
+}
+
+export async function uploadAudioToShotstack(audioBuffer: Buffer, filename: string = 'audio.mp3'): Promise<IngestUploadResult> {
+  const apiKey = process.env.SHOTSTACK_API_KEY;
+  const ingestUrl = getIngestApiUrl();
+  
+  if (!apiKey) {
+    console.log("[Shotstack Ingest] No API key configured, cannot upload audio");
+    return {
+      success: false,
+      error: "SHOTSTACK_API_KEY not configured",
+    };
+  }
+
+  try {
+    console.log(`[Shotstack Ingest] Requesting signed upload URL for ${filename}...`);
+    
+    const uploadResponse = await fetch(`${ingestUrl}/upload`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'x-api-key': apiKey,
+      },
+    });
+
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.error("[Shotstack Ingest] Upload URL request failed:", uploadResponse.status, errorText);
+      return {
+        success: false,
+        error: `Failed to get upload URL: ${uploadResponse.status} - ${errorText}`,
+      };
+    }
+
+    const uploadData = await uploadResponse.json();
+    const signedUrl = uploadData.data?.attributes?.url;
+    const sourceId = uploadData.data?.id;
+
+    if (!signedUrl || !sourceId) {
+      return {
+        success: false,
+        error: "No signed URL or source ID returned",
+      };
+    }
+
+    console.log(`[Shotstack Ingest] Uploading audio buffer (${audioBuffer.length} bytes) to signed URL...`);
+    
+    const putResponse = await fetch(signedUrl, {
+      method: 'PUT',
+      body: audioBuffer,
+    });
+
+    if (!putResponse.ok) {
+      const errorText = await putResponse.text();
+      console.error("[Shotstack Ingest] Audio upload failed:", putResponse.status, errorText);
+      return {
+        success: false,
+        error: `Failed to upload audio: ${putResponse.status}`,
+      };
+    }
+
+    console.log(`[Shotstack Ingest] Upload complete, polling for status (sourceId: ${sourceId})...`);
+    
+    const sourceUrl = await pollIngestStatus(sourceId);
+    
+    if (sourceUrl) {
+      console.log(`[Shotstack Ingest] Audio hosted at: ${sourceUrl}`);
+      return {
+        success: true,
+        sourceId,
+        sourceUrl,
+      };
+    }
+
+    return {
+      success: false,
+      error: "Failed to get source URL after upload",
+    };
+  } catch (error: any) {
+    console.error("[Shotstack Ingest] Upload error:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to upload audio",
+    };
+  }
+}
+
+async function pollIngestStatus(sourceId: string, maxAttempts: number = 30): Promise<string | null> {
+  const apiKey = process.env.SHOTSTACK_API_KEY;
+  const ingestUrl = getIngestApiUrl();
+  
+  if (!apiKey) return null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const response = await fetch(`${ingestUrl}/sources/${sourceId}`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'x-api-key': apiKey,
+        },
+      });
+
+      if (!response.ok) {
+        console.log(`[Shotstack Ingest] Status check failed: ${response.status}`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        continue;
+      }
+
+      const data = await response.json();
+      const status = data.data?.attributes?.status;
+      const sourceUrl = data.data?.attributes?.source;
+
+      console.log(`[Shotstack Ingest] Status: ${status} (attempt ${attempt + 1}/${maxAttempts})`);
+
+      if (status === 'ready' && sourceUrl) {
+        return sourceUrl;
+      }
+
+      if (status === 'failed') {
+        console.error("[Shotstack Ingest] Ingest failed");
+        return null;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (error) {
+      console.error("[Shotstack Ingest] Poll error:", error);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+
+  console.error("[Shotstack Ingest] Polling timeout");
+  return null;
+}
+
+export async function uploadBase64AudioToShotstack(base64DataUrl: string, filename: string = 'audio.mp3'): Promise<IngestUploadResult> {
+  if (!base64DataUrl.startsWith('data:audio')) {
+    return {
+      success: false,
+      error: "Invalid base64 audio data URL",
+    };
+  }
+
+  try {
+    const base64Data = base64DataUrl.split(',')[1];
+    if (!base64Data) {
+      return {
+        success: false,
+        error: "Failed to extract base64 data",
+      };
+    }
+
+    const audioBuffer = Buffer.from(base64Data, 'base64');
+    return await uploadAudioToShotstack(audioBuffer, filename);
+  } catch (error: any) {
+    return {
+      success: false,
+      error: error.message || "Failed to process base64 audio",
+    };
+  }
+}
+
+export function isHostedUrl(url: string): boolean {
+  if (!url) return false;
+  return url.startsWith('http://') || url.startsWith('https://');
+}
+
+export function isDataUrl(url: string): boolean {
+  if (!url) return false;
+  return url.startsWith('data:');
+}
+
 function generateMockRenderId(): string {
   return `mock-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
 }

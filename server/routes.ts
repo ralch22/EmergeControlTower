@@ -1430,7 +1430,7 @@ async function generateVideoProjectAsync(
         if (scene.voiceoverText && audioNeedsGeneration) {
           try {
             console.log(`[VideoProject] Generating audio for scene ${scene.sceneNumber}`);
-            const { generateVoiceoverWithFallback } = await import("../01-content-factory/integrations/elevenlabs");
+            const { generateVoiceoverWithHostedUrl } = await import("../01-content-factory/integrations/elevenlabs");
             const trackId = existingAudio?.trackId || `audio_${scene.sceneId}_${Date.now()}`;
             
             if (!existingAudio) {
@@ -1447,8 +1447,9 @@ async function generateVideoProjectAsync(
               await storage.updateAudioTrack(trackId, { status: 'generating' });
             }
 
-            const audioResult = await generateVoiceoverWithFallback(scene.voiceoverText, {
+            const audioResult = await generateVoiceoverWithHostedUrl(scene.voiceoverText, {
               voiceStyle: 'professional_male',
+              sceneId: scene.sceneId,
             });
 
             if (audioResult.success && audioResult.audioUrl) {
@@ -1838,6 +1839,169 @@ export function registerVideoIngredientsRoutes(app: Express) {
       });
     }
   });
+
+  // Test Alibaba image generation
+  app.post("/api/test-image", async (req, res) => {
+    try {
+      const { prompt = "A serene mountain landscape at sunset", provider = "alibaba" } = req.body;
+      
+      if (provider === "alibaba") {
+        const { generateImageWithAlibaba } = await import("../01-content-factory/integrations/alibaba-image");
+        console.log("[Test] Testing Alibaba image generation...");
+        const result = await generateImageWithAlibaba(prompt, { aspectRatio: "16:9" });
+        return res.json({
+          provider: "alibaba",
+          ...result,
+        });
+      } else if (provider === "gemini") {
+        const { generateImageWithNanoBananaPro } = await import("../01-content-factory/integrations/nano-banana-pro");
+        console.log("[Test] Testing Gemini image generation...");
+        const result = await generateImageWithNanoBananaPro(prompt, { aspectRatio: "16:9" });
+        return res.json({
+          provider: "gemini",
+          ...result,
+        });
+      }
+      
+      res.status(400).json({ error: "Invalid provider. Use 'alibaba' or 'gemini'" });
+    } catch (error: any) {
+      console.error("[Test] Image generation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Test Shotstack audio hosting
+  app.post("/api/test-audio-hosting", async (req, res) => {
+    try {
+      const { uploadAudioToShotstack } = await import("../01-content-factory/integrations/shotstack");
+      
+      console.log("[Test] Testing Shotstack audio ingest...");
+      
+      // Create a small test audio buffer (silent MP3 header)
+      const testBuffer = Buffer.alloc(1024, 0);
+      
+      const result = await uploadAudioToShotstack(testBuffer, 'test-audio.mp3');
+      
+      res.json({
+        provider: "shotstack_ingest",
+        ...result,
+      });
+    } catch (error: any) {
+      console.error("[Test] Audio hosting error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Comprehensive provider status endpoint
+  app.get("/api/providers/status", async (req, res) => {
+    try {
+      const providerStatus: Record<string, { 
+        configured: boolean; 
+        status: 'working' | 'error' | 'not_configured' | 'limited';
+        message: string;
+        remediation?: string;
+      }> = {};
+
+      // Check Alibaba Dashscope (Image)
+      const alibabaConfigured = !!process.env.DASHSCOPE_API_KEY;
+      const alibabaRegion = process.env.DASHSCOPE_REGION || 'beijing';
+      providerStatus['alibaba_image'] = {
+        configured: alibabaConfigured,
+        status: alibabaConfigured ? 'working' : 'not_configured',
+        message: alibabaConfigured 
+          ? `Alibaba Dashscope configured (${alibabaRegion})`
+          : 'DASHSCOPE_API_KEY not set',
+        remediation: alibabaConfigured ? undefined : 
+          'Get API key from https://modelstudio.alibabacloud.com/ and enable Wan 2.5 or Qwen Image models',
+      };
+
+      // Check Gemini (Image)
+      const geminiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+      providerStatus['gemini_image'] = {
+        configured: !!geminiKey,
+        status: geminiKey ? 'working' : 'not_configured',
+        message: geminiKey 
+          ? 'Gemini Image Generation configured'
+          : 'GEMINI_API_KEY not set',
+        remediation: geminiKey ? undefined :
+          'Enable Generative Language API and billing at https://console.cloud.google.com',
+      };
+
+      // Check ElevenLabs (Audio)
+      const elevenlabsKey = process.env.ELEVENLABS_API_KEY;
+      providerStatus['elevenlabs'] = {
+        configured: !!elevenlabsKey,
+        status: elevenlabsKey ? 'limited' : 'not_configured',
+        message: elevenlabsKey 
+          ? 'ElevenLabs configured (check quota)'
+          : 'ELEVENLABS_API_KEY not set',
+        remediation: elevenlabsKey 
+          ? 'Purchase additional credits at https://elevenlabs.io/subscription'
+          : 'Get API key from https://elevenlabs.io',
+      };
+
+      // Check Runway (Video)
+      const runwayKey = process.env.RUNWAY_API_KEY;
+      providerStatus['runway'] = {
+        configured: !!runwayKey,
+        status: runwayKey ? 'working' : 'not_configured',
+        message: runwayKey 
+          ? 'Runway Gen-3 configured and working'
+          : 'RUNWAY_API_KEY not set',
+        remediation: runwayKey ? undefined :
+          'Get API key from https://runwayml.com',
+      };
+
+      // Check Shotstack (Video Assembly)
+      const shotstackKey = process.env.SHOTSTACK_API_KEY;
+      providerStatus['shotstack'] = {
+        configured: !!shotstackKey,
+        status: shotstackKey ? 'working' : 'not_configured',
+        message: shotstackKey 
+          ? 'Shotstack configured for video assembly & audio hosting'
+          : 'SHOTSTACK_API_KEY not set',
+        remediation: shotstackKey ? undefined :
+          'Get API key from https://shotstack.io',
+      };
+
+      // Check Anthropic (Content Generation)
+      const anthropicKey = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+      providerStatus['anthropic'] = {
+        configured: !!anthropicKey,
+        status: anthropicKey ? 'working' : 'not_configured',
+        message: anthropicKey 
+          ? 'Claude Sonnet configured for content generation'
+          : 'ANTHROPIC_API_KEY not set',
+        remediation: anthropicKey ? undefined :
+          'Get API key from https://console.anthropic.com',
+      };
+
+      // Summary
+      const workingCount = Object.values(providerStatus).filter(p => p.status === 'working').length;
+      const limitedCount = Object.values(providerStatus).filter(p => p.status === 'limited').length;
+      const errorCount = Object.values(providerStatus).filter(p => p.status === 'error').length;
+      const notConfiguredCount = Object.values(providerStatus).filter(p => p.status === 'not_configured').length;
+
+      res.json({
+        providers: providerStatus,
+        summary: {
+          total: Object.keys(providerStatus).length,
+          working: workingCount,
+          limited: limitedCount,
+          error: errorCount,
+          notConfigured: notConfiguredCount,
+        },
+        recommendations: [
+          ...(notConfiguredCount > 0 ? ['Configure missing providers for full functionality'] : []),
+          ...(limitedCount > 0 ? ['Check quota/credits for limited providers'] : []),
+          ...(workingCount === Object.keys(providerStatus).length ? ['All providers operational'] : []),
+        ],
+      });
+    } catch (error: any) {
+      console.error("[Providers] Status check error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 }
 
 // Helper to split voiceover script across scenes
@@ -1861,7 +2025,7 @@ async function generateFromIngredients(projectId: string, ingredients: any) {
 
     // Import video and audio providers
     const { generateVideoWithFallback, waitForVideoWithProvider } = await import("../01-content-factory/integrations/video-provider");
-    const { generateVoiceoverWithFallback } = await import("../01-content-factory/integrations/elevenlabs");
+    const { generateVoiceoverWithHostedUrl } = await import("../01-content-factory/integrations/elevenlabs");
     
     // Get enabled video providers
     const enabledProviders = await storage.getEnabledProviders('video');
@@ -1940,8 +2104,9 @@ async function generateFromIngredients(projectId: string, ingredients: any) {
             status: 'generating',
           });
 
-          const audioResult = await generateVoiceoverWithFallback(scene.voiceoverText, {
+          const audioResult = await generateVoiceoverWithHostedUrl(scene.voiceoverText, {
             voiceStyle: ingredients.voiceStyle || 'professional_male',
+            sceneId: scene.sceneId,
           });
 
           if (audioResult.success && audioResult.audioUrl) {

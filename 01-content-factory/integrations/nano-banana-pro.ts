@@ -57,13 +57,18 @@ export async function generateImageWithNanoBananaPro(
       if (response.status === 403 || response.status === 400) {
         return {
           success: false,
-          error: "Nano Banana Pro may require billing enabled on your Google Cloud project",
+          error: `Gemini Image Generation requires setup. Please:\n` +
+                 `1. Go to Google Cloud Console (https://console.cloud.google.com)\n` +
+                 `2. Enable billing for your project\n` +
+                 `3. Enable the "Generative Language API"\n` +
+                 `4. Ensure your API key has access to image generation models\n` +
+                 `API Error: ${response.status} - ${errorText.substring(0, 200)}`,
         };
       }
       
       return {
         success: false,
-        error: `Nano Banana Pro API error: ${response.status}`,
+        error: `Gemini Image API error: ${response.status} - ${errorText.substring(0, 200)}`,
       };
     }
 

@@ -11,7 +11,10 @@ export interface AlibabaImageOptions {
   size?: '1024*1024' | '720*1280' | '1280*720';
   style?: string;
   negativePrompt?: string;
-  model?: 'wanx2.1-t2i-turbo' | 'wanx2.1-t2i-plus' | 'wan2.5-t2i-preview' | 'wan2.2-t2i-flash';
+  // wan2.5-t2i-preview: Singapore/International
+  // qwen-image-plus: Singapore/International (alternative)
+  // wanx2.1-t2i-turbo: Beijing/China
+  model?: 'wan2.5-t2i-preview' | 'qwen-image-plus' | 'wanx2.1-t2i-turbo' | 'wanx2.1-t2i-plus';
 }
 
 function getApiBaseUrl(): string {
@@ -40,11 +43,19 @@ async function submitImageTask(
   }
 
   try {
+    const useInternational = process.env.DASHSCOPE_REGION === 'international' || 
+                             process.env.DASHSCOPE_REGION === 'intl' ||
+                             process.env.DASHSCOPE_REGION === 'singapore';
+    
+    // Singapore/International uses wan2.5-t2i-preview or qwen-image-plus
+    // Beijing/China uses wanx2.1-t2i-turbo  
+    const defaultModel = useInternational ? 'wan2.5-t2i-preview' : 'wanx2.1-t2i-turbo';
+    
     const { 
       size = '1280*720', 
       style = '', 
       negativePrompt = '',
-      model = 'wanx2.1-t2i-turbo'
+      model = defaultModel
     } = options;
     
     const enhancedPrompt = style 
@@ -250,6 +261,26 @@ export async function generateImageWithAlibaba(
   const submitResult = await submitImageTask(prompt, options);
   
   if (!submitResult.success || !submitResult.taskId) {
+    // If model is access denied, try fallback to qwen-image-plus
+    if (submitResult.error?.includes('Model.AccessDenied') || submitResult.error?.includes('Model access denied')) {
+      console.log(`[AlibabaImage] Primary model access denied, trying qwen-image-plus fallback...`);
+      const fallbackResult = await submitImageTask(prompt, { ...options, model: 'qwen-image-plus' });
+      
+      if (!fallbackResult.success || !fallbackResult.taskId) {
+        // Both models failed, provide actionable error
+        return {
+          success: false,
+          error: `Image generation failed. Please enable model access in Alibaba Cloud Model Studio console:\n` +
+                 `1. Go to https://modelstudio.alibabacloud.com/\n` +
+                 `2. Navigate to Model Gallery\n` +
+                 `3. Enable "Wan 2.5 Text-to-Image" or "Qwen Image Plus"\n` +
+                 `Original error: ${submitResult.error}`,
+        };
+      }
+      
+      return waitForImageCompletion(fallbackResult.taskId);
+    }
+    
     return submitResult;
   }
 
@@ -271,7 +302,6 @@ export async function generateSceneImageWithAlibaba(
   return generateImageWithAlibaba(cinematicPrompt, {
     size: sizeMap[aspectRatio],
     style: 'cinematic, professional, high quality video frame',
-    model: 'wanx2.1-t2i-turbo',
   });
 }
 
@@ -296,6 +326,10 @@ export async function testAlibabaImageConnection(): Promise<{
   const baseUrl = getApiBaseUrl();
   const region = baseUrl.includes('intl') ? 'international (Singapore)' : 'beijing (China)';
 
+  const useInternational = baseUrl.includes('intl');
+  // Singapore/International uses wan2.5-t2i-preview, Beijing/China uses wanx2.1-t2i-turbo
+  const testModel = useInternational ? 'wan2.5-t2i-preview' : 'wanx2.1-t2i-turbo';
+  
   try {
     const response = await fetch(
       `${baseUrl}/services/aigc/text2image/image-synthesis`,
@@ -307,7 +341,7 @@ export async function testAlibabaImageConnection(): Promise<{
           'X-DashScope-Async': 'enable',
         },
         body: JSON.stringify({
-          model: 'wanx2.1-t2i-turbo',
+          model: testModel,
           input: {
             prompt: 'test connection - simple blue sky',
           },

@@ -4,6 +4,7 @@ import {
   isOpenAIConfigured,
   type OpenAIVoice 
 } from './openai-tts';
+import { uploadAudioToShotstack, isHostedUrl } from './shotstack';
 
 const ELEVENLABS_BASE_URL = "https://api.elevenlabs.io/v1";
 
@@ -275,6 +276,107 @@ export async function generateVoiceoverWithFallback(
     success: false,
     error: "No TTS provider configured. Please add ELEVENLABS_API_KEY or OPENAI_API_KEY to your secrets.",
     provider: undefined,
+  };
+}
+
+export async function generateVoiceoverWithHostedUrl(
+  text: string,
+  options: {
+    voiceId?: string;
+    voiceStyle?: VoiceStyle;
+    stability?: number;
+    similarityBoost?: number;
+    speed?: number;
+    preferredProvider?: 'elevenlabs' | 'openai';
+    sceneId?: string;
+  } = {}
+): Promise<VoiceoverResultWithProvider> {
+  const { voiceStyle, preferredProvider, speed = 1.0, sceneId, ...elevenLabsOptions } = options;
+  
+  const elevenlabsConfigured = isElevenLabsConfigured();
+  const openaiConfigured = isOpenAIConfigured();
+  
+  let audioBuffer: Buffer | undefined;
+  let duration: number | undefined;
+  let provider: 'elevenlabs' | 'openai' | undefined;
+
+  if (preferredProvider === 'openai' && openaiConfigured) {
+    console.log("[Voiceover Hosted] Using OpenAI TTS as preferred provider");
+    const { generateVoiceoverWithOpenAI } = await import('./openai-tts');
+    const result = await generateVoiceoverWithOpenAI(text, { voiceStyle, speed });
+    
+    if (result.success && result.audioData) {
+      audioBuffer = result.audioData;
+      duration = result.duration;
+      provider = 'openai';
+    } else if (elevenlabsConfigured) {
+      console.log("[Voiceover Hosted] OpenAI failed, trying ElevenLabs");
+      const elevenLabsResult = await generateVoiceover(text, { voiceStyle, ...elevenLabsOptions });
+      if (elevenLabsResult.success && elevenLabsResult.audioData) {
+        audioBuffer = elevenLabsResult.audioData;
+        duration = elevenLabsResult.duration;
+        provider = 'elevenlabs';
+      }
+    }
+  } else if (elevenlabsConfigured) {
+    console.log("[Voiceover Hosted] Trying ElevenLabs first");
+    const result = await generateVoiceover(text, { voiceStyle, ...elevenLabsOptions });
+    
+    if (result.success && result.audioData) {
+      audioBuffer = result.audioData;
+      duration = result.duration;
+      provider = 'elevenlabs';
+    } else if (openaiConfigured) {
+      console.log("[Voiceover Hosted] ElevenLabs failed, trying OpenAI");
+      const { generateVoiceoverWithOpenAI } = await import('./openai-tts');
+      const openaiResult = await generateVoiceoverWithOpenAI(text, { voiceStyle, speed });
+      if (openaiResult.success && openaiResult.audioData) {
+        audioBuffer = openaiResult.audioData;
+        duration = openaiResult.duration;
+        provider = 'openai';
+      }
+    }
+  } else if (openaiConfigured) {
+    console.log("[Voiceover Hosted] Using OpenAI TTS (ElevenLabs not configured)");
+    const { generateVoiceoverWithOpenAI } = await import('./openai-tts');
+    const result = await generateVoiceoverWithOpenAI(text, { voiceStyle, speed });
+    if (result.success && result.audioData) {
+      audioBuffer = result.audioData;
+      duration = result.duration;
+      provider = 'openai';
+    }
+  }
+
+  if (!audioBuffer) {
+    return {
+      success: false,
+      error: "No TTS provider configured or all providers failed",
+      provider: undefined,
+    };
+  }
+
+  console.log(`[Voiceover Hosted] Generated ${audioBuffer.length} bytes, uploading to Shotstack...`);
+  
+  const filename = sceneId ? `voiceover_${sceneId}.mp3` : `voiceover_${Date.now()}.mp3`;
+  const uploadResult = await uploadAudioToShotstack(audioBuffer, filename);
+
+  if (!uploadResult.success || !uploadResult.sourceUrl) {
+    console.log("[Voiceover Hosted] Shotstack upload failed, falling back to base64 data URL");
+    const base64Audio = audioBuffer.toString('base64');
+    return {
+      success: true,
+      audioUrl: `data:audio/mpeg;base64,${base64Audio}`,
+      duration,
+      provider,
+    };
+  }
+
+  console.log(`[Voiceover Hosted] Audio hosted at: ${uploadResult.sourceUrl}`);
+  return {
+    success: true,
+    audioUrl: uploadResult.sourceUrl,
+    duration,
+    provider,
   };
 }
 
