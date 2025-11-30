@@ -1265,6 +1265,162 @@ export async function registerRoutes(
   // Register video ingredients routes
   registerVideoIngredientsRoutes(app);
 
+  // ========== CONTROL CENTER ROUTES ==========
+  
+  // Initialize default control entities on startup
+  await storage.initializeDefaultControlEntities();
+
+  // Get all control entities
+  app.get("/api/control-center", async (req, res) => {
+    try {
+      const entities = await storage.getControlEntities();
+      const events = await storage.getControlEvents(20);
+      res.json({ entities, recentEvents: events });
+    } catch (error: any) {
+      console.error('Failed to fetch control center:', error);
+      res.status(500).json({ error: "Failed to fetch control center" });
+    }
+  });
+
+  // Get control entities by category
+  app.get("/api/control-center/category/:category", async (req, res) => {
+    try {
+      const { category } = req.params;
+      const entities = await storage.getControlEntitiesByCategory(category);
+      res.json(entities);
+    } catch (error: any) {
+      console.error('Failed to fetch control entities by category:', error);
+      res.status(500).json({ error: "Failed to fetch control entities" });
+    }
+  });
+
+  // Get single control entity
+  app.get("/api/control-center/:slug", async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const entity = await storage.getControlEntity(slug);
+      if (!entity) {
+        return res.status(404).json({ error: "Control entity not found" });
+      }
+      res.json(entity);
+    } catch (error: any) {
+      console.error('Failed to fetch control entity:', error);
+      res.status(500).json({ error: "Failed to fetch control entity" });
+    }
+  });
+
+  // Toggle a control entity
+  app.post("/api/control-center/:slug/toggle", async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const { isEnabled, triggeredBy, reason } = req.body;
+      
+      if (typeof isEnabled !== 'boolean') {
+        return res.status(400).json({ error: "isEnabled must be a boolean" });
+      }
+      
+      const entity = await storage.toggleControlEntity(
+        slug, 
+        isEnabled, 
+        triggeredBy || 'user'
+      );
+      
+      res.json(entity);
+    } catch (error: any) {
+      console.error('Failed to toggle control entity:', error);
+      res.status(500).json({ error: error.message || "Failed to toggle control entity" });
+    }
+  });
+
+  // Master kill switch - disable ALL services
+  app.post("/api/control-center/global/kill", async (req, res) => {
+    try {
+      const { triggeredBy, reason } = req.body;
+      await storage.killAllServices(triggeredBy || 'user');
+      
+      // Also cancel any in-flight video generation
+      const projects = await storage.getAllVideoProjects();
+      const generatingProjects = projects.filter(p => p.status === 'generating');
+      
+      for (const project of generatingProjects) {
+        await storage.updateVideoProject(project.projectId, {
+          status: 'cancelled',
+        });
+      }
+      
+      const entities = await storage.getControlEntities();
+      res.json({ 
+        success: true, 
+        message: `All ${entities.length} services disabled`,
+        cancelledProjects: generatingProjects.length,
+        entities 
+      });
+    } catch (error: any) {
+      console.error('Failed to execute kill switch:', error);
+      res.status(500).json({ error: error.message || "Failed to execute kill switch" });
+    }
+  });
+
+  // Reset all services - enable everything
+  app.post("/api/control-center/global/reset", async (req, res) => {
+    try {
+      const { triggeredBy, reason } = req.body;
+      await storage.resetAllServices(triggeredBy || 'user');
+      
+      const entities = await storage.getControlEntities();
+      res.json({ 
+        success: true, 
+        message: `All ${entities.length} services enabled`,
+        entities 
+      });
+    } catch (error: any) {
+      console.error('Failed to reset services:', error);
+      res.status(500).json({ error: error.message || "Failed to reset services" });
+    }
+  });
+
+  // Get recent control events (audit log)
+  app.get("/api/control-center/events", async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const events = await storage.getControlEvents(limit);
+      res.json(events);
+    } catch (error: any) {
+      console.error('Failed to fetch control events:', error);
+      res.status(500).json({ error: "Failed to fetch control events" });
+    }
+  });
+
+  // Check if system is operational (quick health check)
+  app.get("/api/control-center/status", async (req, res) => {
+    try {
+      const masterSwitch = await storage.getControlEntity('master-kill-switch');
+      const entities = await storage.getControlEntities();
+      
+      const categoryStatus = {
+        master: masterSwitch?.isEnabled ?? true,
+        video: entities.filter(e => e.category === 'video').some(e => e.isEnabled),
+        audio: entities.filter(e => e.category === 'audio').some(e => e.isEnabled),
+        content: entities.filter(e => e.category === 'content').some(e => e.isEnabled),
+        image: entities.filter(e => e.category === 'image').some(e => e.isEnabled),
+      };
+      
+      const operational = categoryStatus.master;
+      
+      res.json({
+        operational,
+        masterEnabled: categoryStatus.master,
+        categoryStatus,
+        totalEntities: entities.length,
+        enabledEntities: entities.filter(e => e.isEnabled).length,
+        disabledEntities: entities.filter(e => !e.isEnabled).length,
+      });
+    } catch (error: any) {
+      console.error('Failed to check control status:', error);
+      res.status(500).json({ error: "Failed to check control status", operational: false });
+    }
+  });
+
   return httpServer;
 }
 
