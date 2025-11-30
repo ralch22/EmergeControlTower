@@ -159,6 +159,7 @@ export async function generateVideoWithRunway(
     aspectRatio?: '16:9' | '9:16';
     model?: 'gen3a_turbo' | 'gen3';
     imageUrl?: string;
+    imageBase64?: string;
   } = {}
 ): Promise<VideoGenerationResult> {
   const apiKey = process.env.RUNWAY_API_KEY;
@@ -170,14 +171,19 @@ export async function generateVideoWithRunway(
     };
   }
 
-  const { duration = 5, aspectRatio = '16:9', model = 'gen3a_turbo' } = options;
+  const { duration = 5, aspectRatio = '16:9', model = 'gen3a_turbo', imageBase64 } = options;
   
   // Runway requires specific pixel ratios
   const runwayRatio = aspectRatio === '9:16' ? '768:1280' : '1280:768';
   let { imageUrl } = options;
 
-  // If no image provided, generate one with Gemini
-  if (!imageUrl) {
+  // If DALL-E base64 image is provided, convert to data URL for Runway
+  if (imageBase64) {
+    console.log("[Runway] Using provided DALL-E image (unique scene-specific)");
+    imageUrl = `data:image/png;base64,${imageBase64}`;
+  }
+  // If no image provided, generate one with Gemini or use fallback
+  else if (!imageUrl) {
     console.log("[Runway] Generating image with Gemini first...");
     const imageResult = await generateImageWithGemini(prompt);
     if (!imageResult.success || !imageResult.imageUrl) {

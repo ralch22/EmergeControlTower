@@ -4,6 +4,7 @@ import { generateVideoWithPika, checkPikaStatus, waitForPikaCompletion } from '.
 import { generateVideoWithLuma, checkLumaStatus, waitForLumaCompletion } from './luma';
 import { generateVideoWithVeo2, checkVeo2Status, waitForVeo2Completion } from './veo2';
 import { generateVideoWithVeo31, checkVeo31Status, waitForVeo31Completion, testVeo31Connection } from './veo31';
+import { generateSceneImageWithRetry, isDalleConfigured } from './dalle-images';
 
 export interface VideoProviderResult {
   success: boolean;
@@ -31,6 +32,7 @@ interface VideoGenerationOptions {
   duration?: number;
   aspectRatio?: '16:9' | '9:16' | '1:1';
   imageUrl?: string;
+  imageBase64?: string;
   style?: string;
 }
 
@@ -38,7 +40,7 @@ const providerConfigs: Record<VideoProvider, ProviderConfig> = {
   veo31: {
     name: 'veo31',
     displayName: 'Veo 3.1 Fast',
-    isConfigured: () => !!(process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY),
+    isConfigured: () => !!(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY),
     generate: async (prompt, options) => {
       const result = await generateVideoWithVeo31(prompt, {
         duration: Math.min(Math.max(options.duration || 8, 4), 8) as 4 | 6 | 8,
@@ -46,6 +48,7 @@ const providerConfigs: Record<VideoProvider, ProviderConfig> = {
         resolution: '720p',
         generateAudio: true,
         imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
       });
       return {
         success: result.success,
@@ -107,6 +110,7 @@ const providerConfigs: Record<VideoProvider, ProviderConfig> = {
         duration: options.duration || 5,
         aspectRatio: runwayAspect as '16:9' | '9:16',
         imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
       });
       return {
         ...result,
@@ -373,6 +377,30 @@ export function getAllProviders(): ProviderConfig[] {
 
 export function getConfiguredProviders(): ProviderConfig[] {
   return Object.values(providerConfigs).filter(p => p.isConfigured());
+}
+
+export async function generateUniqueSceneImage(prompt: string): Promise<{
+  success: boolean;
+  imageBase64?: string;
+  imageUrl?: string;
+  error?: string;
+}> {
+  if (!isDalleConfigured()) {
+    console.log('[VideoProvider] DALL-E not configured for image generation');
+    return {
+      success: false,
+      error: 'DALL-E not configured - add OpenAI integration for unique scene images',
+    };
+  }
+
+  console.log('[VideoProvider] Generating unique scene image with DALL-E...');
+  const result = await generateSceneImageWithRetry(prompt, 2);
+  
+  if (result.success) {
+    console.log('[VideoProvider] DALL-E generated unique scene image');
+  }
+  
+  return result;
 }
 
 export async function testProviderConnection(provider: VideoProvider): Promise<{ 

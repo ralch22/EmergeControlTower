@@ -1291,8 +1291,8 @@ async function generateVideoProjectAsync(
     console.log(`[VideoProject] Starting generation for ${projectId} with ${fullProject.scenes.length} scenes`);
     console.log(`[VideoProject] Enabled providers in priority order: ${enabledProviders.map((p: { name: string }) => p.name).join(' → ')}`);
 
-    // Import the fallback system
-    const { generateVideoWithFallback, waitForVideoWithProvider } = await import("../01-content-factory/integrations/video-provider");
+    // Import the fallback system and image generation
+    const { generateVideoWithFallback, waitForVideoWithProvider, generateUniqueSceneImage } = await import("../01-content-factory/integrations/video-provider");
 
     for (const scene of fullProject.scenes) {
       // Skip scenes that are already ready
@@ -1324,6 +1324,17 @@ async function generateVideoProjectAsync(
           const enhancedPrompt = buildEnhancedVideoPrompt(scene, fullProject.scenes);
           console.log(`[VideoProject] Enhanced prompt: ${enhancedPrompt.substring(0, 150)}...`);
           
+          // Generate unique DALL-E image for this scene (for image-to-video providers)
+          let sceneImageBase64: string | undefined;
+          console.log(`[VideoProject] Generating unique DALL-E image for scene ${scene.sceneNumber}...`);
+          const imageResult = await generateUniqueSceneImage(scene.visualPrompt || enhancedPrompt);
+          if (imageResult.success && imageResult.imageBase64) {
+            sceneImageBase64 = imageResult.imageBase64;
+            console.log(`[VideoProject] DALL-E image generated for scene ${scene.sceneNumber}`);
+          } else {
+            console.log(`[VideoProject] DALL-E image generation failed: ${imageResult.error}, continuing without image`);
+          }
+          
           // Try each provider in order until one succeeds
           for (const providerConfig of enabledProviders) {
             console.log(`[VideoProject] Trying provider: ${providerConfig.name}`);
@@ -1336,6 +1347,7 @@ async function generateVideoProjectAsync(
               {
                 duration: Math.min(scene.duration, 10),
                 aspectRatio: '16:9',
+                imageBase64: sceneImageBase64,
               }
             );
 
