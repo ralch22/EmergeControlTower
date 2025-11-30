@@ -419,5 +419,128 @@ export async function registerRoutes(
     }
   });
 
+  // ===== PYTHON CONTENT FACTORY BRIDGE ROUTES =====
+  // These endpoints allow the Python service to push updates to the dashboard
+
+  // Push generated content from Python service
+  app.post("/api/generated-content", async (req, res) => {
+    try {
+      const { id, runId, clientId, topicId, contentType, title, content, metadata, status, qaScore, qaFeedback, mediaUrls } = req.body;
+      
+      const result = await storage.createGeneratedContent({
+        contentId: id,
+        runId,
+        clientId: typeof clientId === 'string' ? parseInt(clientId) : clientId,
+        type: contentType,
+        title,
+        content,
+        metadata: typeof metadata === 'object' ? JSON.stringify(metadata) : metadata,
+        status,
+        qaScore,
+      });
+      
+      res.status(201).json(result);
+    } catch (error: any) {
+      console.error('Failed to save generated content:', error);
+      res.status(500).json({ error: "Failed to save generated content" });
+    }
+  });
+
+  // Update content status by contentId
+  app.patch("/api/generated-content/:contentId", async (req, res) => {
+    try {
+      const { contentId } = req.params;
+      const { status } = req.body;
+      const content = await storage.updateGeneratedContentStatus(contentId, status);
+      res.json(content);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update content" });
+    }
+  });
+
+  // Push content run summary from Python service
+  app.post("/api/content-runs", async (req, res) => {
+    try {
+      const { id, clientId, status, totalPieces, passedPieces, failedPieces, errors, startedAt, completedAt } = req.body;
+      
+      const result = await storage.createContentRun({
+        runId: id,
+        clientId: typeof clientId === 'string' ? parseInt(clientId) : clientId,
+        status,
+        totalPieces: totalPieces || 0,
+        successfulPieces: passedPieces || 0,
+        failedPieces: failedPieces || 0,
+        completedAt: completedAt ? new Date(completedAt) : null,
+      });
+      
+      res.status(201).json(result);
+    } catch (error: any) {
+      console.error('Failed to create content run:', error);
+      res.status(500).json({ error: "Failed to create content run" });
+    }
+  });
+
+  // Add item to approval queue from Python service
+  app.post("/api/approval-queue", async (req, res) => {
+    try {
+      const { type, description, client, impact, contentId } = req.body;
+      
+      const result = await storage.createApprovalItem({
+        type,
+        client,
+        author: 'Content Factory AI',
+        thumbnail: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=100&h=100&fit=crop',
+        status: 'pending',
+      });
+      
+      res.status(201).json(result);
+    } catch (error: any) {
+      console.error('Failed to add to approval queue:', error);
+      res.status(500).json({ error: "Failed to add to approval queue" });
+    }
+  });
+
+  // Approve content by content ID (for Slack buttons)
+  app.post("/api/content/:contentId/approve", async (req, res) => {
+    try {
+      const { contentId } = req.params;
+      const content = await storage.updateGeneratedContentStatus(contentId, 'approved');
+      res.json({ status: 'approved', contentId, content });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to approve content" });
+    }
+  });
+
+  // Reject content by content ID (for Slack buttons)
+  app.post("/api/content/:contentId/reject", async (req, res) => {
+    try {
+      const { contentId } = req.params;
+      const content = await storage.updateGeneratedContentStatus(contentId, 'rejected');
+      res.json({ status: 'rejected', contentId, content });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to reject content" });
+    }
+  });
+
+  // Get preview content (last 10 pieces)
+  app.get("/api/preview", async (req, res) => {
+    try {
+      const content = await storage.getAllGeneratedContent();
+      const preview = content.slice(0, 10).map(c => ({
+        id: c.contentId,
+        clientId: c.clientId,
+        type: c.type,
+        title: c.title,
+        preview: c.content?.substring(0, 200) + (c.content?.length > 200 ? '...' : ''),
+        status: c.status,
+        qaScore: c.qaScore,
+        createdAt: c.createdAt,
+      }));
+      res.json(preview);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch preview" });
+    }
+  });
+
   return httpServer;
 }

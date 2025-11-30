@@ -1,0 +1,62 @@
+# Content Factory Agent - Docker Compose
+# For local development and testing
+
+version: '3.8'
+
+services:
+  content-factory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Replit AI Integrations (Claude)
+      - AI_INTEGRATIONS_ANTHROPIC_API_KEY=${AI_INTEGRATIONS_ANTHROPIC_API_KEY}
+      - AI_INTEGRATIONS_ANTHROPIC_BASE_URL=${AI_INTEGRATIONS_ANTHROPIC_BASE_URL}
+      
+      # Additional AI providers (optional)
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID}
+      - RUNWAY_API_KEY=${RUNWAY_API_KEY}
+      - PIKA_API_KEY=${PIKA_API_KEY}
+      - MIDJOURNEY_API_KEY=${MIDJOURNEY_API_KEY}
+      - FLUX_API_KEY=${FLUX_API_KEY}
+      - REPLICATE_API_KEY=${REPLICATE_API_KEY}
+      
+      # Integrations
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+      - BUFFER_ACCESS_TOKEN=${BUFFER_ACCESS_TOKEN}
+      
+      # Dashboard connection
+      - DASHBOARD_URL=${DASHBOARD_URL:-http://host.docker.internal:5000}
+      - APP_BASE_URL=${APP_BASE_URL:-http://localhost:8000}
+      
+      # Database (shared with dashboard)
+      - DATABASE_URL=${DATABASE_URL}
+    volumes:
+      - ./:/app
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: PostgreSQL for standalone deployment
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=contentfactory
+      - POSTGRES_PASSWORD=contentfactory
+      - POSTGRES_DB=contentfactory
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    profiles:
+      - standalone
+
+volumes:
+  postgres_data:

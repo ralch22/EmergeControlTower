@@ -1,0 +1,85 @@
+# Google Cloud Vertex AI Deployment Configuration
+# Deploy with: gcloud run deploy content-factory --source .
+
+# Cloud Run Job Spec
+apiVersion: run.googleapis.com/v1
+kind: Service
+metadata:
+  name: content-factory
+  labels:
+    app: content-factory
+    version: "1.0.0"
+spec:
+  template:
+    metadata:
+      annotations:
+        # Scale based on CPU utilization
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "10"
+        # Allow longer request timeout for content generation
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/cpu-throttling: "false"
+    spec:
+      containerConcurrency: 10
+      timeoutSeconds: 900  # 15 minute timeout for long runs
+      containers:
+        - image: gcr.io/${PROJECT_ID}/content-factory:latest
+          ports:
+            - containerPort: 8000
+          resources:
+            limits:
+              memory: "2Gi"
+              cpu: "2"
+          env:
+            # Replit AI Integrations
+            - name: AI_INTEGRATIONS_ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic-api-key
+                  key: latest
+            - name: AI_INTEGRATIONS_ANTHROPIC_BASE_URL
+              value: "https://api.anthropic.com"
+            
+            # Additional providers (from Secret Manager)
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gemini-api-key
+                  key: latest
+            - name: ELEVENLABS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: elevenlabs-api-key
+                  key: latest
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: slack-webhook-url
+                  key: latest
+            - name: BUFFER_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: buffer-access-token
+                  key: latest
+            
+            # Database
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-url
+                  key: latest
+          
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8000
+            periodSeconds: 30
+            timeoutSeconds: 10

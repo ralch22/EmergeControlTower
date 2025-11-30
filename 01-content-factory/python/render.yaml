@@ -1,0 +1,46 @@
+# Render Deployment Configuration
+# Connect your repo to Render and it will auto-detect this file
+
+services:
+  - type: web
+    name: content-factory
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m main
+    
+    # Instance configuration
+    plan: starter  # starter, standard, or pro
+    numInstances: 1
+    
+    # Health check
+    healthCheckPath: /
+    
+    # Auto-deploy on push
+    autoDeploy: true
+    
+    # Environment variables
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: PYTHONPATH
+        value: /opt/render/project/src
+      - key: CONTENT_FACTORY_PORT
+        value: "8000"
+      
+      # Secrets (set in Render dashboard)
+      - key: AI_INTEGRATIONS_ANTHROPIC_API_KEY
+        sync: false
+      - key: AI_INTEGRATIONS_ANTHROPIC_BASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: SLACK_WEBHOOK_URL
+        sync: false
+      - key: BUFFER_ACCESS_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: DASHBOARD_URL
+        sync: false

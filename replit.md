@@ -117,43 +117,69 @@ Preferred communication style: Simple, everyday language.
 
 ### Content Factory System
 
-**AI Content Generation Pipeline (01-content-factory/)**
-- Modular AI agent architecture for content generation
-- LangGraph-style orchestrator for parallel content creation
-- Anthropic Claude integration via Replit AI Integrations
+**Python LangGraph Pipeline (01-content-factory/python/)**
+- Production-ready LangGraph StateGraph orchestration
+- Parallel agent execution: topic → (blog, social, adcopy, video) → qa → publish
+- Designed to generate 40-60 client-ready content pieces per day
 
-**Agent Types**
-- **Topic Agent**: Generates SEO-optimized content topics from client briefs
-- **Blog Agent**: Creates long-form blog posts with headings and CTAs
-- **Social Agent**: Generates LinkedIn, Twitter, and Instagram posts
-- **Ad Copy Agent**: Creates Facebook and Google ad variations
-- **Video Script Agent**: Generates video scripts with hooks and CTAs
-- **QA Agent**: Reviews content for quality, brand voice, and guidelines
+**Core Components**
+- `main.py` - FastAPI server with REST endpoints (port 8000)
+- `orchestrator.py` - LangGraph StateGraph with parallel node execution
+- `models.py` - Pydantic data models (BrandVoice, ContentTopic, BlogPost, etc.)
+- `utils.py` - Shared utilities including safe JSON extraction
 
-**Orchestrator (01-content-factory/orchestrator/)**
-- ContentPipeline class for managing content generation runs
-- Parallel execution of content generation across topics
-- Progress callbacks for real-time dashboard updates
-- Automatic KPI counter increments as content is generated
+**Agent Types (01-content-factory/python/agents/)**
+- **TopicAgent**: Generates SEO-optimized topics with brand voice context
+- **BlogAgent**: Creates 1500+ word blog posts with 8 H2 headings and CTAs
+- **SocialAgent**: LinkedIn carousels, X threads, Instagram with Midjourney prompts
+- **AdCopyAgent**: Google + Meta ads using PAS (Problem-Agitate-Solve) framework
+- **VideoAgent**: Script → ElevenLabs voiceover → Runway/Pika video generation
+- **QAAgent**: Quality review with Slack approval buttons (score 7.0+ to pass)
 
-**Integrations**
-- Slack notifications for content approval workflows
-- Buffer auto-publishing for approved social content
+**AI Providers (01-content-factory/python/providers/)**
+- **ClaudeProvider**: Claude Sonnet 4.5 via Replit AI Integrations (primary)
+- **GeminiProvider**: Gemini 1.5 Flash for speed (optional)
+- **ElevenLabsProvider**: Text-to-speech voiceovers (optional)
+- **RunwayProvider**: AI video generation (optional)
+- **MidjourneyProvider**: Image generation via Replicate (optional)
 
-**API Endpoints**
+**Integrations (01-content-factory/python/integrations/)**
+- `slack.py` - Slack webhook notifications for QA approvals
+- `buffer.py` - Auto-publishing approved social content to Buffer
+
+**Dashboard Bridge**
+- `dashboard_bridge.py` - REST bridge to TypeScript dashboard
+- Real-time KPI counter updates (AI Output metric)
+- Content pushed to approval queue for review
+
+**API Endpoints (Python FastAPI)**
+- `GET /api/health` - Health check with API key validation
 - `GET /api/clients` - List content factory clients
-- `POST /api/clients` - Create new client
-- `GET /api/content-runs` - List content generation runs
-- `POST /api/content-factory/run` - Start content generation for a client
-- `POST /api/content-factory/run-week` - Generate a week of content (7 topics, all types)
+- `POST /api/clients` - Create new client with brand voice
+- `POST /api/run-week` - Generate a week of content (7 topics, all types)
+- `GET /api/runs` - List content generation runs
+- `GET /api/runs/{run_id}` - Get run status and progress
+- `GET /api/content` - List generated content with filtering
+- `POST /api/content/{id}/approve` - Approve content piece
+- `POST /api/content/{id}/reject` - Reject content piece
 
-**Database Tables**
-- `clients` - Client profiles with brand voice, audience, keywords, goals
-- `content_runs` - Tracking for content generation runs
-- `generated_content` - Storage for all generated content pieces
+**Environment Variables Required**
+- `AI_INTEGRATIONS_ANTHROPIC_API_KEY` - Claude API (auto-set by Replit)
+- `GEMINI_API_KEY` - Google Gemini (optional)
+- `ELEVENLABS_API_KEY` - ElevenLabs TTS (optional)
+- `RUNWAY_API_KEY` - Runway video (optional)
+- `SLACK_WEBHOOK_URL` - Slack notifications (optional)
+- `BUFFER_ACCESS_TOKEN` - Buffer publishing (optional)
+
+**Deployment Files**
+- `Dockerfile` - Container build for cloud deployment
+- `docker-compose.yml` - Multi-service orchestration
+- `vertex.yaml` - Google Cloud Vertex AI deployment
+- `render.yaml` - Render.com deployment
 
 **Frontend Features**
 - Client dropdown in dashboard header
 - "Run Week" button with loading state
 - Real-time AI Output counter updates
-- Generated content appears in approval queue
+- Content Library page with filtering and preview modals
+- Approve/Reject buttons in content cards
