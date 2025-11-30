@@ -181,6 +181,17 @@ export async function registerRoutes(
     }
   });
 
+  // Dismiss/resolve an alert via PATCH
+  app.patch("/api/alerts/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const alert = await storage.resolveAlert(id);
+      res.json(alert);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to dismiss alert" });
+    }
+  });
+
   // ===== CONTENT FACTORY ROUTES =====
 
   // Get all clients
