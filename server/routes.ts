@@ -943,90 +943,121 @@ async function generateVideoProjectAsync(
     const fullProject = await storage.getFullVideoProject(projectId);
     if (!fullProject) return;
 
-    console.log(`[VideoProject] Starting generation for ${projectId} with ${fullProject.scenes.length} scenes`);
+    console.log(`[VideoProject] Starting generation for ${projectId} with ${fullProject.scenes.length} scenes using ${provider}`);
 
     for (const scene of fullProject.scenes) {
+      // Skip scenes that are already ready
+      if (scene.status === 'ready') {
+        console.log(`[VideoProject] Scene ${scene.sceneNumber} already ready, skipping`);
+        continue;
+      }
+
       try {
         // Update scene status
         await storage.updateVideoScene(scene.sceneId, { status: 'generating' });
 
-        // Generate video clip
-        const clipId = `clip_${scene.sceneId}_${Date.now()}`;
+        // Check if clip already exists and is ready
+        const existingClip = fullProject.clips.find(c => c.sceneId === scene.sceneId);
+        const clipNeedsGeneration = !existingClip || existingClip.status === 'pending' || existingClip.status === 'failed';
         
+        let clipId = existingClip?.clipId || `clip_${scene.sceneId}_${Date.now()}`;
         let clipResult;
-        if (provider === 'wan') {
-          const { generateVideoWithWan, waitForWanCompletion } = await import("../01-content-factory/integrations/wan");
+        
+        if (clipNeedsGeneration) {
+          console.log(`[VideoProject] Generating clip for scene ${scene.sceneNumber} with ${provider}`);
           
-          const taskResult = await generateVideoWithWan(scene.visualPrompt, {
-            duration: Math.min(scene.duration, 10),
-            resolution: '720p',
-          });
-
-          if (taskResult.success && taskResult.taskId) {
-            // Create clip record
-            await storage.createVideoClip({
-              clipId,
-              sceneId: scene.sceneId,
-              projectId,
-              provider: 'wan',
-              taskId: taskResult.taskId,
-              status: 'generating',
+          if (provider === 'wan') {
+            const { generateVideoWithWan, waitForWanCompletion } = await import("../01-content-factory/integrations/wan");
+            
+            const taskResult = await generateVideoWithWan(scene.visualPrompt, {
+              duration: Math.min(scene.duration, 10),
+              resolution: '720p',
             });
 
-            // Wait for completion
-            clipResult = await waitForWanCompletion(taskResult.taskId, 300);
+            if (taskResult.success && taskResult.taskId) {
+              if (!existingClip) {
+                await storage.createVideoClip({
+                  clipId,
+                  sceneId: scene.sceneId,
+                  projectId,
+                  provider: 'wan',
+                  taskId: taskResult.taskId,
+                  status: 'generating',
+                });
+              } else {
+                await storage.updateVideoClip(clipId, { taskId: taskResult.taskId, status: 'generating', provider: 'wan' });
+              }
+
+              clipResult = await waitForWanCompletion(taskResult.taskId, 300);
+            }
+          } else {
+            // Use Runway
+            const { generateVideoFromText, waitForVideoCompletion } = await import("../01-content-factory/integrations/runway");
+            
+            const taskResult = await generateVideoFromText(scene.visualPrompt);
+
+            if (taskResult.success && taskResult.taskId) {
+              if (!existingClip) {
+                await storage.createVideoClip({
+                  clipId,
+                  sceneId: scene.sceneId,
+                  projectId,
+                  provider: 'runway',
+                  taskId: taskResult.taskId,
+                  status: 'generating',
+                });
+              } else {
+                await storage.updateVideoClip(clipId, { taskId: taskResult.taskId, status: 'generating', provider: 'runway' });
+              }
+
+              clipResult = await waitForVideoCompletion(taskResult.taskId, 180);
+            }
+          }
+
+          // Update clip with result
+          if (clipResult?.success && clipResult.videoUrl) {
+            await storage.updateVideoClip(clipId, {
+              videoUrl: clipResult.videoUrl,
+              status: 'ready',
+            });
+            await storage.updateVideoScene(scene.sceneId, { status: 'ready' });
+            console.log(`[VideoProject] Scene ${scene.sceneNumber} clip ready`);
+          } else {
+            await storage.updateVideoClip(clipId, {
+              status: 'failed',
+              errorMessage: clipResult?.error || 'Generation failed',
+            });
+            await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
           }
         } else {
-          // Use Runway
-          const { generateVideoFromText, waitForVideoCompletion } = await import("../01-content-factory/integrations/runway");
-          
-          const taskResult = await generateVideoFromText(scene.visualPrompt);
-
-          if (taskResult.success && taskResult.taskId) {
-            await storage.createVideoClip({
-              clipId,
-              sceneId: scene.sceneId,
-              projectId,
-              provider: 'runway',
-              taskId: taskResult.taskId,
-              status: 'generating',
-            });
-
-            clipResult = await waitForVideoCompletion(taskResult.taskId, 180);
-          }
-        }
-
-        // Update clip with result
-        if (clipResult?.success && clipResult.videoUrl) {
-          await storage.updateVideoClip(clipId, {
-            videoUrl: clipResult.videoUrl,
-            status: 'ready',
-          });
+          console.log(`[VideoProject] Scene ${scene.sceneNumber} clip already ready, skipping`);
           await storage.updateVideoScene(scene.sceneId, { status: 'ready' });
-          console.log(`[VideoProject] Scene ${scene.sceneNumber} clip ready`);
-        } else {
-          await storage.updateVideoClip(clipId, {
-            status: 'failed',
-            errorMessage: clipResult?.error || 'Generation failed',
-          });
-          await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
         }
+
+        // Check if audio already exists and is ready
+        const existingAudio = fullProject.audioTracks.find(a => a.sceneId === scene.sceneId);
+        const audioNeedsGeneration = !existingAudio || existingAudio.status === 'pending' || existingAudio.status === 'failed';
 
         // Generate audio (ElevenLabs)
-        if (scene.voiceoverText) {
+        if (scene.voiceoverText && audioNeedsGeneration) {
           try {
+            console.log(`[VideoProject] Generating audio for scene ${scene.sceneNumber}`);
             const { generateVoiceoverWithUrl } = await import("../01-content-factory/integrations/elevenlabs");
-            const trackId = `audio_${scene.sceneId}_${Date.now()}`;
+            const trackId = existingAudio?.trackId || `audio_${scene.sceneId}_${Date.now()}`;
             
-            await storage.createAudioTrack({
-              trackId,
-              sceneId: scene.sceneId,
-              projectId,
-              type: 'voiceover',
-              provider: 'elevenlabs',
-              text: scene.voiceoverText,
-              status: 'generating',
-            });
+            if (!existingAudio) {
+              await storage.createAudioTrack({
+                trackId,
+                sceneId: scene.sceneId,
+                projectId,
+                type: 'voiceover',
+                provider: 'elevenlabs',
+                text: scene.voiceoverText,
+                status: 'generating',
+              });
+            } else {
+              await storage.updateAudioTrack(trackId, { status: 'generating' });
+            }
 
             const audioResult = await generateVoiceoverWithUrl(scene.voiceoverText, {
               voiceStyle: 'professional_male',
@@ -1048,6 +1079,8 @@ async function generateVideoProjectAsync(
           } catch (audioError) {
             console.error(`[VideoProject] Audio generation failed for scene ${scene.sceneNumber}:`, audioError);
           }
+        } else if (scene.voiceoverText) {
+          console.log(`[VideoProject] Scene ${scene.sceneNumber} audio already ready, skipping`);
         }
 
       } catch (sceneError) {
