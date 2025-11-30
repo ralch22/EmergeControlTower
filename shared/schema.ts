@@ -306,3 +306,40 @@ export const textOverlaySchema = z.object({
 
 export type SceneIngredient = z.infer<typeof sceneIngredientSchema>;
 export type TextOverlay = z.infer<typeof textOverlaySchema>;
+
+// Control Center - System Toggles
+export const controlEntities = pgTable("control_entities", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  type: text("type").notNull(), // global, pipeline, agent, provider, script
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  category: text("category").notNull(), // master, video, audio, content, image
+  isEnabled: boolean("is_enabled").notNull().default(true),
+  dependsOn: text("depends_on"), // JSON array of slugs this depends on
+  priority: integer("priority").notNull().default(0), // for ordering
+  lastChangedBy: text("last_changed_by"),
+  changedAt: timestamp("changed_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertControlEntitySchema = createInsertSchema(controlEntities).omit({ id: true, createdAt: true, changedAt: true });
+export type InsertControlEntity = z.infer<typeof insertControlEntitySchema>;
+export type ControlEntity = typeof controlEntities.$inferSelect;
+
+// Control Center - Audit Log
+export const controlEvents = pgTable("control_events", {
+  id: serial("id").primaryKey(),
+  entitySlug: text("entity_slug").notNull(),
+  action: text("action").notNull(), // enabled, disabled, kill, reset
+  previousState: boolean("previous_state"),
+  newState: boolean("new_state"),
+  triggeredBy: text("triggered_by"), // user, system, cascade
+  reason: text("reason"),
+  metadata: text("metadata"), // JSON additional data
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertControlEventSchema = createInsertSchema(controlEvents).omit({ id: true, createdAt: true });
+export type InsertControlEvent = z.infer<typeof insertControlEventSchema>;
+export type ControlEvent = typeof controlEvents.$inferSelect;
