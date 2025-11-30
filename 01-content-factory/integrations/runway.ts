@@ -76,7 +76,7 @@ export async function generateVideoWithRunway(
   prompt: string,
   options: {
     duration?: number;
-    aspectRatio?: '16:9' | '9:16' | '1:1';
+    aspectRatio?: '16:9' | '9:16';
     model?: 'gen3a_turbo' | 'gen3';
     imageUrl?: string;
   } = {}
@@ -91,6 +91,9 @@ export async function generateVideoWithRunway(
   }
 
   const { duration = 5, aspectRatio = '16:9', model = 'gen3a_turbo' } = options;
+  
+  // Runway requires specific pixel ratios
+  const runwayRatio = aspectRatio === '9:16' ? '768:1280' : '1280:768';
   let { imageUrl } = options;
 
   // If no image provided, generate one with Gemini
@@ -120,7 +123,7 @@ export async function generateVideoWithRunway(
         promptText: prompt,
         model,
         duration,
-        ratio: aspectRatio,
+        ratio: runwayRatio,
       }),
     });
 
@@ -225,7 +228,7 @@ export async function generateSocialVideo(
   platform: 'tiktok' | 'reels' | 'shorts' | 'linkedin',
   mood: string = "engaging, dynamic"
 ): Promise<VideoGenerationResult> {
-  const platformConfigs: Record<string, { aspectRatio: '16:9' | '9:16' | '1:1'; style: string }> = {
+  const platformConfigs: Record<string, { aspectRatio: '16:9' | '9:16'; style: string }> = {
     tiktok: { aspectRatio: '9:16', style: "trendy, fast-paced, attention-grabbing" },
     reels: { aspectRatio: '9:16', style: "vibrant, lifestyle-focused, scroll-stopping" },
     shorts: { aspectRatio: '9:16', style: "dynamic, engaging, quick cuts" },
@@ -236,7 +239,7 @@ export async function generateSocialVideo(
   const prompt = `Create a ${platform} video about: ${topic}. Style: ${config.style}, ${mood}`;
   
   return generateVideoWithRunway(prompt, {
-    duration: 4,
+    duration: 5,
     aspectRatio: config.aspectRatio,
     model: 'gen3a_turbo',
   });
