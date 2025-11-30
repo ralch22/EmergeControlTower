@@ -31,10 +31,11 @@ export async function generateSceneImage(
     const enhancedPrompt = `Cinematic still frame for video production: ${prompt}. Professional lighting, high quality, 4K resolution, photorealistic, movie-quality visuals.`;
 
     const response = await openai.images.generate({
-      model: 'gpt-image-1',
+      model: 'dall-e-3',
       prompt: enhancedPrompt,
       size: size,
       n: 1,
+      response_format: 'b64_json',
     });
 
     const imageData = response.data?.[0];
