@@ -1,4 +1,4 @@
-const RUNWAY_BASE_URL = "https://api.runwayml.com/v1";
+const RUNWAY_BASE_URL = "https://api.dev.runwayml.com/v1";
 
 export interface VideoGenerationResult {
   success: boolean;
