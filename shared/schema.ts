@@ -233,3 +233,76 @@ export const aiProviders = pgTable("ai_providers", {
 export const insertAiProviderSchema = createInsertSchema(aiProviders).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertAiProvider = z.infer<typeof insertAiProviderSchema>;
 export type AiProvider = typeof aiProviders.$inferSelect;
+
+// Video Ingredients - for "Ingredients to Video" mode
+export const videoIngredients = pgTable("video_ingredients", {
+  id: serial("id").primaryKey(),
+  ingredientId: text("ingredient_id").notNull().unique(),
+  projectId: text("project_id").notNull(),
+  clientId: integer("client_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  
+  // Generation mode: 'text_to_video' | 'frames_to_video' | 'ingredients_to_video'
+  mode: text("mode").notNull().default("ingredients_to_video"),
+  
+  // Scene definitions (JSON array)
+  scenes: text("scenes").notNull().default("[]"), // [{prompt, duration, imageUrl?, transition?}]
+  
+  // Reference images (JSON array of URLs)
+  referenceImages: text("reference_images").default("[]"),
+  
+  // Voiceover settings
+  voiceoverScript: text("voiceover_script"),
+  voiceId: text("voice_id"),
+  voiceStyle: text("voice_style"), // professional_male, warm_female, etc.
+  
+  // Music settings
+  musicStyle: text("music_style"), // ambient, upbeat, dramatic, corporate
+  musicUrl: text("music_url"), // custom music URL
+  musicVolume: integer("music_volume").default(30), // 0-100
+  
+  // Text overlays (JSON array)
+  textOverlays: text("text_overlays").default("[]"), // [{text, startTime, duration, position, style}]
+  
+  // Brand settings
+  brandColors: text("brand_colors").default("[]"), // ['#hex1', '#hex2']
+  logoUrl: text("logo_url"),
+  watermarkPosition: text("watermark_position"), // top-left, top-right, bottom-left, bottom-right
+  
+  // Output settings
+  aspectRatio: text("aspect_ratio").default("16:9"),
+  totalDuration: integer("total_duration"), // target duration in seconds
+  resolution: text("resolution").default("1080p"),
+  
+  status: text("status").notNull().default("draft"), // draft, processing, ready, failed
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertVideoIngredientsSchema = createInsertSchema(videoIngredients).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertVideoIngredients = z.infer<typeof insertVideoIngredientsSchema>;
+export type VideoIngredients = typeof videoIngredients.$inferSelect;
+
+// Zod schemas for JSON fields
+export const sceneIngredientSchema = z.object({
+  prompt: z.string(),
+  duration: z.number().default(5),
+  imageUrl: z.string().optional(),
+  transition: z.enum(["fade", "cut", "dissolve", "wipe", "zoom"]).default("fade"),
+  order: z.number(),
+});
+
+export const textOverlaySchema = z.object({
+  text: z.string(),
+  startTime: z.number(),
+  duration: z.number(),
+  position: z.enum(["top", "center", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"]).default("bottom"),
+  style: z.enum(["title", "subtitle", "caption", "cta"]).default("subtitle"),
+  fontSize: z.number().optional(),
+  color: z.string().optional(),
+});
+
+export type SceneIngredient = z.infer<typeof sceneIngredientSchema>;
+export type TextOverlay = z.infer<typeof textOverlaySchema>;

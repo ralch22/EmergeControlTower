@@ -1196,6 +1196,9 @@ export async function registerRoutes(
     }
   });
 
+  // Register video ingredients routes
+  registerVideoIngredientsRoutes(app);
+
   return httpServer;
 }
 
@@ -1418,5 +1421,330 @@ async function generateVideoProjectAsync(
   } catch (error) {
     console.error(`[VideoProject] Generation failed for ${projectId}:`, error);
     await storage.updateVideoProject(projectId, { status: 'failed' });
+  }
+}
+
+// Register video ingredients routes
+export function registerVideoIngredientsRoutes(app: Express) {
+  // Get all video ingredients
+  app.get("/api/video-ingredients", async (req, res) => {
+    try {
+      const ingredients = await storage.getAllVideoIngredients();
+      res.json(ingredients);
+    } catch (error: any) {
+      console.error("Error fetching video ingredients:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get ingredients for a specific project
+  app.get("/api/video-ingredients/:projectId", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const ingredients = await storage.getVideoIngredients(projectId);
+      if (!ingredients) {
+        return res.status(404).json({ error: "Ingredients not found" });
+      }
+      res.json(ingredients);
+    } catch (error: any) {
+      console.error("Error fetching video ingredients:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create new video ingredients bundle
+  app.post("/api/video-ingredients", async (req, res) => {
+    try {
+      const ingredientId = `ing_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const ingredients = await storage.createVideoIngredients({
+        ingredientId,
+        projectId,
+        clientId: req.body.clientId || 1,
+        title: req.body.title || "New Video",
+        description: req.body.description,
+        mode: req.body.mode || "ingredients_to_video",
+        scenes: JSON.stringify(req.body.scenes || []),
+        referenceImages: JSON.stringify(req.body.referenceImages || []),
+        voiceoverScript: req.body.voiceoverScript,
+        voiceId: req.body.voiceId,
+        voiceStyle: req.body.voiceStyle || "professional_male",
+        musicStyle: req.body.musicStyle,
+        musicUrl: req.body.musicUrl,
+        musicVolume: req.body.musicVolume || 30,
+        textOverlays: JSON.stringify(req.body.textOverlays || []),
+        brandColors: JSON.stringify(req.body.brandColors || []),
+        logoUrl: req.body.logoUrl,
+        watermarkPosition: req.body.watermarkPosition,
+        aspectRatio: req.body.aspectRatio || "16:9",
+        totalDuration: req.body.totalDuration,
+        resolution: req.body.resolution || "1080p",
+        status: "draft",
+      });
+
+      res.json(ingredients);
+    } catch (error: any) {
+      console.error("Error creating video ingredients:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update video ingredients
+  app.patch("/api/video-ingredients/:ingredientId", async (req, res) => {
+    try {
+      const { ingredientId } = req.params;
+      const updates: any = {};
+      
+      if (req.body.title !== undefined) updates.title = req.body.title;
+      if (req.body.description !== undefined) updates.description = req.body.description;
+      if (req.body.mode !== undefined) updates.mode = req.body.mode;
+      if (req.body.scenes !== undefined) updates.scenes = JSON.stringify(req.body.scenes);
+      if (req.body.referenceImages !== undefined) updates.referenceImages = JSON.stringify(req.body.referenceImages);
+      if (req.body.voiceoverScript !== undefined) updates.voiceoverScript = req.body.voiceoverScript;
+      if (req.body.voiceId !== undefined) updates.voiceId = req.body.voiceId;
+      if (req.body.voiceStyle !== undefined) updates.voiceStyle = req.body.voiceStyle;
+      if (req.body.musicStyle !== undefined) updates.musicStyle = req.body.musicStyle;
+      if (req.body.musicUrl !== undefined) updates.musicUrl = req.body.musicUrl;
+      if (req.body.musicVolume !== undefined) updates.musicVolume = req.body.musicVolume;
+      if (req.body.textOverlays !== undefined) updates.textOverlays = JSON.stringify(req.body.textOverlays);
+      if (req.body.brandColors !== undefined) updates.brandColors = JSON.stringify(req.body.brandColors);
+      if (req.body.logoUrl !== undefined) updates.logoUrl = req.body.logoUrl;
+      if (req.body.aspectRatio !== undefined) updates.aspectRatio = req.body.aspectRatio;
+      if (req.body.totalDuration !== undefined) updates.totalDuration = req.body.totalDuration;
+      if (req.body.resolution !== undefined) updates.resolution = req.body.resolution;
+      if (req.body.status !== undefined) updates.status = req.body.status;
+
+      const ingredients = await storage.updateVideoIngredients(ingredientId, updates);
+      res.json(ingredients);
+    } catch (error: any) {
+      console.error("Error updating video ingredients:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Delete video ingredients
+  app.delete("/api/video-ingredients/:ingredientId", async (req, res) => {
+    try {
+      const { ingredientId } = req.params;
+      await storage.deleteVideoIngredients(ingredientId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting video ingredients:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Process ingredients and generate video
+  app.post("/api/video-ingredients/:ingredientId/generate", async (req, res) => {
+    try {
+      const { ingredientId } = req.params;
+      
+      // Get the ingredients
+      const allIngredients = await storage.getAllVideoIngredients();
+      const ingredients = allIngredients.find(i => i.ingredientId === ingredientId);
+      
+      if (!ingredients) {
+        return res.status(404).json({ error: "Ingredients not found" });
+      }
+
+      // Update status to processing
+      await storage.updateVideoIngredients(ingredientId, { status: "processing" });
+
+      // Parse the scenes
+      const scenes = JSON.parse(ingredients.scenes || "[]");
+      
+      // Create a video project from the ingredients
+      const project = await storage.createVideoProject({
+        projectId: ingredients.projectId,
+        clientId: ingredients.clientId,
+        title: ingredients.title,
+        description: ingredients.description || undefined,
+        status: "generating",
+        totalDuration: ingredients.totalDuration || undefined,
+        outputFormat: "mp4",
+      });
+
+      // Create scenes from ingredients
+      let startTime = 0;
+      for (let i = 0; i < scenes.length; i++) {
+        const scene = scenes[i];
+        const sceneId = `scene_${ingredients.projectId}_${i + 1}_${Date.now()}`;
+        
+        await storage.createVideoScene({
+          sceneId,
+          projectId: ingredients.projectId,
+          sceneNumber: i + 1,
+          title: scene.title || `Scene ${i + 1}`,
+          visualPrompt: scene.prompt,
+          voiceoverText: ingredients.voiceoverScript ? getSceneVoiceover(ingredients.voiceoverScript, i, scenes.length) : undefined,
+          duration: scene.duration || 5,
+          startTime,
+          status: "pending",
+        });
+
+        startTime += scene.duration || 5;
+      }
+
+      // Start background generation
+      generateFromIngredients(ingredients.projectId, ingredients);
+
+      res.json({ 
+        success: true, 
+        projectId: ingredients.projectId,
+        message: "Video generation started from ingredients" 
+      });
+    } catch (error: any) {
+      console.error("Error generating from ingredients:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+}
+
+// Helper to split voiceover script across scenes
+function getSceneVoiceover(fullScript: string, sceneIndex: number, totalScenes: number): string {
+  const sentences = fullScript.split(/[.!?]+/).filter(s => s.trim());
+  const sentencesPerScene = Math.ceil(sentences.length / totalScenes);
+  const start = sceneIndex * sentencesPerScene;
+  const end = Math.min(start + sentencesPerScene, sentences.length);
+  return sentences.slice(start, end).join('. ').trim() + '.';
+}
+
+// Background generation from ingredients
+async function generateFromIngredients(projectId: string, ingredients: any) {
+  try {
+    console.log(`[IngredientsToVideo] Starting generation for ${projectId}`);
+    
+    const fullProject = await storage.getFullVideoProject(projectId);
+    if (!fullProject) {
+      throw new Error("Project not found");
+    }
+
+    // Import video and audio providers
+    const { generateVideoWithFallback, waitForVideoWithProvider } = await import("../01-content-factory/integrations/video-provider");
+    const { generateVoiceoverWithUrl } = await import("../01-content-factory/integrations/elevenlabs");
+    
+    // Get enabled video providers
+    const enabledProviders = await storage.getEnabledProviders('video');
+    const providerList = enabledProviders.map(p => ({ name: p.name as any, isEnabled: p.isEnabled, priority: p.priority }));
+
+    // Parse reference images
+    const referenceImages = JSON.parse(ingredients.referenceImages || "[]");
+
+    // Process each scene
+    for (const scene of fullProject.scenes) {
+      try {
+        await storage.updateVideoScene(scene.sceneId, { status: 'generating' });
+
+        // Use reference image if available for this scene
+        const sceneIndex = scene.sceneNumber - 1;
+        const imageUrl = referenceImages[sceneIndex] || undefined;
+
+        // Generate video clip
+        const clipId = `clip_${scene.sceneId}_${Date.now()}`;
+        await storage.createVideoClip({
+          clipId,
+          sceneId: scene.sceneId,
+          projectId,
+          provider: providerList[0]?.name || 'veo31',
+          status: 'generating',
+          duration: scene.duration,
+          resolution: ingredients.resolution || '1080p',
+        });
+
+        const videoResult = await generateVideoWithFallback(
+          scene.visualPrompt,
+          providerList,
+          {
+            duration: scene.duration,
+            aspectRatio: ingredients.aspectRatio === '9:16' ? '9:16' : '16:9',
+            imageUrl,
+          }
+        );
+
+        if (videoResult.success && videoResult.taskId) {
+          await storage.updateVideoClip(clipId, {
+            taskId: videoResult.taskId,
+            provider: videoResult.provider || 'veo31',
+          });
+
+          // Wait for completion
+          const providerName = (videoResult.provider || 'veo31') as 'veo31' | 'veo2' | 'runway' | 'pika' | 'luma' | 'kling' | 'hailuo' | 'wan';
+          const completed = await waitForVideoWithProvider(providerName, videoResult.taskId);
+          
+          if (completed.success && completed.videoUrl) {
+            await storage.updateVideoClip(clipId, {
+              videoUrl: completed.videoUrl,
+              status: 'ready',
+            });
+            await storage.updateVideoScene(scene.sceneId, { status: 'ready' });
+          } else {
+            await storage.updateVideoClip(clipId, {
+              status: 'failed',
+              errorMessage: completed.error,
+            });
+            await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
+          }
+        }
+
+        // Generate voiceover if scene has text
+        if (scene.voiceoverText) {
+          const trackId = `audio_${scene.sceneId}_${Date.now()}`;
+          await storage.createAudioTrack({
+            trackId,
+            sceneId: scene.sceneId,
+            projectId,
+            type: 'voiceover',
+            provider: 'elevenlabs',
+            text: scene.voiceoverText,
+            voiceId: ingredients.voiceId,
+            status: 'generating',
+          });
+
+          const audioResult = await generateVoiceoverWithUrl(scene.voiceoverText, {
+            voiceStyle: ingredients.voiceStyle || 'professional_male',
+          });
+
+          if (audioResult.success && audioResult.audioUrl) {
+            await storage.updateAudioTrack(trackId, {
+              audioUrl: audioResult.audioUrl,
+              duration: audioResult.duration,
+              status: 'ready',
+            });
+          } else {
+            await storage.updateAudioTrack(trackId, {
+              status: 'failed',
+              errorMessage: audioResult.error,
+            });
+          }
+        }
+
+      } catch (sceneError) {
+        console.error(`[IngredientsToVideo] Scene ${scene.sceneNumber} failed:`, sceneError);
+        await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
+      }
+    }
+
+    // Update final status
+    const updatedProject = await storage.getFullVideoProject(projectId);
+    const allReady = updatedProject?.scenes.every((s: { status: string }) => s.status === 'ready');
+    
+    await storage.updateVideoProject(projectId, {
+      status: allReady ? 'ready' : 'failed',
+    });
+    
+    await storage.updateVideoIngredients(ingredients.ingredientId, {
+      status: allReady ? 'ready' : 'failed',
+    });
+
+    console.log(`[IngredientsToVideo] Generation complete for ${projectId}`);
+
+  } catch (error) {
+    console.error(`[IngredientsToVideo] Generation failed:`, error);
+    await storage.updateVideoProject(projectId, { status: 'failed' });
+    await storage.updateVideoIngredients(ingredients.ingredientId, { 
+      status: 'failed',
+      errorMessage: error instanceof Error ? error.message : 'Unknown error',
+    });
   }
 }

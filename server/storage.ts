@@ -25,6 +25,8 @@ import {
   type InsertAudioTrack,
   type AiProvider,
   type InsertAiProvider,
+  type VideoIngredients,
+  type InsertVideoIngredients,
   kpis,
   pods,
   phaseChanges,
@@ -37,7 +39,8 @@ import {
   videoScenes,
   videoClips,
   audioTracks,
-  aiProviders
+  aiProviders,
+  videoIngredients
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql } from "drizzle-orm";
@@ -126,6 +129,14 @@ export interface IStorage {
   createAiProvider(provider: InsertAiProvider): Promise<AiProvider>;
   updateAiProvider(id: number, updates: Partial<InsertAiProvider>): Promise<AiProvider>;
   initializeDefaultProviders(): Promise<void>;
+
+  // Video Ingredients
+  getVideoIngredients(projectId: string): Promise<VideoIngredients | undefined>;
+  getVideoIngredientsByClient(clientId: number): Promise<VideoIngredients[]>;
+  getAllVideoIngredients(): Promise<VideoIngredients[]>;
+  createVideoIngredients(ingredients: InsertVideoIngredients): Promise<VideoIngredients>;
+  updateVideoIngredients(ingredientId: string, updates: Partial<InsertVideoIngredients>): Promise<VideoIngredients>;
+  deleteVideoIngredients(ingredientId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -546,6 +557,53 @@ export class DatabaseStorage implements IStorage {
   // Video Projects (fixing interface requirement)
   async getVideoProjects(): Promise<VideoProject[]> {
     return this.getAllVideoProjects();
+  }
+
+  // Video Ingredients
+  async getVideoIngredients(projectId: string): Promise<VideoIngredients | undefined> {
+    const [result] = await db
+      .select()
+      .from(videoIngredients)
+      .where(eq(videoIngredients.projectId, projectId));
+    return result || undefined;
+  }
+
+  async getVideoIngredientsByClient(clientId: number): Promise<VideoIngredients[]> {
+    return await db
+      .select()
+      .from(videoIngredients)
+      .where(eq(videoIngredients.clientId, clientId))
+      .orderBy(desc(videoIngredients.createdAt));
+  }
+
+  async getAllVideoIngredients(): Promise<VideoIngredients[]> {
+    return await db
+      .select()
+      .from(videoIngredients)
+      .orderBy(desc(videoIngredients.createdAt));
+  }
+
+  async createVideoIngredients(ingredients: InsertVideoIngredients): Promise<VideoIngredients> {
+    const [result] = await db
+      .insert(videoIngredients)
+      .values(ingredients)
+      .returning();
+    return result;
+  }
+
+  async updateVideoIngredients(ingredientId: string, updates: Partial<InsertVideoIngredients>): Promise<VideoIngredients> {
+    const [result] = await db
+      .update(videoIngredients)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(videoIngredients.ingredientId, ingredientId))
+      .returning();
+    return result;
+  }
+
+  async deleteVideoIngredients(ingredientId: string): Promise<void> {
+    await db
+      .delete(videoIngredients)
+      .where(eq(videoIngredients.ingredientId, ingredientId));
   }
 }
 
