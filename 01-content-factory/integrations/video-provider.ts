@@ -4,8 +4,8 @@ import { generateVideoWithPika, checkPikaStatus, waitForPikaCompletion } from '.
 import { generateVideoWithLuma, checkLumaStatus, waitForLumaCompletion } from './luma';
 import { generateVideoWithVeo2, checkVeo2Status, waitForVeo2Completion } from './veo2';
 import { generateVideoWithVeo31, checkVeo31Status, waitForVeo31Completion, testVeo31Connection } from './veo31';
-import { generateSceneImageWithRetry, isDalleConfigured } from './dalle-images';
 import { generateImageWithNanoBananaPro } from './nano-banana-pro';
+import { generateSceneImageWithAlibaba, isAlibabaImageConfigured } from './alibaba-image';
 
 export interface VideoProviderResult {
   success: boolean;
@@ -405,24 +405,33 @@ export async function generateUniqueSceneImage(prompt: string): Promise<{
       };
     }
     
-    console.log(`[VideoProvider] Nano Banana Pro failed: ${result.error}, trying DALL-E fallback...`);
+    console.log(`[VideoProvider] Nano Banana Pro failed: ${result.error}, trying Alibaba fallback...`);
   }
   
-  if (isDalleConfigured()) {
-    console.log('[VideoProvider] Falling back to DALL-E for image generation...');
-    const result = await generateSceneImageWithRetry(prompt, 2);
+  if (isAlibabaImageConfigured()) {
+    console.log('[VideoProvider] Falling back to Alibaba Wanx for image generation...');
+    const result = await generateSceneImageWithAlibaba(prompt, '16:9');
     
     if (result.success) {
-      console.log('[VideoProvider] DALL-E generated unique scene image');
+      console.log('[VideoProvider] Alibaba Wanx generated unique scene image');
+      return {
+        success: true,
+        imageUrl: result.imageUrl,
+        imageBase64: result.imageBase64,
+      };
     }
     
-    return result;
+    console.log(`[VideoProvider] Alibaba Wanx failed: ${result.error}`);
+    return {
+      success: false,
+      error: result.error || 'Alibaba Wanx image generation failed',
+    };
   }
 
   console.log('[VideoProvider] No image generation providers configured');
   return {
     success: false,
-    error: 'No image providers configured - add Gemini or OpenAI keys',
+    error: 'No image providers configured - add Gemini or Alibaba Dashscope keys',
   };
 }
 

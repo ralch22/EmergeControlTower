@@ -213,6 +213,18 @@ Preferred communication style: Simple, everyday language.
   - Provider configuration check before generation
   - Status polling and completion waiting
 
+**Image Generation System (Google/Alibaba only, no OpenAI dependency)**
+- `nano-banana-pro.ts` - Primary image generation using Gemini API
+  - Uses gemini-2.0-flash-exp-image-generation model
+  - Supports 1K, 2K, 4K resolutions
+  - Used for video scene images and social media graphics
+- `alibaba-image.ts` - Fallback image generation using Alibaba Dashscope
+  - Uses Wanx model for text-to-image generation
+  - Async task submission with polling
+  - Supports 1:1, 16:9, and 9:16 aspect ratios
+- Image generation fallback order: Nano Banana Pro (Gemini) → Alibaba Wanx
+- No OpenAI DALL-E dependency (removed to eliminate OpenAI API key requirement)
+
 **Enhanced Prompt System (server/routes.ts)**
 - `buildEnhancedVideoPrompt()` - Combines visual prompt with narrative context
   - Includes scene title and position in sequence
