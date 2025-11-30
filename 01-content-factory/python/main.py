@@ -27,7 +27,10 @@ from .models import (
     ContentRunState,
     GeneratedContent,
     ContentStatus,
+    IngredientBundle,
+    IngredientGenerationResult,
 )
+from .agents.video_agent import VideoAgent
 from .orchestrator import ContentFactoryOrchestrator, run_content_factory
 from .brand_voice_db import brand_voice_db, SAMPLE_BRAND_VOICES
 from .dashboard_bridge import dashboard
@@ -50,7 +53,9 @@ app.add_middleware(
 
 active_runs: dict[str, ContentRunState] = {}
 recent_content: List[GeneratedContent] = []
+ingredient_runs: dict[str, IngredientGenerationResult] = {}
 slack = SlackNotifier()
+video_agent = VideoAgent()
 
 
 class RunWeekRequest(BaseModel):
@@ -304,6 +309,169 @@ async def get_stats():
         "pass_rate": (total_passed / total_pieces * 100) if total_pieces > 0 else 0,
         "clients_available": len(brand_voice_db.list_all()),
     }
+
+
+class IngredientsGenerateRequest(BaseModel):
+    """Request body for ingredient-based video generation"""
+    scenes: List[dict]
+    voiceoverScript: str = ""
+    voiceStyle: str = "default"
+    aspectRatio: str = "16:9"
+    resolution: str = "720p"
+
+
+class IngredientsGenerateResponse(BaseModel):
+    """Response for ingredient generation request"""
+    generation_id: str
+    status: str
+    message: str
+
+
+@app.post("/api/ingredients-generate", response_model=IngredientsGenerateResponse)
+async def generate_from_ingredients(request: IngredientsGenerateRequest, background_tasks: BackgroundTasks):
+    """
+    Generate video content from an ingredient bundle.
+    
+    Accepts:
+    - scenes: list of scene objects with prompts, durations, imageUrls
+    - voiceoverScript: full script text for voiceover generation
+    - voiceStyle: voice style selection (default, professional, friendly, energetic, calm, narrative)
+    - aspectRatio: 16:9 or 9:16
+    - resolution: 720p or 1080p
+    
+    Returns a generation_id to track progress via GET /api/ingredients-generate/{generation_id}
+    """
+    from .models import IngredientScene
+    
+    generation_id = f"gen_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    try:
+        scenes = []
+        for i, scene_data in enumerate(request.scenes):
+            scene = IngredientScene(
+                id=scene_data.get("id", f"scene_{i}"),
+                prompt=scene_data.get("prompt", ""),
+                duration=scene_data.get("duration", 4),
+                imageUrl=scene_data.get("imageUrl"),
+                order=scene_data.get("order", i),
+            )
+            scenes.append(scene)
+        
+        bundle = IngredientBundle(
+            id=generation_id,
+            scenes=scenes,
+            voiceoverScript=request.voiceoverScript,
+            voiceStyle=request.voiceStyle,
+            aspectRatio=request.aspectRatio,
+            resolution=request.resolution,
+        )
+        
+        initial_result = IngredientGenerationResult(
+            bundle_id=generation_id,
+            status="queued",
+            total_scenes=len(scenes),
+        )
+        ingredient_runs[generation_id] = initial_result
+        
+        background_tasks.add_task(execute_ingredients_generation, bundle, generation_id)
+        
+        return IngredientsGenerateResponse(
+            generation_id=generation_id,
+            status="started",
+            message=f"Video generation started. Check /api/ingredients-generate/{generation_id} for progress.",
+        )
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid request: {str(e)}"
+        )
+
+
+async def execute_ingredients_generation(bundle: IngredientBundle, generation_id: str):
+    """Execute ingredient-based video generation in the background"""
+    
+    async def on_scene_update(scene_result):
+        """Callback when a scene status changes"""
+        if generation_id in ingredient_runs:
+            current = ingredient_runs[generation_id]
+            for i, sr in enumerate(current.scene_results):
+                if sr.scene_id == scene_result.scene_id:
+                    current.scene_results[i] = scene_result
+                    break
+    
+    async def on_voiceover_update(status: str, error: Optional[str]):
+        """Callback when voiceover status changes"""
+        if generation_id in ingredient_runs:
+            current = ingredient_runs[generation_id]
+            if error:
+                current.voiceover_error = error
+    
+    try:
+        result = await video_agent.generate_from_ingredients(
+            ingredient_bundle=bundle,
+            on_scene_update=on_scene_update,
+            on_voiceover_update=on_voiceover_update,
+        )
+        
+        ingredient_runs[generation_id] = result
+        
+        print(f"[IngredientsGenerate] Generation {generation_id} complete: "
+              f"{result.completed_scenes}/{result.total_scenes} scenes, "
+              f"status: {result.status}")
+        
+    except Exception as e:
+        print(f"[IngredientsGenerate] Generation {generation_id} failed: {e}")
+        if generation_id in ingredient_runs:
+            ingredient_runs[generation_id].status = "failed"
+            ingredient_runs[generation_id].voiceover_error = str(e)
+
+
+@app.get("/api/ingredients-generate/{generation_id}")
+async def get_ingredients_generation(generation_id: str):
+    """Get the status and results of an ingredient-based video generation"""
+    if generation_id not in ingredient_runs:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    
+    result = ingredient_runs[generation_id]
+    
+    return {
+        "generation_id": result.bundle_id,
+        "status": result.status,
+        "total_scenes": result.total_scenes,
+        "completed_scenes": result.completed_scenes,
+        "failed_scenes": result.failed_scenes,
+        "scene_results": [
+            {
+                "scene_id": sr.scene_id,
+                "status": sr.status.value,
+                "video_url": sr.video_url,
+                "error": sr.error,
+            }
+            for sr in result.scene_results
+        ],
+        "voiceover_url": result.voiceover_url,
+        "voiceover_error": result.voiceover_error,
+        "started_at": result.started_at.isoformat() if result.started_at else None,
+        "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+    }
+
+
+@app.get("/api/ingredients-generate")
+async def list_ingredients_generations():
+    """List all ingredient-based video generations"""
+    return [
+        {
+            "generation_id": result.bundle_id,
+            "status": result.status,
+            "total_scenes": result.total_scenes,
+            "completed_scenes": result.completed_scenes,
+            "failed_scenes": result.failed_scenes,
+            "started_at": result.started_at.isoformat() if result.started_at else None,
+            "completed_at": result.completed_at.isoformat() if result.completed_at else None,
+        }
+        for result in ingredient_runs.values()
+    ]
 
 
 if __name__ == "__main__":

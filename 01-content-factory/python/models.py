@@ -168,3 +168,47 @@ class BufferPublishPayload(BaseModel):
     content: str
     media_urls: List[str] = []
     scheduled_at: Optional[datetime] = None
+
+
+class IngredientScene(BaseModel):
+    id: str
+    prompt: str
+    duration: int = 4
+    imageUrl: Optional[str] = None
+    order: int = 0
+
+
+class SceneStatus(str, Enum):
+    PENDING = "pending"
+    GENERATING = "generating"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class SceneResult(BaseModel):
+    scene_id: str
+    status: SceneStatus = SceneStatus.PENDING
+    video_url: Optional[str] = None
+    error: Optional[str] = None
+
+
+class IngredientBundle(BaseModel):
+    id: str = Field(default_factory=lambda: f"bundle_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    scenes: List[IngredientScene]
+    voiceoverScript: str = ""
+    voiceStyle: str = "default"
+    aspectRatio: str = "16:9"
+    resolution: str = "720p"
+
+
+class IngredientGenerationResult(BaseModel):
+    bundle_id: str
+    status: str = "pending"
+    scene_results: List[SceneResult] = []
+    voiceover_url: Optional[str] = None
+    voiceover_error: Optional[str] = None
+    total_scenes: int = 0
+    completed_scenes: int = 0
+    failed_scenes: int = 0
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None

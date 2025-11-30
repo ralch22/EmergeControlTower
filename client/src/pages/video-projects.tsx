@@ -370,6 +370,12 @@ export default function VideoProjectsPage() {
           </div>
 
           <div className="flex items-center gap-4">
+            <Link href="/dashboard">
+              <Button variant="outline" className="border-zinc-700 hover:bg-zinc-800" data-testid="link-dashboard">
+                <Layers className="w-4 h-4 mr-2" />
+                Dashboard
+              </Button>
+            </Link>
             <Link href="/settings">
               <Button variant="outline" className="border-zinc-700 hover:bg-zinc-800" data-testid="link-settings">
                 <Settings className="w-4 h-4 mr-2" />

@@ -97,10 +97,11 @@ export async function registerRoutes(
     }
   });
 
-  // Get pending approval queue items
+  // Get approval queue items with optional status filter
   app.get("/api/approvals", async (req, res) => {
     try {
-      const approvals = await storage.getPendingApprovals();
+      const status = req.query.status as string | undefined;
+      const approvals = await storage.getApprovalsByStatus(status);
       res.json(approvals);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch approvals" });

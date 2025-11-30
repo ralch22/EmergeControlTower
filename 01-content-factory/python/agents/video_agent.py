@@ -2,8 +2,19 @@
 Video Agent
 Creates video scripts, generates voiceovers with ElevenLabs, and produces videos with Runway/Pika
 """
-from typing import Optional
-from ..models import BrandVoice, ContentTopic, BlogPost, VideoScript
+import asyncio
+from datetime import datetime
+from typing import Optional, Callable, Awaitable, Union
+from ..models import (
+    BrandVoice, 
+    ContentTopic, 
+    BlogPost, 
+    VideoScript,
+    IngredientBundle,
+    IngredientGenerationResult,
+    SceneResult,
+    SceneStatus,
+)
 from ..providers.claude import ClaudeProvider
 from ..providers.elevenlabs import ElevenLabsProvider
 from ..providers.runway import RunwayProvider
@@ -147,3 +158,151 @@ Return JSON:
             content_types=[],
         )
         return await self.generate_complete_video(topic, brand_voice, blog.content)
+    
+    async def generate_from_ingredients(
+        self,
+        ingredient_bundle: IngredientBundle,
+        on_scene_update: Optional[Callable[[SceneResult], Union[None, Awaitable[None]]]] = None,
+        on_voiceover_update: Optional[Callable[[str, Optional[str]], Union[None, Awaitable[None]]]] = None,
+    ) -> IngredientGenerationResult:
+        """
+        Generate video content from an ingredient bundle.
+        
+        This method handles:
+        - Generating video clips for each scene in parallel
+        - Generating voiceover audio for the script
+        - Robust error handling - if one part fails, others continue
+        - Status tracking for each scene
+        
+        Args:
+            ingredient_bundle: The ingredient bundle with scenes, voiceover script, etc.
+            on_scene_update: Optional callback when a scene status changes
+            on_voiceover_update: Optional callback when voiceover status changes
+            
+        Returns:
+            IngredientGenerationResult with all generated asset URLs and status
+        """
+        result = IngredientGenerationResult(
+            bundle_id=ingredient_bundle.id,
+            status="generating",
+            total_scenes=len(ingredient_bundle.scenes),
+            started_at=datetime.now(),
+        )
+        
+        for scene in ingredient_bundle.scenes:
+            result.scene_results.append(SceneResult(
+                scene_id=scene.id,
+                status=SceneStatus.PENDING,
+            ))
+        
+        async def generate_scene_video(scene_index: int) -> None:
+            """Generate video for a single scene"""
+            scene = ingredient_bundle.scenes[scene_index]
+            scene_result = result.scene_results[scene_index]
+            
+            scene_result.status = SceneStatus.GENERATING
+            if on_scene_update:
+                callback_result = on_scene_update(scene_result)
+                if asyncio.iscoroutine(callback_result):
+                    await callback_result
+            
+            try:
+                if scene.imageUrl:
+                    video_url = await self.video.generate_from_image(
+                        image_url=scene.imageUrl,
+                        motion_prompt=scene.prompt,
+                    )
+                else:
+                    video_url = await self.video.generate_video(
+                        prompt=scene.prompt,
+                        duration_seconds=scene.duration,
+                        aspect_ratio=ingredient_bundle.aspectRatio,
+                    )
+                
+                if video_url:
+                    scene_result.status = SceneStatus.COMPLETED
+                    scene_result.video_url = video_url
+                    result.completed_scenes += 1
+                else:
+                    scene_result.status = SceneStatus.FAILED
+                    scene_result.error = "Video generation returned no URL"
+                    result.failed_scenes += 1
+                    
+            except Exception as e:
+                scene_result.status = SceneStatus.FAILED
+                scene_result.error = str(e)
+                result.failed_scenes += 1
+                print(f"[VideoAgent] Scene {scene.id} generation failed: {e}")
+            
+            if on_scene_update:
+                callback_result = on_scene_update(scene_result)
+                if asyncio.iscoroutine(callback_result):
+                    await callback_result
+        
+        async def generate_voiceover() -> None:
+            """Generate voiceover audio from the script"""
+            if not ingredient_bundle.voiceoverScript:
+                return
+            
+            if on_voiceover_update:
+                callback_result = on_voiceover_update("generating", None)
+                if asyncio.iscoroutine(callback_result):
+                    await callback_result
+            
+            try:
+                voice_id = self._get_voice_id_for_style(ingredient_bundle.voiceStyle)
+                
+                audio_bytes = await self.voice.generate_voiceover(
+                    text=ingredient_bundle.voiceoverScript,
+                    voice_id=voice_id,
+                )
+                
+                if audio_bytes:
+                    import base64
+                    audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                    result.voiceover_url = f"data:audio/mp3;base64,{audio_base64}"
+                else:
+                    result.voiceover_error = "Voiceover generation returned no audio"
+                    
+            except Exception as e:
+                result.voiceover_error = str(e)
+                print(f"[VideoAgent] Voiceover generation failed: {e}")
+            
+            if on_voiceover_update:
+                status = "completed" if result.voiceover_url else "failed"
+                callback_result = on_voiceover_update(status, result.voiceover_error)
+                if asyncio.iscoroutine(callback_result):
+                    await callback_result
+        
+        tasks = []
+        
+        for i in range(len(ingredient_bundle.scenes)):
+            tasks.append(generate_scene_video(i))
+        
+        if ingredient_bundle.voiceoverScript:
+            tasks.append(generate_voiceover())
+        
+        await asyncio.gather(*tasks, return_exceptions=True)
+        
+        result.completed_at = datetime.now()
+        
+        if result.failed_scenes == 0 and result.voiceover_error is None:
+            result.status = "completed"
+        elif result.completed_scenes > 0 or result.voiceover_url:
+            result.status = "partial"
+        else:
+            result.status = "failed"
+        
+        return result
+    
+    def _get_voice_id_for_style(self, voice_style: str) -> Optional[str]:
+        """Map voice style to ElevenLabs voice ID"""
+        voice_map = {
+            "default": None,
+            "professional": "21m00Tcm4TlvDq8ikWAM",
+            "friendly": "EXAVITQu4vr4xnSDxMaL",
+            "energetic": "ErXwobaYiN019PkySvjV",
+            "calm": "MF3mGyEYCl7XYWbV9V6O",
+            "narrative": "VR6AewLTigWG4xSOukaG",
+        }
+        return voice_map.get(voice_style.lower())

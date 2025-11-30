@@ -63,6 +63,7 @@ export interface IStorage {
   
   // Approval Queue
   getPendingApprovals(): Promise<ApprovalQueue[]>;
+  getApprovalsByStatus(status?: string): Promise<ApprovalQueue[]>;
   getApprovalItem(id: number): Promise<ApprovalQueue | undefined>;
   createApprovalItem(item: InsertApprovalQueue): Promise<ApprovalQueue>;
   updateApprovalStatus(id: number, status: string): Promise<ApprovalQueue>;
@@ -192,6 +193,20 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(approvalQueue)
       .where(eq(approvalQueue.status, "pending"))
+      .orderBy(desc(approvalQueue.createdAt));
+  }
+
+  async getApprovalsByStatus(status?: string): Promise<ApprovalQueue[]> {
+    if (status && status !== "all") {
+      return await db
+        .select()
+        .from(approvalQueue)
+        .where(eq(approvalQueue.status, status))
+        .orderBy(desc(approvalQueue.createdAt));
+    }
+    return await db
+      .select()
+      .from(approvalQueue)
       .orderBy(desc(approvalQueue.createdAt));
   }
 
