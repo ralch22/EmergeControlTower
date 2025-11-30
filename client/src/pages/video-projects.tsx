@@ -21,8 +21,10 @@ import {
   Download,
   Film,
   Music,
-  Layers
+  Layers,
+  Settings
 } from "lucide-react";
+import { Link } from "wouter";
 
 type VideoProject = {
   projectId: string;
@@ -222,6 +224,13 @@ export default function VideoProjectsPage() {
           </div>
 
           <div className="flex items-center gap-4">
+            <Link href="/settings">
+              <Button variant="outline" className="border-zinc-700 hover:bg-zinc-800" data-testid="link-settings">
+                <Settings className="w-4 h-4 mr-2" />
+                Settings
+              </Button>
+            </Link>
+
             <Select value={provider} onValueChange={(v: "runway" | "wan") => setProvider(v)}>
               <SelectTrigger className="w-32 bg-zinc-900 border-zinc-700" data-testid="select-provider">
                 <SelectValue />
