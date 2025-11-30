@@ -269,36 +269,121 @@
         return {
           time: '',
           kpi: {
-            mrr: '$342,500',
-            mrrChange: '+12.4%',
-            profit: '$8,420',
-            aiOutput: '14,203'
+            mrr: '$0',
+            mrrChange: '+0%',
+            profit: '$0',
+            aiOutput: '0'
           },
-          pods: [
-            { name: 'Alpha Pod', vertical: 'SaaS / B2B', mrr: '$125k', health: 98, margin: 85 },
-            { name: 'Beta Pod', vertical: 'E-com', mrr: '$85k', health: 92, margin: 65 },
-            { name: 'Gamma Pod', vertical: 'FinTech', mrr: '$132k', health: 100, margin: 90 },
-          ],
-          phases: [
-            { client: 'Nexus Corp', oldPrice: '$5k', newPrice: '$12k', date: 'Dec 02', countdown: '2d left' },
-            { client: 'Vanguard AI', oldPrice: '$8k', newPrice: '$15k', date: 'Dec 04', countdown: '4d left' },
-            { client: 'Oasis Systems', oldPrice: '$4k', newPrice: '$9k', date: 'Dec 06', countdown: '6d left' },
-          ],
-          queue: [
-            { id: 1, client: 'Stellar Dynamics', type: 'LinkedIn Carousel', author: 'Sarah AI', timeAgo: '12m ago', thumbnail: 'https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?w=100&h=100&fit=crop' },
-            { id: 2, client: 'HyperLoop One', type: 'Blog Post', author: 'Davinci Model', timeAgo: '45m ago', thumbnail: 'https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=100&h=100&fit=crop' },
-            { id: 3, client: 'Quantum Leap', type: 'Email Sequence', author: 'Claude 3.5', timeAgo: '1h ago', thumbnail: 'https://images.unsplash.com/photo-1518770660439-4636190af475?w=100&h=100&fit=crop' },
-          ],
-          alerts: [
-             { id: 1, title: 'Over-hours Alert', desc: 'Delta Pod is at 115% capacity utilization.' },
-             { id: 2, title: 'Negative ROAS', desc: 'Campaign #442 (Solaris) dropped below 1.2x.' },
-             { id: 3, title: 'SLA Breach Risk', desc: 'Ticket #9928 open for 1h 55m.' },
-          ],
+          pods: [],
+          phases: [],
+          queue: [],
+          alerts: [],
           
-          initDashboard() {
+          async initDashboard() {
             this.updateTime();
             setInterval(() => this.updateTime(), 1000);
-            setInterval(() => this.simulateLiveUpdates(), 10000);
+            
+            // Load initial data
+            await this.loadData();
+            
+            // Refresh data every 10 seconds
+            setInterval(() => this.loadData(), 10000);
+          },
+          
+          async loadData() {
+            try {
+              await Promise.all([
+                this.loadKpis(),
+                this.loadPods(),
+                this.loadPhaseChanges(),
+                this.loadApprovals(),
+                this.loadAlerts()
+              ]);
+            } catch (error) {
+              console.error('Error loading data:', error);
+            }
+          },
+
+          async loadKpis() {
+            const response = await fetch('/api/kpis');
+            const data = await response.json();
+            if (data) {
+              this.kpi = {
+                mrr: '$' + parseFloat(data.mrr).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+                mrrChange: '+' + parseFloat(data.mrrChange).toFixed(1) + '%',
+                profit: '$' + parseFloat(data.profitToday).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+                aiOutput: data.aiOutputToday.toLocaleString()
+              };
+            }
+          },
+
+          async loadPods() {
+            const response = await fetch('/api/pods');
+            const data = await response.json();
+            this.pods = data.map(pod => ({
+              id: pod.id,
+              name: pod.name,
+              vertical: pod.vertical,
+              mrr: '$' + (parseFloat(pod.mrr) / 1000).toFixed(0) + 'k',
+              health: pod.health,
+              margin: pod.margin
+            }));
+          },
+
+          async loadPhaseChanges() {
+            const response = await fetch('/api/phase-changes');
+            const data = await response.json();
+            this.phases = data.map(phase => {
+              const changeDate = new Date(phase.changeDate);
+              const now = new Date();
+              const daysLeft = Math.ceil((changeDate - now) / (1000 * 60 * 60 * 24));
+              
+              return {
+                id: phase.id,
+                client: phase.client,
+                oldPrice: '$' + (parseFloat(phase.oldPrice) / 1000).toFixed(0) + 'k',
+                newPrice: '$' + (parseFloat(phase.newPrice) / 1000).toFixed(0) + 'k',
+                date: changeDate.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }),
+                countdown: daysLeft > 0 ? daysLeft + 'd left' : 'Today'
+              };
+            });
+          },
+
+          async loadApprovals() {
+            const response = await fetch('/api/approvals');
+            const data = await response.json();
+            this.queue = data.map(item => {
+              const createdAt = new Date(item.createdAt);
+              const now = new Date();
+              const minutesAgo = Math.floor((now - createdAt) / (1000 * 60));
+              
+              let timeAgo;
+              if (minutesAgo < 60) {
+                timeAgo = minutesAgo + 'm ago';
+              } else {
+                const hoursAgo = Math.floor(minutesAgo / 60);
+                timeAgo = hoursAgo + 'h ago';
+              }
+              
+              return {
+                id: item.id,
+                client: item.client,
+                type: item.type,
+                author: item.author,
+                thumbnail: item.thumbnail,
+                timeAgo
+              };
+            });
+          },
+
+          async loadAlerts() {
+            const response = await fetch('/api/alerts');
+            const data = await response.json();
+            this.alerts = data.map(alert => ({
+              id: alert.id,
+              title: alert.title,
+              desc: alert.description
+            }));
           },
           
           updateTime() {
@@ -316,38 +401,28 @@
             });
           },
 
-          simulateLiveUpdates() {
-            // Fluctuate AI Output
-            let currentOutput = parseInt(this.kpi.aiOutput.replace(/,/g, ''));
-            currentOutput += Math.floor(Math.random() * 50) + 10;
-            this.kpi.aiOutput = currentOutput.toLocaleString();
-
-            // Fluctuate Profit slightly
-            let currentProfit = parseInt(this.kpi.profit.replace(/[$,]/g, ''));
-            currentProfit += Math.floor(Math.random() * 100) - 20; 
-            this.kpi.profit = '$' + currentProfit.toLocaleString();
-            
-            // Randomly toggle health of a pod slightly
-            this.pods = this.pods.map(pod => ({
-                ...pod,
-                health: Math.min(100, Math.max(80, pod.health + (Math.random() > 0.5 ? 1 : -1)))
-            }));
-          },
-
           getHealthColor(score) {
               if (score >= 95) return '#10b981'; // Green
               if (score >= 85) return '#f59e0b'; // Amber
               return '#ef4444'; // Red
           },
 
-          approve(id) {
-             // Remove from queue with animation
-             this.queue = this.queue.filter(item => item.id !== id);
-             // In a real app, this would API call
+          async approve(id) {
+             try {
+               await fetch(`/api/approvals/${id}/approve`, { method: 'POST' });
+               this.queue = this.queue.filter(item => item.id !== id);
+             } catch (error) {
+               console.error('Error approving item:', error);
+             }
           },
           
-          reject(id) {
-             this.queue = this.queue.filter(item => item.id !== id);
+          async reject(id) {
+             try {
+               await fetch(`/api/approvals/${id}/reject`, { method: 'POST' });
+               this.queue = this.queue.filter(item => item.id !== id);
+             } catch (error) {
+               console.error('Error rejecting item:', error);
+             }
           }
         }
       }
