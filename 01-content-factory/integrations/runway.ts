@@ -10,7 +10,7 @@ export interface VideoGenerationResult {
 }
 
 async function generateImageWithGemini(prompt: string): Promise<{ success: boolean; imageUrl?: string; error?: string }> {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GOOGLE_API_KEY;
+  const apiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
   
   if (!apiKey) {
     return { success: false, error: "Gemini API key not configured" };
