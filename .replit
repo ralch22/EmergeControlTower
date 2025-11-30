@@ -24,12 +24,12 @@ localPort = 42649
 externalPort = 3002
 
 [[ports]]
-localPort = 46539
-externalPort = 3000
+localPort = 42825
+externalPort = 3003
 
 [[ports]]
-localPort = 46851
-externalPort = 3003
+localPort = 46539
+externalPort = 3000
 
 [env]
 PORT = "5000"
@@ -58,3 +58,9 @@ waitForPort = 5000
 [agent]
 mockupState = "FULLSTACK"
 integrations = ["javascript_database:1.0.0", "javascript_anthropic_ai_integrations:1.0.0", "javascript_gemini_ai_integrations:1.0.0", "javascript_openai:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+GOOGLE_CLOUD_PROJECT = "gen-lang-client-0274381734"
+GOOGLE_CLOUD_LOCATION = "us-central1"
