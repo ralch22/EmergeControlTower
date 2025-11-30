@@ -21,7 +21,7 @@ export async function generateWithClaude(
   const { maxTokens = 4096, temperature = 0.7 } = options;
 
   const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-5-20250514",
+    model: "claude-sonnet-4-5",
     max_tokens: maxTokens,
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
@@ -45,7 +45,7 @@ export async function generateWithClaudeStreaming(
   let fullResponse = "";
 
   const stream = anthropic.messages.stream({
-    model: "claude-sonnet-4-5-20250514",
+    model: "claude-sonnet-4-5",
     max_tokens: maxTokens,
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
