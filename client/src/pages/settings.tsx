@@ -75,8 +75,13 @@ export default function SettingsPage() {
   const queryClient = useQueryClient();
   const [testingProvider, setTestingProvider] = useState<number | null>(null);
 
-  const { data: providers = [], isLoading } = useQuery<AiProvider[]>({
+  const { data: providers = [], isLoading, error } = useQuery<AiProvider[]>({
     queryKey: ["/api/providers"],
+    queryFn: async () => {
+      const res = await fetch("/api/providers");
+      if (!res.ok) throw new Error("Failed to fetch providers");
+      return res.json();
+    },
   });
 
   const updateMutation = useMutation({
