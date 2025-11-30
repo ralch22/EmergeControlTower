@@ -693,11 +693,18 @@ export async function registerRoutes(
 
   // ========== VIDEO PROJECTS ==========
 
-  // Get all video projects
+  // Get all video projects with full data
   app.get("/api/video-projects", async (req, res) => {
     try {
       const projects = await storage.getAllVideoProjects();
-      res.json(projects);
+      // Fetch full data for each project including scenes, clips, and audio
+      const fullProjects = await Promise.all(
+        projects.map(async (project) => {
+          const fullProject = await storage.getFullVideoProject(project.projectId);
+          return fullProject || { ...project, scenes: [], clips: [], audioTracks: [] };
+        })
+      );
+      res.json(fullProjects);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch video projects" });
     }
@@ -957,7 +964,7 @@ async function generateVideoProjectAsync(
         await storage.updateVideoScene(scene.sceneId, { status: 'generating' });
 
         // Check if clip already exists and is ready
-        const existingClip = fullProject.clips.find(c => c.sceneId === scene.sceneId);
+        const existingClip = fullProject.clips.find((c: { sceneId: string; status: string; clipId: string }) => c.sceneId === scene.sceneId);
         const clipNeedsGeneration = !existingClip || existingClip.status === 'pending' || existingClip.status === 'failed';
         
         let clipId = existingClip?.clipId || `clip_${scene.sceneId}_${Date.now()}`;
@@ -1035,7 +1042,7 @@ async function generateVideoProjectAsync(
         }
 
         // Check if audio already exists and is ready
-        const existingAudio = fullProject.audioTracks.find(a => a.sceneId === scene.sceneId);
+        const existingAudio = fullProject.audioTracks.find((a: { sceneId: string; status: string; trackId: string }) => a.sceneId === scene.sceneId);
         const audioNeedsGeneration = !existingAudio || existingAudio.status === 'pending' || existingAudio.status === 'failed';
 
         // Generate audio (ElevenLabs)

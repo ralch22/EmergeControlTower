@@ -167,29 +167,38 @@ export default function VideoProjectsPage() {
   });
 
   const getProjectStats = (project: VideoProject) => {
-    const readyScenes = project.scenes.filter(s => s.status === "ready").length;
-    const failedScenes = project.scenes.filter(s => s.status === "failed").length;
-    const readyClips = project.clips.filter(c => c.status === "ready").length;
-    const failedClips = project.clips.filter(c => c.status === "failed").length;
-    const readyAudio = project.audioTracks.filter(a => a.status === "ready").length;
-    const failedAudio = project.audioTracks.filter(a => a.status === "failed").length;
+    const scenes = project.scenes || [];
+    const clips = project.clips || [];
+    const audioTracks = project.audioTracks || [];
+    
+    const readyScenes = scenes.filter(s => s.status === "ready").length;
+    const failedScenes = scenes.filter(s => s.status === "failed").length;
+    const readyClips = clips.filter(c => c.status === "ready").length;
+    const failedClips = clips.filter(c => c.status === "failed").length;
+    const readyAudio = audioTracks.filter(a => a.status === "ready").length;
+    const failedAudio = audioTracks.filter(a => a.status === "failed").length;
 
     return {
-      scenes: { ready: readyScenes, failed: failedScenes, total: project.scenes.length },
-      clips: { ready: readyClips, failed: failedClips, total: project.clips.length },
-      audio: { ready: readyAudio, failed: failedAudio, total: project.audioTracks.length },
+      scenes: { ready: readyScenes, failed: failedScenes, total: scenes.length },
+      clips: { ready: readyClips, failed: failedClips, total: clips.length },
+      audio: { ready: readyAudio, failed: failedAudio, total: audioTracks.length },
     };
   };
 
   const canRegenerate = (project: VideoProject) => {
+    const scenes = project.scenes || [];
+    const clips = project.clips || [];
+    const audioTracks = project.audioTracks || [];
+    
     return project.status === "failed" || 
-      project.scenes.some(s => s.status === "failed") ||
-      project.clips.some(c => c.status === "failed") ||
-      project.audioTracks.some(a => a.status === "failed");
+      scenes.some(s => s.status === "failed") ||
+      clips.some(c => c.status === "failed") ||
+      audioTracks.some(a => a.status === "failed");
   };
 
   const canExport = (project: VideoProject) => {
-    return project.clips.length > 0 && project.clips.every(c => c.status === "ready");
+    const clips = project.clips || [];
+    return clips.length > 0 && clips.every(c => c.status === "ready");
   };
 
   if (isLoading) {
@@ -446,9 +455,11 @@ export default function VideoProjectsPage() {
                 <div>
                   <h4 className="text-sm font-medium text-zinc-400 mb-3">Scenes</h4>
                   <div className="space-y-2">
-                    {selectedProject.scenes.map((scene) => {
-                      const clip = selectedProject.clips.find(c => c.sceneId === scene.sceneId);
-                      const audio = selectedProject.audioTracks.find(a => a.sceneId === scene.sceneId);
+                    {(selectedProject.scenes || []).map((scene) => {
+                      const clips = selectedProject.clips || [];
+                      const audioTracks = selectedProject.audioTracks || [];
+                      const clip = clips.find(c => c.sceneId === scene.sceneId);
+                      const audio = audioTracks.find(a => a.sceneId === scene.sceneId);
 
                       return (
                         <div
