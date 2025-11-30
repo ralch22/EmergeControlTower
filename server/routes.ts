@@ -788,11 +788,11 @@ export async function registerRoutes(
     }
   });
 
-  // Start video generation for a project
+  // Start video generation for a project (uses multi-provider fallback system)
   app.post("/api/video-projects/:projectId/generate", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const { provider = 'runway' } = req.body; // runway or wan (runway is default)
+      const { provider = null } = req.body; // Optional preferred provider (fallback system handles priority)
       
       const fullProject = await storage.getFullVideoProject(projectId);
       if (!fullProject) {
@@ -802,12 +802,12 @@ export async function registerRoutes(
       // Update project status
       await storage.updateVideoProject(projectId, { status: 'generating' });
 
-      // Start background generation process
+      // Start background generation process with fallback system
       generateVideoProjectAsync(projectId, provider, storage);
 
       res.json({ 
         success: true, 
-        message: "Video generation started",
+        message: "Video generation started with automatic provider fallback",
         projectId,
         scenesToGenerate: fullProject.scenes.length,
       });
@@ -817,11 +817,11 @@ export async function registerRoutes(
     }
   });
 
-  // Regenerate failed video project (reset failed scenes and restart)
+  // Regenerate failed video project (reset failed scenes and restart with fallback)
   app.post("/api/video-projects/:projectId/regenerate", async (req, res) => {
     try {
       const { projectId } = req.params;
-      const { provider = 'runway' } = req.body;
+      const { provider = null } = req.body; // Optional preferred provider (fallback system handles priority)
       
       const fullProject = await storage.getFullVideoProject(projectId);
       if (!fullProject) {
@@ -849,12 +849,12 @@ export async function registerRoutes(
       // Update project status
       await storage.updateVideoProject(projectId, { status: 'generating' });
 
-      // Start background regeneration process
+      // Start background regeneration process with fallback system
       generateVideoProjectAsync(projectId, provider, storage);
 
       res.json({ 
         success: true, 
-        message: "Video regeneration started",
+        message: "Video regeneration started with automatic provider fallback",
         projectId,
         scenesToRegenerate: failedScenes.length,
         clipsToRegenerate: failedClips.length,
@@ -1141,17 +1141,44 @@ export async function registerRoutes(
   return httpServer;
 }
 
-// Background video generation function
+// Background video generation function with multi-provider fallback
 async function generateVideoProjectAsync(
   projectId: string, 
-  provider: 'wan' | 'runway',
+  preferredProvider: string | null,
   storage: any
 ) {
   try {
     const fullProject = await storage.getFullVideoProject(projectId);
     if (!fullProject) return;
 
-    console.log(`[VideoProject] Starting generation for ${projectId} with ${fullProject.scenes.length} scenes using ${provider}`);
+    // Get enabled video providers from database, sorted by priority
+    const allProviders = await storage.getAiProvidersByCategory('video');
+    let enabledProviders = allProviders
+      .filter((p: { isEnabled: boolean }) => p.isEnabled)
+      .sort((a: { priority: number }, b: { priority: number }) => a.priority - b.priority)
+      .map((p: { name: string; priority: number; isEnabled: boolean }) => ({
+        name: p.name as any,
+        priority: p.priority,
+        isEnabled: p.isEnabled,
+      }));
+
+    // If a preferred provider is specified and enabled, move it to the front
+    if (preferredProvider) {
+      const preferredIndex = enabledProviders.findIndex(
+        (p: { name: string }) => p.name === preferredProvider
+      );
+      if (preferredIndex > 0) {
+        const preferred = enabledProviders.splice(preferredIndex, 1)[0];
+        enabledProviders.unshift(preferred);
+        console.log(`[VideoProject] Moved preferred provider ${preferredProvider} to front`);
+      }
+    }
+
+    console.log(`[VideoProject] Starting generation for ${projectId} with ${fullProject.scenes.length} scenes`);
+    console.log(`[VideoProject] Enabled providers in priority order: ${enabledProviders.map((p: { name: string }) => p.name).join(' → ')}`);
+
+    // Import the fallback system
+    const { generateVideoWithFallback, waitForVideoWithProvider } = await import("../01-content-factory/integrations/video-provider");
 
     for (const scene of fullProject.scenes) {
       // Skip scenes that are already ready
@@ -1161,89 +1188,112 @@ async function generateVideoProjectAsync(
       }
 
       try {
+        // Refresh project state to get latest clip/audio status
+        const currentProject = await storage.getFullVideoProject(projectId);
+        if (!currentProject) continue;
+
         // Update scene status
         await storage.updateVideoScene(scene.sceneId, { status: 'generating' });
 
-        // Check if clip already exists and is ready
-        const existingClip = fullProject.clips.find((c: { sceneId: string; status: string; clipId: string }) => c.sceneId === scene.sceneId);
+        // Check if clip already exists and is ready (using refreshed state)
+        const existingClip = currentProject.clips.find((c: { sceneId: string; status: string; clipId: string }) => c.sceneId === scene.sceneId);
         const clipNeedsGeneration = !existingClip || existingClip.status === 'pending' || existingClip.status === 'failed';
         
         let clipId = existingClip?.clipId || `clip_${scene.sceneId}_${Date.now()}`;
         let clipResult;
+        let successfulProvider: string | null = null;
         
         if (clipNeedsGeneration) {
-          console.log(`[VideoProject] Generating clip for scene ${scene.sceneNumber} with ${provider}`);
+          console.log(`[VideoProject] Generating clip for scene ${scene.sceneNumber} using fallback system`);
           
-          if (provider === 'wan') {
-            const { generateVideoWithWan, waitForWanCompletion } = await import("../01-content-factory/integrations/wan");
+          // Try each provider in order until one succeeds
+          for (const providerConfig of enabledProviders) {
+            console.log(`[VideoProject] Trying provider: ${providerConfig.name}`);
             
-            const taskResult = await generateVideoWithWan(scene.visualPrompt, {
-              duration: Math.min(scene.duration, 10),
-              resolution: '720p',
-            });
+            // Use the fallback system to generate video with this specific provider
+            const singleProvider = [providerConfig];
+            const taskResult = await generateVideoWithFallback(
+              scene.visualPrompt,
+              singleProvider,
+              {
+                duration: Math.min(scene.duration, 10),
+                aspectRatio: '16:9',
+              }
+            );
 
-            if (taskResult.success && taskResult.taskId) {
+            if (taskResult.success && taskResult.taskId && taskResult.provider) {
+              const usedProvider = taskResult.provider;
+              console.log(`[VideoProject] Task started with ${usedProvider}: ${taskResult.taskId}`);
+              
               if (!existingClip) {
                 await storage.createVideoClip({
                   clipId,
                   sceneId: scene.sceneId,
                   projectId,
-                  provider: 'wan',
+                  provider: usedProvider,
                   taskId: taskResult.taskId,
                   status: 'generating',
                 });
               } else {
-                await storage.updateVideoClip(clipId, { taskId: taskResult.taskId, status: 'generating', provider: 'wan' });
-              }
-
-              clipResult = await waitForWanCompletion(taskResult.taskId, 300);
-            }
-          } else {
-            // Use Runway
-            const { generateVideoFromText, waitForVideoCompletion } = await import("../01-content-factory/integrations/runway");
-            
-            const taskResult = await generateVideoFromText(scene.visualPrompt);
-
-            if (taskResult.success && taskResult.taskId) {
-              if (!existingClip) {
-                await storage.createVideoClip({
-                  clipId,
-                  sceneId: scene.sceneId,
-                  projectId,
-                  provider: 'runway',
-                  taskId: taskResult.taskId,
-                  status: 'generating',
+                await storage.updateVideoClip(clipId, { 
+                  taskId: taskResult.taskId, 
+                  status: 'generating', 
+                  provider: usedProvider 
                 });
-              } else {
-                await storage.updateVideoClip(clipId, { taskId: taskResult.taskId, status: 'generating', provider: 'runway' });
               }
 
-              clipResult = await waitForVideoCompletion(taskResult.taskId, 180);
+              // Wait for completion using the provider that was used
+              clipResult = await waitForVideoWithProvider(
+                taskResult.taskId, 
+                usedProvider as any,
+                300, // max wait seconds
+                10   // poll interval
+              );
+              
+              // Check if we got a successful result
+              if (clipResult?.success && clipResult.videoUrl) {
+                successfulProvider = usedProvider;
+                break; // Success - exit the provider loop
+              } else if (clipResult?.status === 'failed' || (clipResult?.error && !clipResult?.status?.includes('processing'))) {
+                console.log(`[VideoProject] Provider ${usedProvider} failed: ${clipResult?.error}, trying next provider...`);
+                // Continue to next provider
+                continue;
+              } else {
+                // Still processing after timeout - mark as failed and try next
+                console.log(`[VideoProject] Provider ${usedProvider} timed out, trying next provider...`);
+                continue;
+              }
+            } else {
+              console.log(`[VideoProject] Provider ${providerConfig.name} failed to start: ${taskResult.error}`);
+              // Continue to next provider
+              continue;
             }
           }
 
-          // Update clip with result
-          if (clipResult?.success && clipResult.videoUrl) {
+          // Update clip with final result
+          if (successfulProvider && clipResult?.success && clipResult.videoUrl) {
             await storage.updateVideoClip(clipId, {
               videoUrl: clipResult.videoUrl,
               status: 'ready',
             });
             await storage.updateVideoScene(scene.sceneId, { status: 'ready' });
-            console.log(`[VideoProject] Scene ${scene.sceneNumber} clip ready`);
+            console.log(`[VideoProject] Scene ${scene.sceneNumber} clip ready (via ${successfulProvider})`);
           } else {
             await storage.updateVideoClip(clipId, {
               status: 'failed',
-              errorMessage: clipResult?.error || 'Generation failed',
+              errorMessage: clipResult?.error || 'All providers failed',
             });
             await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
+            console.error(`[VideoProject] All providers failed for scene ${scene.sceneNumber}`);
           }
         } else {
           console.log(`[VideoProject] Scene ${scene.sceneNumber} clip already ready, skipping`);
           await storage.updateVideoScene(scene.sceneId, { status: 'ready' });
         }
 
-        // Check if audio already exists and is ready
-        const existingAudio = fullProject.audioTracks.find((a: { sceneId: string; status: string; trackId: string }) => a.sceneId === scene.sceneId);
+        // Check if audio already exists and is ready (use refreshed state)
+        const latestProject = await storage.getFullVideoProject(projectId);
+        const existingAudio = latestProject?.audioTracks.find((a: { sceneId: string; status: string; trackId: string }) => a.sceneId === scene.sceneId);
         const audioNeedsGeneration = !existingAudio || existingAudio.status === 'pending' || existingAudio.status === 'failed';
 
         // Generate audio (ElevenLabs)
