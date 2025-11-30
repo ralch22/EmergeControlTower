@@ -33,7 +33,7 @@ export async function generateVoiceoverWithOpenAI(
   text: string,
   options: OpenAITTSOptions = {}
 ): Promise<OpenAITTSResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
   
   if (!apiKey) {
     return {
@@ -124,7 +124,7 @@ export async function generateVoiceoverWithOpenAIUrl(
 }
 
 export function isOpenAIConfigured(): boolean {
-  return !!process.env.OPENAI_API_KEY;
+  return !!(process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY);
 }
 
 export { VOICE_STYLE_TO_OPENAI };
