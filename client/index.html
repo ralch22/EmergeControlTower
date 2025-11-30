@@ -13,7 +13,533 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;900&display=swap" rel="stylesheet">
     
     <!-- Tailwind (using local for speed if available) -->
-    <link rel="stylesheet" href="/src/index.css" /> 
+    <link rel="stylesheet" href="/src/index.css" />
+    
+    <!-- Dashboard function (must be before Alpine.js) -->
+    <script>
+      function dashboard() {
+        return {
+          time: '',
+          currentView: 'dashboard',
+          kpi: {
+            mrr: '$0',
+            mrrChange: '+0%',
+            profit: '$0',
+            aiOutput: '0'
+          },
+          pods: [],
+          phases: [],
+          queue: [],
+          alerts: [],
+          clients: [],
+          selectedClient: '',
+          isRunning: false,
+          lastRunId: null,
+          allContent: [],
+          filteredContent: [],
+          contentFilter: {
+            clientId: '',
+            type: '',
+            status: ''
+          },
+          contentStats: {
+            total: 0,
+            pending: 0,
+            approved: 0,
+            avgScore: '-'
+          },
+          showContentModal: false,
+          selectedContent: null,
+          isGeneratingVideo: false,
+          
+          // Video Projects
+          allVideoProjects: [],
+          filteredVideoProjects: [],
+          videoProjectFilter: {
+            status: ''
+          },
+          videoProjectStats: {
+            total: 0,
+            draft: 0,
+            generating: 0,
+            ready: 0,
+            exported: 0
+          },
+          showVideoProjectModal: false,
+          selectedVideoProject: null,
+          isGeneratingProject: false,
+          isExportingProject: false,
+          
+          async initDashboard() {
+            this.updateTime();
+            setInterval(() => this.updateTime(), 1000);
+            
+            // Load initial data
+            await this.loadData();
+            
+            // Refresh data every 10 seconds
+            setInterval(() => this.loadData(), 10000);
+          },
+          
+          async loadData() {
+            try {
+              await Promise.all([
+                this.loadKpis(),
+                this.loadPods(),
+                this.loadPhaseChanges(),
+                this.loadApprovals(),
+                this.loadAlerts(),
+                this.loadClients(),
+                this.loadVideoProjects()
+              ]);
+            } catch (error) {
+              console.error('Error loading data:', error);
+            }
+          },
+
+          async loadKpis() {
+            const response = await fetch('/api/kpis');
+            const data = await response.json();
+            if (data) {
+              this.kpi = {
+                mrr: '$' + parseFloat(data.mrr).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+                mrrChange: '+' + parseFloat(data.mrrChange).toFixed(1) + '%',
+                profit: '$' + parseFloat(data.profitToday).toLocaleString('en-US', { maximumFractionDigits: 0 }),
+                aiOutput: data.aiOutputToday.toLocaleString()
+              };
+            }
+          },
+
+          async loadPods() {
+            const response = await fetch('/api/pods');
+            const data = await response.json();
+            this.pods = data.map(pod => ({
+              id: pod.id,
+              name: pod.name,
+              vertical: pod.vertical,
+              mrr: '$' + (parseFloat(pod.mrr) / 1000).toFixed(0) + 'k',
+              health: pod.health,
+              margin: pod.margin
+            }));
+          },
+
+          async loadPhaseChanges() {
+            const response = await fetch('/api/phase-changes');
+            const data = await response.json();
+            this.phases = data.map(phase => {
+              const changeDate = new Date(phase.changeDate);
+              const now = new Date();
+              const daysLeft = Math.ceil((changeDate - now) / (1000 * 60 * 60 * 24));
+              
+              return {
+                id: phase.id,
+                client: phase.client,
+                oldPrice: '$' + (parseFloat(phase.oldPrice) / 1000).toFixed(0) + 'k',
+                newPrice: '$' + (parseFloat(phase.newPrice) / 1000).toFixed(0) + 'k',
+                date: changeDate.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }),
+                countdown: daysLeft > 0 ? daysLeft + 'd left' : 'Today'
+              };
+            });
+          },
+
+          async loadApprovals() {
+            const response = await fetch('/api/approvals');
+            const data = await response.json();
+            this.queue = data.map(item => {
+              const createdAt = new Date(item.createdAt);
+              const now = new Date();
+              const minutesAgo = Math.floor((now - createdAt) / (1000 * 60));
+              
+              let timeAgo;
+              if (minutesAgo < 60) {
+                timeAgo = minutesAgo + 'm ago';
+              } else {
+                const hoursAgo = Math.floor(minutesAgo / 60);
+                timeAgo = hoursAgo + 'h ago';
+              }
+              
+              return {
+                id: item.id,
+                client: item.client,
+                type: item.type,
+                author: item.author,
+                thumbnail: item.thumbnail,
+                timeAgo
+              };
+            });
+          },
+
+          async loadAlerts() {
+            const response = await fetch('/api/alerts');
+            const data = await response.json();
+            this.alerts = data.map(alert => ({
+              id: alert.id,
+              title: alert.title,
+              desc: alert.description
+            }));
+          },
+          
+          updateTime() {
+            // Dubai is UTC+4
+            const d = new Date();
+            // Get UTC time and add 4 hours
+            const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+            const dubaiTime = new Date(utc + (3600000 * 4));
+            
+            this.time = dubaiTime.toLocaleTimeString('en-US', { 
+              hour: '2-digit', 
+              minute: '2-digit', 
+              second: '2-digit',
+              hour12: true 
+            });
+          },
+
+          getHealthColor(score) {
+              if (score >= 95) return '#10b981'; // Green
+              if (score >= 85) return '#f59e0b'; // Amber
+              return '#ef4444'; // Red
+          },
+
+          async approve(id) {
+             try {
+               await fetch(`/api/approvals/${id}/approve`, { method: 'POST' });
+               this.queue = this.queue.filter(item => item.id !== id);
+             } catch (error) {
+               console.error('Error approving item:', error);
+             }
+          },
+          
+          async reject(id) {
+             try {
+               await fetch(`/api/approvals/${id}/reject`, { method: 'POST' });
+               this.queue = this.queue.filter(item => item.id !== id);
+             } catch (error) {
+               console.error('Error rejecting item:', error);
+             }
+          },
+
+          async loadClients() {
+            try {
+              const response = await fetch('/api/clients');
+              const data = await response.json();
+              this.clients = data.map(client => ({
+                id: client.id,
+                name: client.name,
+                industry: client.industry
+              }));
+            } catch (error) {
+              console.error('Error loading clients:', error);
+            }
+          },
+
+          async runWeekForClient() {
+            if (!this.selectedClient || this.isRunning) return;
+            
+            this.isRunning = true;
+            
+            try {
+              const response = await fetch('/api/content-factory/run-week', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clientId: parseInt(this.selectedClient) })
+              });
+              
+              const data = await response.json();
+              
+              if (response.ok) {
+                this.lastRunId = data.runId;
+                console.log('Content run started:', data.runId);
+              } else {
+                console.error('Failed to start content run:', data.error);
+                alert('Failed to start content generation: ' + data.error);
+              }
+            } catch (error) {
+              console.error('Error starting content run:', error);
+              alert('Failed to start content generation. Please try again.');
+            } finally {
+              setTimeout(() => {
+                this.isRunning = false;
+              }, 5000);
+            }
+          },
+
+          async loadContent() {
+            try {
+              let url = '/api/content';
+              if (this.contentFilter.clientId) {
+                url += `?clientId=${this.contentFilter.clientId}`;
+              }
+              const response = await fetch(url);
+              const data = await response.json();
+              this.allContent = data;
+              this.filterContent();
+              this.updateContentStats();
+            } catch (error) {
+              console.error('Error loading content:', error);
+            }
+          },
+
+          filterContent() {
+            this.filteredContent = this.allContent.filter(item => {
+              if (this.contentFilter.type && item.type !== this.contentFilter.type) return false;
+              if (this.contentFilter.status && item.status !== this.contentFilter.status) return false;
+              return true;
+            });
+          },
+
+          updateContentStats() {
+            const total = this.allContent.length;
+            const pending = this.allContent.filter(c => c.status === 'pending_review').length;
+            const approved = this.allContent.filter(c => c.status === 'approved').length;
+            const scores = this.allContent.filter(c => c.qaScore).map(c => c.qaScore);
+            const avgScore = scores.length > 0 
+              ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) 
+              : '-';
+            
+            this.contentStats = { total, pending, approved, avgScore };
+          },
+
+          getTypeLabel(type) {
+            const labels = {
+              'blog': 'Blog',
+              'linkedin': 'LinkedIn',
+              'twitter': 'Twitter/X',
+              'instagram': 'Instagram',
+              'facebook_ad': 'FB Ad',
+              'google_ad': 'Google Ad',
+              'video_script': 'Video'
+            };
+            return labels[type] || type;
+          },
+
+          formatDate(dateStr) {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            });
+          },
+
+          viewContent(item) {
+            this.selectedContent = item;
+            this.showContentModal = true;
+          },
+
+          async copyContent(item) {
+            try {
+              await navigator.clipboard.writeText(item.content);
+              alert('Content copied to clipboard!');
+            } catch (error) {
+              console.error('Failed to copy:', error);
+            }
+          },
+
+          async approveContent(contentId) {
+            try {
+              await fetch(`/api/content/${contentId}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'approved' })
+              });
+              const item = this.allContent.find(c => c.contentId === contentId);
+              if (item) item.status = 'approved';
+              this.filterContent();
+              this.updateContentStats();
+            } catch (error) {
+              console.error('Error approving content:', error);
+            }
+          },
+
+          async rejectContent(contentId) {
+            try {
+              await fetch(`/api/content/${contentId}/status`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'rejected' })
+              });
+              const item = this.allContent.find(c => c.contentId === contentId);
+              if (item) item.status = 'rejected';
+              this.filterContent();
+              this.updateContentStats();
+            } catch (error) {
+              console.error('Error rejecting content:', error);
+            }
+          },
+
+          async generateVideo(contentId) {
+            if (this.isGeneratingVideo || !contentId) return;
+            
+            this.isGeneratingVideo = true;
+            
+            try {
+              const response = await fetch(`/api/content/${contentId}/generate-video`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              
+              const data = await response.json();
+              
+              if (response.ok && data.success) {
+                if (data.videoUrl) {
+                  // Update the selected content with the new video URL
+                  this.selectedContent.videoUrl = data.videoUrl;
+                  
+                  // Also update in allContent
+                  const item = this.allContent.find(c => c.contentId === contentId);
+                  if (item) item.videoUrl = data.videoUrl;
+                  
+                  alert('Video generated successfully! You can now play it.');
+                } else if (data.status === 'processing') {
+                  alert('Video is being generated. This may take a few minutes. Refresh the page to check status.');
+                }
+              } else {
+                alert('Failed to generate video: ' + (data.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error generating video:', error);
+              alert('Failed to generate video. Please try again.');
+            } finally {
+              this.isGeneratingVideo = false;
+            }
+          },
+
+          // Video Projects Methods
+          async loadVideoProjects() {
+            try {
+              const response = await fetch('/api/video-projects');
+              const data = await response.json();
+              this.allVideoProjects = data.map(project => ({
+                ...project,
+                totalScenes: 0,
+                scenesReady: 0
+              }));
+              this.filterVideoProjects();
+              this.updateVideoProjectStats();
+            } catch (error) {
+              console.error('Error loading video projects:', error);
+            }
+          },
+
+          filterVideoProjects() {
+            this.filteredVideoProjects = this.allVideoProjects.filter(project => {
+              if (this.videoProjectFilter.status && project.status !== this.videoProjectFilter.status) return false;
+              return true;
+            });
+          },
+
+          updateVideoProjectStats() {
+            const total = this.allVideoProjects.length;
+            const draft = this.allVideoProjects.filter(p => p.status === 'draft').length;
+            const generating = this.allVideoProjects.filter(p => p.status === 'generating').length;
+            const ready = this.allVideoProjects.filter(p => p.status === 'ready').length;
+            const exported = this.allVideoProjects.filter(p => p.status === 'exported').length;
+            
+            this.videoProjectStats = { total, draft, generating, ready, exported };
+          },
+
+          async viewVideoProject(project) {
+            try {
+              const response = await fetch(`/api/video-projects/${project.projectId}`);
+              const data = await response.json();
+              this.selectedVideoProject = data;
+              this.showVideoProjectModal = true;
+            } catch (error) {
+              console.error('Error loading video project:', error);
+              alert('Failed to load project details.');
+            }
+          },
+
+          async startVideoGeneration(projectId) {
+            if (this.isGeneratingProject || !projectId) return;
+            
+            this.isGeneratingProject = true;
+            
+            try {
+              const response = await fetch(`/api/video-projects/${projectId}/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider: 'wan' })
+              });
+              
+              const data = await response.json();
+              
+              if (response.ok && data.success) {
+                alert('Video generation started! This may take several minutes. Refresh the page to check progress.');
+                
+                // Update local status
+                const project = this.allVideoProjects.find(p => p.projectId === projectId);
+                if (project) project.status = 'generating';
+                this.filterVideoProjects();
+                this.updateVideoProjectStats();
+              } else {
+                alert('Failed to start generation: ' + (data.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error starting video generation:', error);
+              alert('Failed to start generation. Please try again.');
+            } finally {
+              this.isGeneratingProject = false;
+            }
+          },
+
+          async exportVideoProject(projectId) {
+            if (this.isExportingProject || !projectId) return;
+            
+            this.isExportingProject = true;
+            
+            try {
+              const response = await fetch(`/api/video-projects/${projectId}/export`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              
+              const data = await response.json();
+              
+              if (response.ok && data.success) {
+                alert('Export started! The video will be assembled and ready for download shortly.');
+                
+                // Update local status
+                const project = this.allVideoProjects.find(p => p.projectId === projectId);
+                if (project) project.status = 'exporting';
+                this.filterVideoProjects();
+              } else {
+                alert('Failed to export: ' + (data.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error exporting video:', error);
+              alert('Failed to export video. Please try again.');
+            } finally {
+              this.isExportingProject = false;
+            }
+          },
+
+          async createVideoProject(contentId) {
+            try {
+              const response = await fetch('/api/video-projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contentId })
+              });
+              
+              const data = await response.json();
+              
+              if (response.ok) {
+                alert('Video project created! Go to Video Projects to start generation.');
+                await this.loadVideoProjects();
+              } else {
+                alert('Failed to create project: ' + (data.error || 'Unknown error'));
+              }
+            } catch (error) {
+              console.error('Error creating video project:', error);
+              alert('Failed to create project. Please try again.');
+            }
+          }
+        }
+      }
+    </script>
     
     <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.3/dist/cdn.min.js"></script>
@@ -852,530 +1378,5 @@
             <div class="font-mono">Built on Replit • v2.4.0-alpha</div>
         </div>
     </footer>
-
-    <script>
-      function dashboard() {
-        return {
-          time: '',
-          currentView: 'dashboard',
-          kpi: {
-            mrr: '$0',
-            mrrChange: '+0%',
-            profit: '$0',
-            aiOutput: '0'
-          },
-          pods: [],
-          phases: [],
-          queue: [],
-          alerts: [],
-          clients: [],
-          selectedClient: '',
-          isRunning: false,
-          lastRunId: null,
-          allContent: [],
-          filteredContent: [],
-          contentFilter: {
-            clientId: '',
-            type: '',
-            status: ''
-          },
-          contentStats: {
-            total: 0,
-            pending: 0,
-            approved: 0,
-            avgScore: '-'
-          },
-          showContentModal: false,
-          selectedContent: null,
-          isGeneratingVideo: false,
-          
-          // Video Projects
-          allVideoProjects: [],
-          filteredVideoProjects: [],
-          videoProjectFilter: {
-            status: ''
-          },
-          videoProjectStats: {
-            total: 0,
-            draft: 0,
-            generating: 0,
-            ready: 0,
-            exported: 0
-          },
-          showVideoProjectModal: false,
-          selectedVideoProject: null,
-          isGeneratingProject: false,
-          isExportingProject: false,
-          
-          async initDashboard() {
-            this.updateTime();
-            setInterval(() => this.updateTime(), 1000);
-            
-            // Load initial data
-            await this.loadData();
-            
-            // Refresh data every 10 seconds
-            setInterval(() => this.loadData(), 10000);
-          },
-          
-          async loadData() {
-            try {
-              await Promise.all([
-                this.loadKpis(),
-                this.loadPods(),
-                this.loadPhaseChanges(),
-                this.loadApprovals(),
-                this.loadAlerts(),
-                this.loadClients(),
-                this.loadVideoProjects()
-              ]);
-            } catch (error) {
-              console.error('Error loading data:', error);
-            }
-          },
-
-          async loadKpis() {
-            const response = await fetch('/api/kpis');
-            const data = await response.json();
-            if (data) {
-              this.kpi = {
-                mrr: '$' + parseFloat(data.mrr).toLocaleString('en-US', { maximumFractionDigits: 0 }),
-                mrrChange: '+' + parseFloat(data.mrrChange).toFixed(1) + '%',
-                profit: '$' + parseFloat(data.profitToday).toLocaleString('en-US', { maximumFractionDigits: 0 }),
-                aiOutput: data.aiOutputToday.toLocaleString()
-              };
-            }
-          },
-
-          async loadPods() {
-            const response = await fetch('/api/pods');
-            const data = await response.json();
-            this.pods = data.map(pod => ({
-              id: pod.id,
-              name: pod.name,
-              vertical: pod.vertical,
-              mrr: '$' + (parseFloat(pod.mrr) / 1000).toFixed(0) + 'k',
-              health: pod.health,
-              margin: pod.margin
-            }));
-          },
-
-          async loadPhaseChanges() {
-            const response = await fetch('/api/phase-changes');
-            const data = await response.json();
-            this.phases = data.map(phase => {
-              const changeDate = new Date(phase.changeDate);
-              const now = new Date();
-              const daysLeft = Math.ceil((changeDate - now) / (1000 * 60 * 60 * 24));
-              
-              return {
-                id: phase.id,
-                client: phase.client,
-                oldPrice: '$' + (parseFloat(phase.oldPrice) / 1000).toFixed(0) + 'k',
-                newPrice: '$' + (parseFloat(phase.newPrice) / 1000).toFixed(0) + 'k',
-                date: changeDate.toLocaleDateString('en-US', { month: 'short', day: '2-digit' }),
-                countdown: daysLeft > 0 ? daysLeft + 'd left' : 'Today'
-              };
-            });
-          },
-
-          async loadApprovals() {
-            const response = await fetch('/api/approvals');
-            const data = await response.json();
-            this.queue = data.map(item => {
-              const createdAt = new Date(item.createdAt);
-              const now = new Date();
-              const minutesAgo = Math.floor((now - createdAt) / (1000 * 60));
-              
-              let timeAgo;
-              if (minutesAgo < 60) {
-                timeAgo = minutesAgo + 'm ago';
-              } else {
-                const hoursAgo = Math.floor(minutesAgo / 60);
-                timeAgo = hoursAgo + 'h ago';
-              }
-              
-              return {
-                id: item.id,
-                client: item.client,
-                type: item.type,
-                author: item.author,
-                thumbnail: item.thumbnail,
-                timeAgo
-              };
-            });
-          },
-
-          async loadAlerts() {
-            const response = await fetch('/api/alerts');
-            const data = await response.json();
-            this.alerts = data.map(alert => ({
-              id: alert.id,
-              title: alert.title,
-              desc: alert.description
-            }));
-          },
-          
-          updateTime() {
-            // Dubai is UTC+4
-            const d = new Date();
-            // Get UTC time and add 4 hours
-            const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
-            const dubaiTime = new Date(utc + (3600000 * 4));
-            
-            this.time = dubaiTime.toLocaleTimeString('en-US', { 
-              hour: '2-digit', 
-              minute: '2-digit', 
-              second: '2-digit',
-              hour12: true 
-            });
-          },
-
-          getHealthColor(score) {
-              if (score >= 95) return '#10b981'; // Green
-              if (score >= 85) return '#f59e0b'; // Amber
-              return '#ef4444'; // Red
-          },
-
-          async approve(id) {
-             try {
-               await fetch(`/api/approvals/${id}/approve`, { method: 'POST' });
-               this.queue = this.queue.filter(item => item.id !== id);
-             } catch (error) {
-               console.error('Error approving item:', error);
-             }
-          },
-          
-          async reject(id) {
-             try {
-               await fetch(`/api/approvals/${id}/reject`, { method: 'POST' });
-               this.queue = this.queue.filter(item => item.id !== id);
-             } catch (error) {
-               console.error('Error rejecting item:', error);
-             }
-          },
-
-          async loadClients() {
-            try {
-              const response = await fetch('/api/clients');
-              const data = await response.json();
-              this.clients = data.map(client => ({
-                id: client.id,
-                name: client.name,
-                industry: client.industry
-              }));
-            } catch (error) {
-              console.error('Error loading clients:', error);
-            }
-          },
-
-          async runWeekForClient() {
-            if (!this.selectedClient || this.isRunning) return;
-            
-            this.isRunning = true;
-            
-            try {
-              const response = await fetch('/api/content-factory/run-week', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ clientId: parseInt(this.selectedClient) })
-              });
-              
-              const data = await response.json();
-              
-              if (response.ok) {
-                this.lastRunId = data.runId;
-                console.log('Content run started:', data.runId);
-              } else {
-                console.error('Failed to start content run:', data.error);
-                alert('Failed to start content generation: ' + data.error);
-              }
-            } catch (error) {
-              console.error('Error starting content run:', error);
-              alert('Failed to start content generation. Please try again.');
-            } finally {
-              setTimeout(() => {
-                this.isRunning = false;
-              }, 5000);
-            }
-          },
-
-          async loadContent() {
-            try {
-              let url = '/api/content';
-              if (this.contentFilter.clientId) {
-                url += `?clientId=${this.contentFilter.clientId}`;
-              }
-              const response = await fetch(url);
-              const data = await response.json();
-              this.allContent = data;
-              this.filterContent();
-              this.updateContentStats();
-            } catch (error) {
-              console.error('Error loading content:', error);
-            }
-          },
-
-          filterContent() {
-            this.filteredContent = this.allContent.filter(item => {
-              if (this.contentFilter.type && item.type !== this.contentFilter.type) return false;
-              if (this.contentFilter.status && item.status !== this.contentFilter.status) return false;
-              return true;
-            });
-          },
-
-          updateContentStats() {
-            const total = this.allContent.length;
-            const pending = this.allContent.filter(c => c.status === 'pending_review').length;
-            const approved = this.allContent.filter(c => c.status === 'approved').length;
-            const scores = this.allContent.filter(c => c.qaScore).map(c => c.qaScore);
-            const avgScore = scores.length > 0 
-              ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) 
-              : '-';
-            
-            this.contentStats = { total, pending, approved, avgScore };
-          },
-
-          getTypeLabel(type) {
-            const labels = {
-              'blog': 'Blog',
-              'linkedin': 'LinkedIn',
-              'twitter': 'Twitter/X',
-              'instagram': 'Instagram',
-              'facebook_ad': 'FB Ad',
-              'google_ad': 'Google Ad',
-              'video_script': 'Video'
-            };
-            return labels[type] || type;
-          },
-
-          formatDate(dateStr) {
-            if (!dateStr) return '';
-            const date = new Date(dateStr);
-            return date.toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            });
-          },
-
-          viewContent(item) {
-            this.selectedContent = item;
-            this.showContentModal = true;
-          },
-
-          async copyContent(item) {
-            try {
-              await navigator.clipboard.writeText(item.content);
-              alert('Content copied to clipboard!');
-            } catch (error) {
-              console.error('Failed to copy:', error);
-            }
-          },
-
-          async approveContent(contentId) {
-            try {
-              await fetch(`/api/content/${contentId}/status`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'approved' })
-              });
-              const item = this.allContent.find(c => c.contentId === contentId);
-              if (item) item.status = 'approved';
-              this.filterContent();
-              this.updateContentStats();
-            } catch (error) {
-              console.error('Error approving content:', error);
-            }
-          },
-
-          async rejectContent(contentId) {
-            try {
-              await fetch(`/api/content/${contentId}/status`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'rejected' })
-              });
-              const item = this.allContent.find(c => c.contentId === contentId);
-              if (item) item.status = 'rejected';
-              this.filterContent();
-              this.updateContentStats();
-            } catch (error) {
-              console.error('Error rejecting content:', error);
-            }
-          },
-
-          async generateVideo(contentId) {
-            if (this.isGeneratingVideo || !contentId) return;
-            
-            this.isGeneratingVideo = true;
-            
-            try {
-              const response = await fetch(`/api/content/${contentId}/generate-video`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-              });
-              
-              const data = await response.json();
-              
-              if (response.ok && data.success) {
-                if (data.videoUrl) {
-                  // Update the selected content with the new video URL
-                  this.selectedContent.videoUrl = data.videoUrl;
-                  
-                  // Also update in allContent
-                  const item = this.allContent.find(c => c.contentId === contentId);
-                  if (item) item.videoUrl = data.videoUrl;
-                  
-                  alert('Video generated successfully! You can now play it.');
-                } else if (data.status === 'processing') {
-                  alert('Video is being generated. This may take a few minutes. Refresh the page to check status.');
-                }
-              } else {
-                alert('Failed to generate video: ' + (data.error || 'Unknown error'));
-              }
-            } catch (error) {
-              console.error('Error generating video:', error);
-              alert('Failed to generate video. Please try again.');
-            } finally {
-              this.isGeneratingVideo = false;
-            }
-          },
-
-          // Video Projects Methods
-          async loadVideoProjects() {
-            try {
-              const response = await fetch('/api/video-projects');
-              const data = await response.json();
-              this.allVideoProjects = data.map(project => ({
-                ...project,
-                totalScenes: 0,
-                scenesReady: 0
-              }));
-              this.filterVideoProjects();
-              this.updateVideoProjectStats();
-            } catch (error) {
-              console.error('Error loading video projects:', error);
-            }
-          },
-
-          filterVideoProjects() {
-            this.filteredVideoProjects = this.allVideoProjects.filter(project => {
-              if (this.videoProjectFilter.status && project.status !== this.videoProjectFilter.status) return false;
-              return true;
-            });
-          },
-
-          updateVideoProjectStats() {
-            const total = this.allVideoProjects.length;
-            const draft = this.allVideoProjects.filter(p => p.status === 'draft').length;
-            const generating = this.allVideoProjects.filter(p => p.status === 'generating').length;
-            const ready = this.allVideoProjects.filter(p => p.status === 'ready').length;
-            const exported = this.allVideoProjects.filter(p => p.status === 'exported').length;
-            
-            this.videoProjectStats = { total, draft, generating, ready, exported };
-          },
-
-          async viewVideoProject(project) {
-            try {
-              const response = await fetch(`/api/video-projects/${project.projectId}`);
-              const data = await response.json();
-              this.selectedVideoProject = data;
-              this.showVideoProjectModal = true;
-            } catch (error) {
-              console.error('Error loading video project:', error);
-              alert('Failed to load project details.');
-            }
-          },
-
-          async startVideoGeneration(projectId) {
-            if (this.isGeneratingProject || !projectId) return;
-            
-            this.isGeneratingProject = true;
-            
-            try {
-              const response = await fetch(`/api/video-projects/${projectId}/generate`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider: 'wan' })
-              });
-              
-              const data = await response.json();
-              
-              if (response.ok && data.success) {
-                alert('Video generation started! This may take several minutes. Refresh the page to check progress.');
-                
-                // Update local status
-                const project = this.allVideoProjects.find(p => p.projectId === projectId);
-                if (project) project.status = 'generating';
-                this.filterVideoProjects();
-                this.updateVideoProjectStats();
-              } else {
-                alert('Failed to start generation: ' + (data.error || 'Unknown error'));
-              }
-            } catch (error) {
-              console.error('Error starting video generation:', error);
-              alert('Failed to start generation. Please try again.');
-            } finally {
-              this.isGeneratingProject = false;
-            }
-          },
-
-          async exportVideoProject(projectId) {
-            if (this.isExportingProject || !projectId) return;
-            
-            this.isExportingProject = true;
-            
-            try {
-              const response = await fetch(`/api/video-projects/${projectId}/export`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-              });
-              
-              const data = await response.json();
-              
-              if (response.ok && data.success) {
-                alert('Export started! The video will be assembled and ready for download shortly.');
-                
-                // Update local status
-                const project = this.allVideoProjects.find(p => p.projectId === projectId);
-                if (project) project.status = 'exporting';
-                this.filterVideoProjects();
-              } else {
-                alert('Failed to export: ' + (data.error || 'Unknown error'));
-              }
-            } catch (error) {
-              console.error('Error exporting video:', error);
-              alert('Failed to export video. Please try again.');
-            } finally {
-              this.isExportingProject = false;
-            }
-          },
-
-          async createVideoProject(contentId) {
-            try {
-              const response = await fetch('/api/video-projects', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contentId })
-              });
-              
-              const data = await response.json();
-              
-              if (response.ok) {
-                alert('Video project created! Go to Video Projects to start generation.');
-                await this.loadVideoProjects();
-              } else {
-                alert('Failed to create project: ' + (data.error || 'Unknown error'));
-              }
-            } catch (error) {
-              console.error('Error creating video project:', error);
-              alert('Failed to create project. Please try again.');
-            }
-          }
-        }
-      }
-    </script>
   </body>
 </html>
