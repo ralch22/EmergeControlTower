@@ -620,7 +620,7 @@
               class="bg-zinc-900 border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none"
             >
               <option value="">Select Client</option>
-              <template x-for="client in clients" :key="client.id">
+              <template x-for="client in clients">
                 <option :value="client.id" x-text="client.name"></option>
               </template>
             </select>
@@ -713,7 +713,7 @@
         </h2>
         <div class="overflow-x-auto pb-4 -mx-4 px-4 md:overflow-visible md:pb-0 md:mx-0 md:px-0">
             <div class="flex md:grid md:grid-cols-3 gap-4 w-max md:w-full">
-                <template x-for="pod in pods" :key="pod.name">
+                <template x-for="pod in pods">
                     <div class="w-72 md:w-auto bg-black border border-white/10 rounded-lg p-4 shrink-0 flex flex-col gap-3 hover:border-white/20 transition-colors">
                         <div class="flex justify-between items-center">
                             <div>
@@ -754,7 +754,7 @@
                 <span class="w-1.5 h-1.5 rounded-full bg-teal-500"></span> Phase Changes
               </h2>
               <div class="space-y-3">
-                  <template x-for="phase in phases" :key="phase.client">
+                  <template x-for="phase in phases">
                       <div class="bg-zinc-900/30 border-l-2 border-teal-500/50 pl-4 py-2">
                           <div class="flex justify-between items-center mb-1">
                               <span class="text-sm font-medium text-white" x-text="phase.client"></span>
@@ -777,7 +777,7 @@
                 <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span> Approval Queue
               </h2>
               <div class="space-y-3">
-                  <template x-for="item in queue" :key="item.id">
+                  <template x-for="item in queue">
                       <div class="flex items-center gap-4 bg-zinc-900/50 border border-white/5 p-3 rounded-lg hover:bg-zinc-900 transition-colors">
                           <div class="w-12 h-12 bg-zinc-800 rounded overflow-hidden shrink-0 relative group cursor-pointer">
                               <img :src="item.thumbnail" class="w-full h-full object-cover opacity-70 group-hover:opacity-100 transition-opacity">
@@ -816,7 +816,7 @@
                 Critical Alerts
            </h2>
            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-               <template x-for="alert in alerts" :key="alert.id">
+               <template x-for="alert in alerts">
                    <div class="flex gap-3 items-start">
                        <div class="w-1.5 h-1.5 rounded-full bg-red-500 mt-2 shrink-0"></div>
                        <div>
@@ -848,7 +848,7 @@
               class="bg-zinc-900 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none"
             >
               <option value="">All Clients</option>
-              <template x-for="client in clients" :key="client.id">
+              <template x-for="client in clients">
                 <option :value="client.id" x-text="client.name"></option>
               </template>
             </select>
@@ -906,7 +906,7 @@
 
         <!-- Content Grid -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <template x-for="item in filteredContent" :key="item.contentId">
+          <template x-for="item in filteredContent">
             <div class="bg-zinc-900/50 border border-white/10 rounded-xl overflow-hidden hover:border-purple-500/50 transition-all group" :data-testid="'content-card-' + item.contentId">
               
               <!-- Card Header -->
@@ -1078,7 +1078,7 @@
         <!-- Projects Grid -->
         <template x-if="filteredVideoProjects">
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" x-show="filteredVideoProjects.length > 0">
-            <template x-for="project in filteredVideoProjects" :key="project.projectId">
+            <template x-for="project in filteredVideoProjects">
             <div class="bg-zinc-900/50 border border-white/10 rounded-xl overflow-hidden hover:border-purple-500/50 transition-all group" :data-testid="'project-card-' + project.projectId">
               
               <!-- Card Header -->
@@ -1213,7 +1213,7 @@
             <!-- Scenes List -->
             <h4 class="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4">Scenes</h4>
             <div class="space-y-3">
-              <template x-for="scene in selectedVideoProject?.scenes" :key="scene.sceneId">
+              <template x-for="scene in selectedVideoProject?.scenes">
                 <div class="bg-black/30 border border-white/5 rounded-lg p-4">
                   <div class="flex items-start justify-between mb-2">
                     <div class="flex items-center gap-2">
@@ -1240,7 +1240,7 @@
               <div class="mt-6">
                 <h4 class="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4">Generated Clips</h4>
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  <template x-for="clip in selectedVideoProject?.clips" :key="clip.clipId">
+                  <template x-for="clip in selectedVideoProject?.clips">
                     <div class="relative aspect-video bg-zinc-800 rounded-lg overflow-hidden">
                       <template x-if="clip.videoUrl">
                         <video :src="clip.videoUrl" class="w-full h-full object-cover" muted controls></video>
