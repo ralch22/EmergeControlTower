@@ -2020,7 +2020,7 @@ export function registerVideoIngredientsRoutes(app: Express) {
   });
 
   // Clear all video projects
-  app.delete("/api/video-projects/clear-all", async (req, res) => {
+  app.delete("/api/video-projects/clear", async (req, res) => {
     try {
       console.log("[Clear] Clearing all video projects...");
       const result = await storage.clearAllVideoProjects();
@@ -2036,7 +2036,7 @@ export function registerVideoIngredientsRoutes(app: Express) {
   });
 
   // Clear all approval queue items
-  app.delete("/api/approval-queue/clear-all", async (req, res) => {
+  app.delete("/api/approvals/clear", async (req, res) => {
     try {
       console.log("[Clear] Clearing all approval queue items...");
       const result = await storage.clearAllApprovalQueue();

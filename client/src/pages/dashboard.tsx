@@ -264,7 +264,7 @@ export default function DashboardPage() {
 
   const clearApprovalsMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/approval-queue/clear-all", {
+      const res = await fetch("/api/approvals/clear", {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to clear approval queue");
@@ -284,7 +284,7 @@ export default function DashboardPage() {
 
   const clearVideoProjectsMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch("/api/video-projects/clear-all", {
+      const res = await fetch("/api/video-projects/clear", {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to clear video projects");
