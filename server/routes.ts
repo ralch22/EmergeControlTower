@@ -1017,6 +1017,24 @@ export async function registerRoutes(
       let message = '';
       
       const testResults: Record<string, () => Promise<{ status: string; message: string }>> = {
+        veo2: async () => {
+          const key = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
+          if (!key) return { status: 'error', message: 'GEMINI_API_KEY not configured' };
+          try {
+            const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + key);
+            if (response.ok) {
+              const data = await response.json();
+              const hasVeo2 = data.models?.some((m: any) => m.name?.includes('veo'));
+              return { 
+                status: 'working', 
+                message: hasVeo2 ? 'Veo 2.0 connected' : 'Gemini API connected (Veo 2.0 may require access)' 
+              };
+            }
+            return { status: 'error', message: `API error: ${response.status}` };
+          } catch (e: any) {
+            return { status: 'error', message: e.message || 'Connection failed' };
+          }
+        },
         runway: async () => {
           const key = process.env.RUNWAY_API_KEY;
           if (!key) return { status: 'error', message: 'API key not configured' };
@@ -1058,6 +1076,26 @@ export async function registerRoutes(
           const key = process.env.HAILUO_API_KEY;
           if (!key) return { status: 'error', message: 'API key not configured' };
           return { status: 'working', message: 'API key configured' };
+        },
+        nano_banana_pro: async () => {
+          const key = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
+          if (!key) return { status: 'error', message: 'GEMINI_API_KEY not configured' };
+          try {
+            const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?key=' + key);
+            if (response.ok) {
+              const data = await response.json();
+              const hasGemini3Pro = data.models?.some((m: any) => 
+                m.name?.includes('gemini-3-pro') || m.name?.includes('gemini-2.5')
+              );
+              return { 
+                status: 'working', 
+                message: hasGemini3Pro ? 'Nano Banana Pro connected' : 'Gemini API connected (may require billing)' 
+              };
+            }
+            return { status: 'error', message: `API error: ${response.status}` };
+          } catch (e: any) {
+            return { status: 'error', message: e.message || 'Connection failed' };
+          }
         },
         gemini: async () => {
           const key = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;

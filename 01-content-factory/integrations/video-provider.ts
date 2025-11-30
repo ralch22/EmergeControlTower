@@ -2,6 +2,7 @@ import { generateVideoWithRunway, checkVideoStatus, waitForVideoCompletion } fro
 import { generateVideoWithWan, checkWanTaskStatus, waitForWanCompletion } from './wan';
 import { generateVideoWithPika, checkPikaStatus, waitForPikaCompletion } from './pika';
 import { generateVideoWithLuma, checkLumaStatus, waitForLumaCompletion } from './luma';
+import { generateVideoWithVeo2, checkVeo2Status, waitForVeo2Completion } from './veo2';
 
 export interface VideoProviderResult {
   success: boolean;
@@ -14,7 +15,7 @@ export interface VideoProviderResult {
   fallbackAttempts?: number;
 }
 
-export type VideoProvider = 'runway' | 'wan' | 'pika' | 'luma' | 'kling' | 'hailuo';
+export type VideoProvider = 'veo2' | 'runway' | 'wan' | 'pika' | 'luma' | 'kling' | 'hailuo';
 
 interface ProviderConfig {
   name: VideoProvider;
@@ -33,6 +34,36 @@ interface VideoGenerationOptions {
 }
 
 const providerConfigs: Record<VideoProvider, ProviderConfig> = {
+  veo2: {
+    name: 'veo2',
+    displayName: 'Veo 2.0',
+    isConfigured: () => !!(process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY),
+    generate: async (prompt, options) => {
+      const veoAspect = options.aspectRatio === '9:16' ? '9:16' : '16:9';
+      const result = await generateVideoWithVeo2(prompt, {
+        duration: Math.min(Math.max(options.duration || 8, 5), 8) as 5 | 6 | 7 | 8,
+        aspectRatio: veoAspect,
+        personGeneration: 'ALLOW_ALL',
+      });
+      return {
+        success: result.success,
+        provider: 'veo2',
+        taskId: result.taskId,
+        videoUrl: result.videoUrl,
+        status: result.status,
+        error: result.error,
+      };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkVeo2Status(taskId);
+      return { ...result, provider: 'veo2' };
+    },
+    waitForCompletion: async (taskId, maxWait = 600, interval = 10) => {
+      const result = await waitForVeo2Completion(taskId, maxWait, interval);
+      return { ...result, provider: 'veo2' };
+    },
+  },
+  
   runway: {
     name: 'runway',
     displayName: 'Runway Gen-3',
