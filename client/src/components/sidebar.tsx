@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -13,24 +13,69 @@ import {
   Menu,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Palette,
   FolderOpen,
   Activity,
   Star,
+  FilmIcon,
+  Cog,
+  BarChart3,
 } from "lucide-react";
 
-const navItems = [
-  { path: "/", label: "Dashboard", icon: LayoutDashboard },
-  { path: "/content-factory", label: "Content Factory", icon: Factory },
-  { path: "/video-projects", label: "Video Projects", icon: Video },
-  { path: "/quality-review", label: "Quality Review", icon: Star },
-  { path: "/clients", label: "Clients", icon: Users },
-  { path: "/brand-assets", label: "Brand Guidelines", icon: Palette },
-  { path: "/brand-files", label: "Brand Files", icon: FolderOpen },
-  { path: "/brand-control", label: "Brand Control", icon: Palette },
-  { path: "/control-tower", label: "Control Tower", icon: Shield },
-  { path: "/provider-health", label: "Provider Health", icon: Activity },
-  { path: "/settings", label: "Settings", icon: Settings },
+interface NavItem {
+  path: string;
+  label: string;
+  icon: React.ElementType;
+}
+
+interface NavCategory {
+  id: string;
+  label: string;
+  icon: React.ElementType;
+  items: NavItem[];
+}
+
+const navCategories: NavCategory[] = [
+  {
+    id: "content",
+    label: "Content Production",
+    icon: Factory,
+    items: [
+      { path: "/content-factory", label: "Content Factory", icon: Factory },
+      { path: "/video-projects", label: "Video Projects", icon: Video },
+      { path: "/video-assembly", label: "Video Assembly", icon: FilmIcon },
+    ],
+  },
+  {
+    id: "quality",
+    label: "Quality & Review",
+    icon: Star,
+    items: [
+      { path: "/quality-review", label: "Quality Review", icon: Star },
+    ],
+  },
+  {
+    id: "brand",
+    label: "Brand Management",
+    icon: Palette,
+    items: [
+      { path: "/clients", label: "Clients", icon: Users },
+      { path: "/brand-assets", label: "Brand Guidelines", icon: Palette },
+      { path: "/brand-files", label: "Brand Files", icon: FolderOpen },
+      { path: "/brand-control", label: "Brand Control", icon: Palette },
+    ],
+  },
+  {
+    id: "system",
+    label: "System",
+    icon: Cog,
+    items: [
+      { path: "/control-tower", label: "Control Tower", icon: Shield },
+      { path: "/provider-health", label: "Provider Health", icon: Activity },
+      { path: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
 ];
 
 interface NavLinkProps {
@@ -40,14 +85,16 @@ interface NavLinkProps {
   isActive: boolean;
   collapsed?: boolean;
   onClick?: () => void;
+  nested?: boolean;
 }
 
-function NavLink({ path, label, icon: Icon, isActive, collapsed, onClick }: NavLinkProps) {
+function NavLink({ path, label, icon: Icon, isActive, collapsed, onClick, nested }: NavLinkProps) {
   return (
     <Link href={path} onClick={onClick}>
       <div
         className={cn(
-          "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 cursor-pointer group",
+          "flex items-center gap-3 rounded-lg transition-all duration-200 cursor-pointer group",
+          nested ? "px-3 py-2 ml-3" : "px-3 py-2.5",
           isActive
             ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
             : "text-zinc-400 hover:text-white hover:bg-zinc-800/50 border border-transparent"
@@ -56,15 +103,104 @@ function NavLink({ path, label, icon: Icon, isActive, collapsed, onClick }: NavL
       >
         <Icon
           className={cn(
-            "w-5 h-5 flex-shrink-0 transition-colors",
+            "flex-shrink-0 transition-colors",
+            nested ? "w-4 h-4" : "w-5 h-5",
             isActive ? "text-cyan-400" : "text-zinc-500 group-hover:text-cyan-400"
           )}
         />
         {!collapsed && (
-          <span className="text-sm font-medium truncate">{label}</span>
+          <span className={cn("font-medium truncate", nested ? "text-xs" : "text-sm")}>{label}</span>
         )}
       </div>
     </Link>
+  );
+}
+
+interface CategoryProps {
+  category: NavCategory;
+  collapsed?: boolean;
+  isActive: (path: string) => boolean;
+  onNavClick?: () => void;
+  expandedCategories: Set<string>;
+  toggleCategory: (categoryId: string) => void;
+}
+
+function CategorySection({ category, collapsed, isActive, onNavClick, expandedCategories, toggleCategory }: CategoryProps) {
+  const isExpanded = expandedCategories.has(category.id);
+  const hasActiveChild = category.items.some(item => isActive(item.path));
+  const CategoryIcon = category.icon;
+
+  return (
+    <div className="mb-1">
+      <button
+        onClick={() => toggleCategory(category.id)}
+        className={cn(
+          "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 group",
+          hasActiveChild
+            ? "text-cyan-400"
+            : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+        )}
+        data-testid={`nav-category-${category.id}`}
+      >
+        <CategoryIcon
+          className={cn(
+            "w-5 h-5 flex-shrink-0 transition-colors",
+            hasActiveChild ? "text-cyan-400" : "text-zinc-500 group-hover:text-cyan-400"
+          )}
+        />
+        {!collapsed && (
+          <>
+            <span className="text-sm font-medium truncate flex-1 text-left">{category.label}</span>
+            <ChevronDown
+              className={cn(
+                "w-4 h-4 text-zinc-500 transition-transform duration-200",
+                isExpanded && "transform rotate-180"
+              )}
+            />
+          </>
+        )}
+      </button>
+      
+      {!collapsed && (
+        <div
+          className={cn(
+            "overflow-hidden transition-all duration-200 ease-in-out",
+            isExpanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+          )}
+        >
+          <div className="mt-1 space-y-0.5 border-l-2 border-zinc-800 ml-5">
+            {category.items.map((item) => (
+              <NavLink
+                key={item.path}
+                path={item.path}
+                label={item.label}
+                icon={item.icon}
+                isActive={isActive(item.path)}
+                collapsed={collapsed}
+                onClick={onNavClick}
+                nested
+              />
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {collapsed && isExpanded && (
+        <div className="mt-1 space-y-0.5">
+          {category.items.map((item) => (
+            <NavLink
+              key={item.path}
+              path={item.path}
+              label={item.label}
+              icon={item.icon}
+              isActive={isActive(item.path)}
+              collapsed={collapsed}
+              onClick={onNavClick}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -76,12 +212,43 @@ function SidebarContent({
   onNavClick?: () => void;
 }) {
   const [location] = useLocation();
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    initial.add("content");
+    return initial;
+  });
+
+  useEffect(() => {
+    const activeCategory = navCategories.find(cat =>
+      cat.items.some(item => location === item.path || (item.path === "/" && location === "/dashboard"))
+    );
+    if (activeCategory) {
+      setExpandedCategories(prev => {
+        if (prev.has(activeCategory.id)) return prev;
+        const next = new Set(prev);
+        next.add(activeCategory.id);
+        return next;
+      });
+    }
+  }, [location]);
 
   const isActive = (path: string) => {
     if (path === "/") {
       return location === "/" || location === "/dashboard";
     }
     return location === path;
+  };
+
+  const toggleCategory = (categoryId: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+      } else {
+        next.add(categoryId);
+      }
+      return next;
+    });
   };
 
   return (
@@ -105,15 +272,26 @@ function SidebarContent({
       </div>
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.path}
-            path={item.path}
-            label={item.label}
-            icon={item.icon}
-            isActive={isActive(item.path)}
+        <NavLink
+          path="/"
+          label="Dashboard"
+          icon={BarChart3}
+          isActive={isActive("/")}
+          collapsed={collapsed}
+          onClick={onNavClick}
+        />
+        
+        <div className="my-3 border-t border-zinc-800/50" />
+        
+        {navCategories.map((category) => (
+          <CategorySection
+            key={category.id}
+            category={category}
             collapsed={collapsed}
-            onClick={onNavClick}
+            isActive={isActive}
+            onNavClick={onNavClick}
+            expandedCategories={expandedCategories}
+            toggleCategory={toggleCategory}
           />
         ))}
       </nav>
