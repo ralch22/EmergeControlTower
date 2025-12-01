@@ -2365,6 +2365,13 @@ async function generateVideoProjectAsync(
                 status: 'ready',
                 provider: audioResult.provider || 'elevenlabs',
               });
+              await storage.createActivityLog({
+                runId: `video_proj_${projectId}`,
+                eventType: 'audio_ready',
+                level: 'success',
+                message: `Scene ${scene.sceneNumber} audio ready via ${audioResult.provider}`,
+                metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, provider: audioResult.provider }),
+              });
               console.log(`[VideoProject] Scene ${scene.sceneNumber} audio ready (via ${audioResult.provider})`);
             } else {
               const errorMsg = audioResult.error || 'Unknown error';
@@ -2379,27 +2386,17 @@ async function generateVideoProjectAsync(
                 message: `Scene ${scene.sceneNumber} audio generation failed: ${errorMsg}`,
                 metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, error: errorMsg }),
               });
-            } else if (audioResult.success) {
-              await storage.createActivityLog({
-                runId: `video_proj_${projectId}`,
-                eventType: 'audio_ready',
-                level: 'success',
-                message: `Scene ${scene.sceneNumber} audio ready via ${audioResult.provider}`,
-                metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, provider: audioResult.provider }),
-              });
-            }
-          } else {
-            // Old code continues here but was malformed - fixing
-            if (audioResult.success && audioResult.audioUrl) {
-              // Already handled above
-            } else {
-              await storage.updateAudioTrack(trackId, {
-                status: 'failed',
-                errorMessage: audioResult.error,
-              });
+              console.error(`[VideoProject] Audio generation failed for scene ${scene.sceneNumber}: ${errorMsg}`);
             }
           } catch (audioError) {
             console.error(`[VideoProject] Audio generation failed for scene ${scene.sceneNumber}:`, audioError);
+            await storage.createActivityLog({
+              runId: `video_proj_${projectId}`,
+              eventType: 'audio_error',
+              level: 'error',
+              message: `Scene ${scene.sceneNumber} audio processing error: ${audioError instanceof Error ? audioError.message : 'Unknown error'}`,
+              metadata: JSON.stringify({ sceneNumber: scene.sceneNumber }),
+            });
           }
         } else if (scene.voiceoverText) {
           console.log(`[VideoProject] Scene ${scene.sceneNumber} audio already ready, skipping`);
