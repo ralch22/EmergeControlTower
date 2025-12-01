@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertApprovalQueueSchema, insertKpiSchema, insertPodSchema, insertPhaseChangeSchema, insertAlertSchema, insertClientSchema } from "@shared/schema";
+import { insertApprovalQueueSchema, insertKpiSchema, insertPodSchema, insertPhaseChangeSchema, insertAlertSchema, insertClientSchema, insertBrandAssetsSchema } from "@shared/schema";
 import { fromError } from "zod-validation-error";
 import { runContentPipeline } from "../01-content-factory/orchestrator";
 import type { ClientBrief, ContentType } from "../01-content-factory/types";
@@ -216,6 +216,87 @@ export async function registerRoutes(
       } else {
         res.status(500).json({ error: "Failed to create client" });
       }
+    }
+  });
+
+  // ===== BRAND ASSETS ROUTES =====
+
+  // Get all brand assets
+  app.get("/api/brand-assets", async (req, res) => {
+    try {
+      const assets = await storage.getAllBrandAssets();
+      res.json(assets);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch brand assets" });
+    }
+  });
+
+  // Get brand assets for a specific client
+  app.get("/api/brand-assets/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const assets = await storage.getBrandAssets(clientId);
+      if (!assets) {
+        return res.status(404).json({ error: "Brand assets not found for this client" });
+      }
+      res.json(assets);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch brand assets" });
+    }
+  });
+
+  // Create brand assets for a client
+  app.post("/api/brand-assets", async (req, res) => {
+    try {
+      const validated = insertBrandAssetsSchema.parse(req.body);
+      
+      const existing = await storage.getBrandAssets(validated.clientId);
+      if (existing) {
+        return res.status(409).json({ error: "Brand assets already exist for this client. Use PUT to update." });
+      }
+      
+      const assets = await storage.createBrandAssets(validated);
+      res.status(201).json(assets);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        res.status(400).json({ error: fromError(error).toString() });
+      } else {
+        res.status(500).json({ error: "Failed to create brand assets" });
+      }
+    }
+  });
+
+  // Update brand assets for a client
+  app.put("/api/brand-assets/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      
+      const existing = await storage.getBrandAssets(clientId);
+      if (!existing) {
+        const validated = insertBrandAssetsSchema.parse({ ...req.body, clientId });
+        const assets = await storage.createBrandAssets(validated);
+        return res.status(201).json(assets);
+      }
+      
+      const assets = await storage.updateBrandAssets(clientId, req.body);
+      res.json(assets);
+    } catch (error: any) {
+      if (error.name === 'ZodError') {
+        res.status(400).json({ error: fromError(error).toString() });
+      } else {
+        res.status(500).json({ error: "Failed to update brand assets" });
+      }
+    }
+  });
+
+  // Delete brand assets for a client
+  app.delete("/api/brand-assets/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      await storage.deleteBrandAssets(clientId);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete brand assets" });
     }
   });
 

@@ -39,6 +39,8 @@ import {
   type InsertAnomalyModel,
   type ActivityLog,
   type InsertActivityLog,
+  type BrandAssets,
+  type InsertBrandAssets,
   kpis,
   pods,
   phaseChanges,
@@ -58,7 +60,8 @@ import {
   agentMetrics,
   healingAlerts,
   anomalyModels,
-  activityLogs
+  activityLogs,
+  brandAssets
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, inArray } from "drizzle-orm";
@@ -201,6 +204,13 @@ export interface IStorage {
   getActivityLogs(options?: { runId?: string; limit?: number }): Promise<ActivityLog[]>;
   getRecentActivityLogs(limit?: number): Promise<ActivityLog[]>;
   clearActivityLogs(runId?: string): Promise<{ deletedCount: number }>;
+
+  // Brand Assets
+  getBrandAssets(clientId: number): Promise<BrandAssets | undefined>;
+  getAllBrandAssets(): Promise<BrandAssets[]>;
+  createBrandAssets(assets: InsertBrandAssets): Promise<BrandAssets>;
+  updateBrandAssets(clientId: number, updates: Partial<InsertBrandAssets>): Promise<BrandAssets>;
+  deleteBrandAssets(clientId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1079,6 +1089,40 @@ export class DatabaseStorage implements IStorage {
     }
     const result = await db.delete(activityLogs);
     return { deletedCount: result.rowCount || 0 };
+  }
+
+  // Brand Assets
+  async getBrandAssets(clientId: number): Promise<BrandAssets | undefined> {
+    const [result] = await db
+      .select()
+      .from(brandAssets)
+      .where(eq(brandAssets.clientId, clientId));
+    return result || undefined;
+  }
+
+  async getAllBrandAssets(): Promise<BrandAssets[]> {
+    return await db
+      .select()
+      .from(brandAssets)
+      .orderBy(desc(brandAssets.createdAt));
+  }
+
+  async createBrandAssets(assets: InsertBrandAssets): Promise<BrandAssets> {
+    const [result] = await db.insert(brandAssets).values(assets).returning();
+    return result;
+  }
+
+  async updateBrandAssets(clientId: number, updates: Partial<InsertBrandAssets>): Promise<BrandAssets> {
+    const [result] = await db
+      .update(brandAssets)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(brandAssets.clientId, clientId))
+      .returning();
+    return result;
+  }
+
+  async deleteBrandAssets(clientId: number): Promise<void> {
+    await db.delete(brandAssets).where(eq(brandAssets.clientId, clientId));
   }
 }
 
