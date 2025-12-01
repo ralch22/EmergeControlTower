@@ -41,6 +41,8 @@ import {
   type InsertActivityLog,
   type BrandAssets,
   type InsertBrandAssets,
+  type BrandAssetFile,
+  type InsertBrandAssetFile,
   kpis,
   pods,
   phaseChanges,
@@ -61,7 +63,8 @@ import {
   healingAlerts,
   anomalyModels,
   activityLogs,
-  brandAssets
+  brandAssets,
+  brandAssetFiles
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, inArray } from "drizzle-orm";
@@ -211,6 +214,16 @@ export interface IStorage {
   createBrandAssets(assets: InsertBrandAssets): Promise<BrandAssets>;
   updateBrandAssets(clientId: number, updates: Partial<InsertBrandAssets>): Promise<BrandAssets>;
   deleteBrandAssets(clientId: number): Promise<void>;
+
+  // Brand Asset Files
+  getBrandAssetFiles(clientId: number): Promise<BrandAssetFile[]>;
+  getBrandAssetFilesByCategory(clientId: number, category: string): Promise<BrandAssetFile[]>;
+  getBrandAssetFilesByPurpose(clientId: number, purpose: string): Promise<BrandAssetFile | undefined>;
+  getBrandAssetFile(id: number): Promise<BrandAssetFile | undefined>;
+  createBrandAssetFile(file: InsertBrandAssetFile): Promise<BrandAssetFile>;
+  updateBrandAssetFile(id: number, updates: Partial<InsertBrandAssetFile>): Promise<BrandAssetFile>;
+  deleteBrandAssetFile(id: number): Promise<void>;
+  deleteBrandAssetFilesByClient(clientId: number): Promise<{ deletedCount: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1123,6 +1136,68 @@ export class DatabaseStorage implements IStorage {
 
   async deleteBrandAssets(clientId: number): Promise<void> {
     await db.delete(brandAssets).where(eq(brandAssets.clientId, clientId));
+  }
+
+  // Brand Asset Files
+  async getBrandAssetFiles(clientId: number): Promise<BrandAssetFile[]> {
+    return await db
+      .select()
+      .from(brandAssetFiles)
+      .where(eq(brandAssetFiles.clientId, clientId))
+      .orderBy(brandAssetFiles.category, brandAssetFiles.uploadedAt);
+  }
+
+  async getBrandAssetFilesByCategory(clientId: number, category: string): Promise<BrandAssetFile[]> {
+    return await db
+      .select()
+      .from(brandAssetFiles)
+      .where(and(
+        eq(brandAssetFiles.clientId, clientId),
+        eq(brandAssetFiles.category, category)
+      ))
+      .orderBy(brandAssetFiles.uploadedAt);
+  }
+
+  async getBrandAssetFilesByPurpose(clientId: number, purpose: string): Promise<BrandAssetFile | undefined> {
+    const [result] = await db
+      .select()
+      .from(brandAssetFiles)
+      .where(and(
+        eq(brandAssetFiles.clientId, clientId),
+        eq(brandAssetFiles.purpose, purpose)
+      ));
+    return result || undefined;
+  }
+
+  async getBrandAssetFile(id: number): Promise<BrandAssetFile | undefined> {
+    const [result] = await db
+      .select()
+      .from(brandAssetFiles)
+      .where(eq(brandAssetFiles.id, id));
+    return result || undefined;
+  }
+
+  async createBrandAssetFile(file: InsertBrandAssetFile): Promise<BrandAssetFile> {
+    const [result] = await db.insert(brandAssetFiles).values(file).returning();
+    return result;
+  }
+
+  async updateBrandAssetFile(id: number, updates: Partial<InsertBrandAssetFile>): Promise<BrandAssetFile> {
+    const [result] = await db
+      .update(brandAssetFiles)
+      .set(updates)
+      .where(eq(brandAssetFiles.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteBrandAssetFile(id: number): Promise<void> {
+    await db.delete(brandAssetFiles).where(eq(brandAssetFiles.id, id));
+  }
+
+  async deleteBrandAssetFilesByClient(clientId: number): Promise<{ deletedCount: number }> {
+    const result = await db.delete(brandAssetFiles).where(eq(brandAssetFiles.clientId, clientId));
+    return { deletedCount: result.rowCount || 0 };
   }
 }
 

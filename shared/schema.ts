@@ -115,6 +115,42 @@ export const insertBrandAssetsSchema = createInsertSchema(brandAssets).omit({ id
 export type InsertBrandAssets = z.infer<typeof insertBrandAssetsSchema>;
 export type BrandAssets = typeof brandAssets.$inferSelect;
 
+// Brand Asset Files - Individual uploaded files for brand content
+export const brandAssetFiles = pgTable("brand_asset_files", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").notNull(),
+  category: text("category").notNull(), // textual, visual, assets
+  subcategory: text("subcategory"), // logos, icons, mood-board, videos, infographics (for assets category)
+  fileName: text("file_name").notNull(),
+  originalName: text("original_name").notNull(),
+  filePath: text("file_path").notNull(),
+  fileType: text("file_type").notNull(), // txt, docx, png, svg, mp4, zip, json
+  mimeType: text("mime_type"),
+  fileSize: integer("file_size").notNull(), // bytes
+  purpose: text("purpose"), // brand_name, tagline, story, values, color_palette, logo_full, etc.
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(), // extracted content, dimensions, duration, etc.
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+});
+
+export const insertBrandAssetFileSchema = createInsertSchema(brandAssetFiles).omit({ id: true, uploadedAt: true });
+export type InsertBrandAssetFile = z.infer<typeof insertBrandAssetFileSchema>;
+export type BrandAssetFile = typeof brandAssetFiles.$inferSelect;
+
+// Enum types for brand asset file categories
+export const brandAssetCategoryEnum = z.enum(["textual", "visual", "assets"]);
+export const brandAssetSubcategoryEnum = z.enum(["logos", "icons", "mood-board", "videos", "infographics"]);
+export const brandAssetPurposeEnum = z.enum([
+  // Textual purposes
+  "brand_name", "tagline", "brand_story", "values", "personality", "tone", 
+  "forbidden_words", "keywords", "content_goals", "past_successes", "example_phrases",
+  // Visual purposes
+  "visual_style", "color_palette", "fonts", "cinematic_guidelines", 
+  "iconography_guidelines", "usage_rules", "accessibility_guidelines",
+  // Asset purposes
+  "logo_full_color", "logo_monochrome", "logo_inverted", "mood_board",
+  "reference_video", "tokenomics_infographic", "icon_set", "icon_individual"
+]);
+
 // Content Factory - Runs
 export const contentRuns = pgTable("content_runs", {
   id: serial("id").primaryKey(),

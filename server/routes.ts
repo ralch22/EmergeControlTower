@@ -1,10 +1,101 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertApprovalQueueSchema, insertKpiSchema, insertPodSchema, insertPhaseChangeSchema, insertAlertSchema, insertClientSchema, insertBrandAssetsSchema } from "@shared/schema";
+import { insertApprovalQueueSchema, insertKpiSchema, insertPodSchema, insertPhaseChangeSchema, insertAlertSchema, insertClientSchema, insertBrandAssetsSchema, insertBrandAssetFileSchema } from "@shared/schema";
 import { fromError } from "zod-validation-error";
 import { runContentPipeline } from "../01-content-factory/orchestrator";
 import type { ClientBrief, ContentType } from "../01-content-factory/types";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+
+const BRAND_ASSETS_DIR = "attached_assets/brand";
+
+const brandAssetStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const clientId = req.params.clientId || req.body.clientId;
+    const category = req.body.category || "assets";
+    const subcategory = req.body.subcategory || "";
+    
+    let uploadPath = path.join(BRAND_ASSETS_DIR, clientId, category);
+    if (subcategory) {
+      uploadPath = path.join(uploadPath, subcategory);
+    }
+    
+    fs.mkdirSync(uploadPath, { recursive: true });
+    cb(null, uploadPath);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const ext = path.extname(file.originalname);
+    const baseName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
+    cb(null, `${baseName}_${uniqueSuffix}${ext}`);
+  }
+});
+
+const FILE_SIZE_LIMITS: Record<string, number> = {
+  text: 50 * 1024,       // 50KB for text files
+  document: 5 * 1024 * 1024,  // 5MB for documents
+  image: 10 * 1024 * 1024,    // 10MB for images
+  video: 100 * 1024 * 1024,   // 100MB for videos
+  archive: 50 * 1024 * 1024,  // 50MB for zip files
+  font: 10 * 1024 * 1024,     // 10MB for font files
+};
+
+const ALLOWED_MIME_TYPES: Record<string, string[]> = {
+  textual: [
+    'text/plain',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'application/json',
+  ],
+  visual: [
+    'text/plain',
+    'application/json',
+    'image/png',
+    'image/jpeg',
+    'image/svg+xml',
+    'application/zip',
+    'font/otf',
+    'font/ttf',
+    'application/x-font-ttf',
+    'application/x-font-otf',
+  ],
+  assets: [
+    'image/png',
+    'image/jpeg',
+    'image/svg+xml',
+    'image/jpg',
+    'video/mp4',
+    'video/webm',
+    'application/zip',
+  ],
+};
+
+function getFileSizeLimit(mimeType: string): number {
+  if (mimeType.startsWith('text/') || mimeType === 'application/json') return FILE_SIZE_LIMITS.text;
+  if (mimeType.includes('word') || mimeType === 'application/msword') return FILE_SIZE_LIMITS.document;
+  if (mimeType.startsWith('image/')) return FILE_SIZE_LIMITS.image;
+  if (mimeType.startsWith('video/')) return FILE_SIZE_LIMITS.video;
+  if (mimeType === 'application/zip') return FILE_SIZE_LIMITS.archive;
+  if (mimeType.includes('font')) return FILE_SIZE_LIMITS.font;
+  return FILE_SIZE_LIMITS.document;
+}
+
+const uploadBrandAsset = multer({
+  storage: brandAssetStorage,
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const category = req.body.category || "assets";
+    const allowedTypes = ALLOWED_MIME_TYPES[category] || ALLOWED_MIME_TYPES.assets;
+    
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${file.mimetype} is not allowed for category ${category}`));
+    }
+  }
+});
 
 export async function registerRoutes(
   httpServer: Server,
@@ -297,6 +388,263 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete brand assets" });
+    }
+  });
+
+  // ===== Brand Asset Files =====
+
+  // Get all brand asset files for a client
+  app.get("/api/brand-asset-files/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const { category } = req.query;
+      
+      if (category && typeof category === 'string') {
+        const files = await storage.getBrandAssetFilesByCategory(clientId, category);
+        return res.json(files);
+      }
+      
+      const files = await storage.getBrandAssetFiles(clientId);
+      res.json(files);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch brand asset files" });
+    }
+  });
+
+  // Get a specific brand asset file
+  app.get("/api/brand-asset-files/file/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const file = await storage.getBrandAssetFile(id);
+      if (!file) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      res.json(file);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch brand asset file" });
+    }
+  });
+
+  // Upload a brand asset file
+  app.post("/api/brand-asset-files/:clientId", uploadBrandAsset.single('file'), async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const file = req.file;
+      
+      if (!file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+      
+      const maxSize = getFileSizeLimit(file.mimetype);
+      if (file.size > maxSize) {
+        fs.unlinkSync(file.path);
+        return res.status(400).json({ 
+          error: `File size ${(file.size / 1024 / 1024).toFixed(2)}MB exceeds limit of ${(maxSize / 1024 / 1024).toFixed(2)}MB for this file type` 
+        });
+      }
+      
+      const fileType = path.extname(file.originalname).slice(1).toLowerCase();
+      
+      let metadata: Record<string, unknown> = {};
+      
+      if (file.mimetype.startsWith('text/') || file.mimetype === 'application/json') {
+        try {
+          const content = fs.readFileSync(file.path, 'utf-8');
+          metadata.textPreview = content.slice(0, 500);
+          metadata.lineCount = content.split('\n').length;
+          metadata.wordCount = content.split(/\s+/).filter(Boolean).length;
+        } catch { }
+      }
+      
+      const assetFile = await storage.createBrandAssetFile({
+        clientId,
+        category: req.body.category || 'assets',
+        subcategory: req.body.subcategory || null,
+        fileName: file.filename,
+        originalName: file.originalname,
+        filePath: file.path,
+        fileType,
+        mimeType: file.mimetype,
+        fileSize: file.size,
+        purpose: req.body.purpose || null,
+        metadata,
+      });
+      
+      res.status(201).json(assetFile);
+    } catch (error: any) {
+      if (req.file) {
+        try { fs.unlinkSync(req.file.path); } catch { }
+      }
+      res.status(500).json({ error: error.message || "Failed to upload brand asset file" });
+    }
+  });
+
+  // Upload multiple brand asset files
+  app.post("/api/brand-asset-files/:clientId/batch", uploadBrandAsset.array('files', 20), async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const files = req.files as Express.Multer.File[];
+      
+      if (!files || files.length === 0) {
+        return res.status(400).json({ error: "No files uploaded" });
+      }
+      
+      const results: any[] = [];
+      const errors: any[] = [];
+      
+      for (const file of files) {
+        try {
+          const maxSize = getFileSizeLimit(file.mimetype);
+          if (file.size > maxSize) {
+            fs.unlinkSync(file.path);
+            errors.push({ 
+              file: file.originalname, 
+              error: `File size exceeds limit of ${(maxSize / 1024 / 1024).toFixed(2)}MB` 
+            });
+            continue;
+          }
+          
+          const fileType = path.extname(file.originalname).slice(1).toLowerCase();
+          
+          let metadata: Record<string, unknown> = {};
+          
+          if (file.mimetype.startsWith('text/') || file.mimetype === 'application/json') {
+            try {
+              const content = fs.readFileSync(file.path, 'utf-8');
+              metadata.textPreview = content.slice(0, 500);
+              metadata.lineCount = content.split('\n').length;
+              metadata.wordCount = content.split(/\s+/).filter(Boolean).length;
+            } catch { }
+          }
+          
+          const assetFile = await storage.createBrandAssetFile({
+            clientId,
+            category: req.body.category || 'assets',
+            subcategory: req.body.subcategory || null,
+            fileName: file.filename,
+            originalName: file.originalname,
+            filePath: file.path,
+            fileType,
+            mimeType: file.mimetype,
+            fileSize: file.size,
+            purpose: null,
+            metadata,
+          });
+          
+          results.push(assetFile);
+        } catch (error: any) {
+          try { fs.unlinkSync(file.path); } catch { }
+          errors.push({ file: file.originalname, error: error.message });
+        }
+      }
+      
+      res.status(201).json({ uploaded: results, errors });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to upload brand asset files" });
+    }
+  });
+
+  // Update brand asset file metadata
+  app.patch("/api/brand-asset-files/file/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { purpose, subcategory, category } = req.body;
+      
+      const updates: any = {};
+      if (purpose !== undefined) updates.purpose = purpose;
+      if (subcategory !== undefined) updates.subcategory = subcategory;
+      if (category !== undefined) updates.category = category;
+      
+      const file = await storage.updateBrandAssetFile(id, updates);
+      res.json(file);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to update brand asset file" });
+    }
+  });
+
+  // Delete a brand asset file
+  app.delete("/api/brand-asset-files/file/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      
+      const file = await storage.getBrandAssetFile(id);
+      if (file) {
+        try { fs.unlinkSync(file.filePath); } catch { }
+      }
+      
+      await storage.deleteBrandAssetFile(id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete brand asset file" });
+    }
+  });
+
+  // Delete all brand asset files for a client
+  app.delete("/api/brand-asset-files/:clientId/all", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      
+      const files = await storage.getBrandAssetFiles(clientId);
+      for (const file of files) {
+        try { fs.unlinkSync(file.filePath); } catch { }
+      }
+      
+      const result = await storage.deleteBrandAssetFilesByClient(clientId);
+      
+      try {
+        fs.rmSync(path.join(BRAND_ASSETS_DIR, clientId.toString()), { recursive: true, force: true });
+      } catch { }
+      
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete brand asset files" });
+    }
+  });
+
+  // Serve brand asset files
+  app.get("/api/brand-asset-files/download/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const file = await storage.getBrandAssetFile(id);
+      
+      if (!file) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      
+      if (!fs.existsSync(file.filePath)) {
+        return res.status(404).json({ error: "File not found on disk" });
+      }
+      
+      res.setHeader('Content-Disposition', `attachment; filename="${file.originalName}"`);
+      res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
+      res.sendFile(path.resolve(file.filePath));
+    } catch (error) {
+      res.status(500).json({ error: "Failed to download file" });
+    }
+  });
+
+  // Read text file content
+  app.get("/api/brand-asset-files/content/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const file = await storage.getBrandAssetFile(id);
+      
+      if (!file) {
+        return res.status(404).json({ error: "File not found" });
+      }
+      
+      if (!file.mimeType?.startsWith('text/') && file.mimeType !== 'application/json') {
+        return res.status(400).json({ error: "File is not a text file" });
+      }
+      
+      if (!fs.existsSync(file.filePath)) {
+        return res.status(404).json({ error: "File not found on disk" });
+      }
+      
+      const content = fs.readFileSync(file.filePath, 'utf-8');
+      res.json({ content, file });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to read file content" });
     }
   });
 
