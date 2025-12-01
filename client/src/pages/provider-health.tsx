@@ -25,6 +25,12 @@ import {
   MessageSquare,
   Brain,
   History,
+  Sparkles,
+  Film,
+  Volume2,
+  Palette,
+  ArrowUpCircle,
+  Users,
 } from "lucide-react";
 
 type ProviderHealth = {
@@ -46,6 +52,31 @@ type HealingAction = {
   reason: string;
   triggeredBy: string;
   createdAt: string;
+};
+
+type RunwayModel = {
+  id: string;
+  name: string;
+  type: string;
+  description: string;
+  pricing: {
+    unit: string;
+    amount: number;
+    currency?: string;
+  };
+  constraints: {
+    duration?: { min: number; max: number };
+    width?: { min: number; max: number };
+    height?: { min: number; max: number };
+    aspectRatios?: string[];
+  };
+  isAvailable: boolean;
+};
+
+type RunwayModelsResponse = {
+  isConfigured: boolean;
+  models: RunwayModel[];
+  pricing: Record<string, { unit: string; amount: number }>;
 };
 
 const serviceTypeIcons: Record<string, React.ReactNode> = {
@@ -91,6 +122,11 @@ export default function ProviderHealth() {
   const { data: healingActions, isLoading: isLoadingActions } = useQuery<HealingAction[]>({
     queryKey: ["/api/providers/healing-actions"],
     refetchInterval: 30000,
+  });
+
+  const { data: runwayModels, isLoading: isLoadingModels } = useQuery<RunwayModelsResponse>({
+    queryKey: ["/api/runway/models"],
+    refetchInterval: 60000,
   });
 
   const resetRateLimitsMutation = useMutation({
@@ -357,6 +393,63 @@ export default function ProviderHealth() {
                 </CardContent>
               </Card>
             )}
+
+            <Card className="bg-zinc-900/50 border-zinc-800 mt-6">
+              <CardHeader className="border-b border-zinc-800">
+                <CardTitle className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-pink-400" />
+                  Runway API Models & Pricing
+                  {runwayModels?.isConfigured && (
+                    <Badge className="ml-2 bg-green-500/20 text-green-400 border-green-500/30">
+                      <CheckCircle2 className="w-3 h-3 mr-1" />
+                      Configured
+                    </Badge>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-4">
+                {isLoadingModels ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="w-8 h-8 animate-spin text-cyan-400" />
+                  </div>
+                ) : !runwayModels?.isConfigured ? (
+                  <div className="text-center py-8">
+                    <AlertTriangle className="w-12 h-12 mx-auto mb-3 text-orange-400" />
+                    <p className="text-zinc-400">Runway API not configured</p>
+                    <p className="text-xs text-zinc-500 mt-1">Set RUNWAY_API_KEY to enable all models</p>
+                  </div>
+                ) : (
+                  <Tabs defaultValue="video" className="w-full">
+                    <TabsList className="bg-zinc-800/50 mb-4">
+                      <TabsTrigger value="video" className="data-[state=active]:bg-purple-600">
+                        <Film className="w-4 h-4 mr-1" />
+                        Video
+                      </TabsTrigger>
+                      <TabsTrigger value="image" className="data-[state=active]:bg-cyan-600">
+                        <Palette className="w-4 h-4 mr-1" />
+                        Image
+                      </TabsTrigger>
+                      <TabsTrigger value="audio" className="data-[state=active]:bg-green-600">
+                        <Volume2 className="w-4 h-4 mr-1" />
+                        Audio
+                      </TabsTrigger>
+                    </TabsList>
+
+                    {["video", "image", "audio"].map((type) => (
+                      <TabsContent key={type} value={type}>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {(runwayModels?.models || [])
+                            .filter(m => m.type === type)
+                            .map((model) => (
+                              <RunwayModelCard key={model.id} model={model} />
+                            ))}
+                        </div>
+                      </TabsContent>
+                    ))}
+                  </Tabs>
+                )}
+              </CardContent>
+            </Card>
           </div>
 
           <div>
@@ -493,6 +586,98 @@ function ProviderCard({ provider }: { provider: ProviderHealth }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+const modelTypeIcons: Record<string, React.ReactNode> = {
+  video: <Film className="w-4 h-4" />,
+  image: <Palette className="w-4 h-4" />,
+  audio: <Volume2 className="w-4 h-4" />,
+};
+
+const modelTypeColors: Record<string, string> = {
+  video: "border-purple-500/30 bg-purple-500/10",
+  image: "border-cyan-500/30 bg-cyan-500/10",
+  audio: "border-green-500/30 bg-green-500/10",
+};
+
+function RunwayModelCard({ model }: { model: RunwayModel }) {
+  const formatPricing = (pricing: RunwayModel["pricing"]) => {
+    if (pricing.unit === "per second") {
+      return `${pricing.amount} cr/sec`;
+    } else if (pricing.unit === "per image") {
+      return `${pricing.amount} cr/image`;
+    } else if (pricing.unit.includes("characters")) {
+      return `${pricing.amount} cr/${pricing.unit.replace("per ", "")}`;
+    }
+    return `${pricing.amount} cr/${pricing.unit}`;
+  };
+
+  const getModelIcon = (modelId: string) => {
+    if (modelId.includes("upscale")) return <ArrowUpCircle className="w-4 h-4 text-yellow-400" />;
+    if (modelId.includes("act_two")) return <Users className="w-4 h-4 text-pink-400" />;
+    if (modelId.includes("veo")) return <Sparkles className="w-4 h-4 text-purple-400" />;
+    if (modelId.includes("image")) return <Palette className="w-4 h-4 text-cyan-400" />;
+    if (modelId.includes("voice") || modelId.includes("sound") || modelId.includes("dub")) return <Volume2 className="w-4 h-4 text-green-400" />;
+    return <Film className="w-4 h-4 text-purple-400" />;
+  };
+
+  return (
+    <div
+      className={`p-4 rounded-lg border ${modelTypeColors[model.type]} hover:border-opacity-60 transition-all`}
+      data-testid={`runway-model-${model.id}`}
+    >
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex items-center gap-2">
+          {getModelIcon(model.id)}
+          <span className="font-medium text-white text-sm">{model.name}</span>
+        </div>
+        <Badge 
+          className={`text-xs ${model.isAvailable 
+            ? "bg-green-500/20 text-green-400 border-green-500/30" 
+            : "bg-zinc-700 text-zinc-400 border-zinc-600"}`}
+        >
+          {model.isAvailable ? "Available" : "Unavailable"}
+        </Badge>
+      </div>
+
+      <p className="text-xs text-zinc-400 mb-3 line-clamp-2">{model.description}</p>
+
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          <DollarSign className="w-3 h-3 text-yellow-400" />
+          <span className="text-xs font-medium text-yellow-400">{formatPricing(model.pricing)}</span>
+        </div>
+        
+        {model.constraints.duration && (
+          <span className="text-xs text-zinc-500">
+            {model.constraints.duration.min}-{model.constraints.duration.max}s
+          </span>
+        )}
+        
+        {model.constraints.aspectRatios && (
+          <span className="text-xs text-zinc-500">
+            {model.constraints.aspectRatios.length} ratios
+          </span>
+        )}
+      </div>
+
+      {model.id.startsWith("gen4") && (
+        <Badge className="mt-2 text-xs bg-pink-500/20 text-pink-400 border-pink-500/30">
+          Gen-4
+        </Badge>
+      )}
+      {model.id.startsWith("veo") && (
+        <Badge className="mt-2 text-xs bg-purple-500/20 text-purple-400 border-purple-500/30">
+          Google Veo
+        </Badge>
+      )}
+      {model.id.startsWith("eleven") && (
+        <Badge className="mt-2 text-xs bg-green-500/20 text-green-400 border-green-500/30">
+          ElevenLabs
+        </Badge>
+      )}
     </div>
   );
 }

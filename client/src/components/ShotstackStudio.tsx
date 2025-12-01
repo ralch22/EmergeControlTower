@@ -107,6 +107,19 @@ export default function ShotstackStudio({ projectId, onRenderComplete }: Shotsta
         const newCanvas = new Canvas(outputSize, newEdit);
         await newCanvas.load();
 
+        if (canvasContainerRef.current) {
+          canvasContainerRef.current.innerHTML = '';
+          const canvasAny = newCanvas as any;
+          const canvasElement = canvasAny.getElement?.() || canvasAny.canvas || canvasAny.element;
+          if (canvasElement) {
+            canvasContainerRef.current.appendChild(canvasElement);
+            console.log('[ShotstackStudio] Canvas mounted to DOM');
+          } else if (canvasAny.mount) {
+            canvasAny.mount(canvasContainerRef.current);
+            console.log('[ShotstackStudio] Canvas.mount() called');
+          }
+        }
+
         await newEdit.loadEdit(template);
 
         const controls = new Controls(newEdit);
@@ -118,6 +131,19 @@ export default function ShotstackStudio({ projectId, onRenderComplete }: Shotsta
           height: 200,
         });
         await newTimeline.load();
+
+        if (timelineContainerRef.current) {
+          timelineContainerRef.current.innerHTML = '';
+          const timelineAny = newTimeline as any;
+          const timelineElement = timelineAny.getElement?.() || timelineAny.timeline || timelineAny.element;
+          if (timelineElement) {
+            timelineContainerRef.current.appendChild(timelineElement);
+            console.log('[ShotstackStudio] Timeline mounted to DOM');
+          } else if (timelineAny.mount) {
+            timelineAny.mount(timelineContainerRef.current);
+            console.log('[ShotstackStudio] Timeline.mount() called');
+          }
+        }
 
         setEdit(newEdit);
         setCanvas(newCanvas);
