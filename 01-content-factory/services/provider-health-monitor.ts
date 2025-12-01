@@ -88,6 +88,43 @@ export const PROVIDER_CONFIG = {
     basePriority: 80,
     constraints: {}
   },
+  
+  // OpenRouter providers (unified gateway)
+  openrouter_deepseek_r1: { 
+    serviceType: 'text', 
+    isFree: true, 
+    costPerRequest: 0, 
+    basePriority: 85,
+    constraints: { contextLength: 164000, capabilities: ['reasoning'] }
+  },
+  openrouter_llama4_maverick: { 
+    serviceType: 'text', 
+    isFree: true, 
+    costPerRequest: 0, 
+    basePriority: 82,
+    constraints: { contextLength: 128000, capabilities: ['vision'] }
+  },
+  openrouter_mistral_small: { 
+    serviceType: 'text', 
+    isFree: true, 
+    costPerRequest: 0, 
+    basePriority: 78,
+    constraints: { contextLength: 96000 }
+  },
+  openrouter_qwen3: { 
+    serviceType: 'text', 
+    isFree: false, 
+    costPerRequest: 0.0012, 
+    basePriority: 75,
+    constraints: { contextLength: 131000, capabilities: ['reasoning'] }
+  },
+  openrouter_deepseek_v3: { 
+    serviceType: 'text', 
+    isFree: false, 
+    costPerRequest: 0.0002, 
+    basePriority: 72,
+    constraints: { contextLength: 128000 }
+  },
 } as const;
 
 export type ProviderName = keyof typeof PROVIDER_CONFIG;
@@ -189,14 +226,26 @@ class ProviderHealthMonitor {
       { 
         serviceType: 'text', 
         chainName: 'text_default', 
-        providerOrder: JSON.stringify(['anthropic', 'gemini_text']),
+        providerOrder: JSON.stringify(['anthropic', 'openrouter_deepseek_r1', 'openrouter_llama4_maverick', 'gemini_text']),
         isDefault: true 
       },
       { 
         serviceType: 'text', 
         chainName: 'text_free_only', 
-        providerOrder: JSON.stringify(['gemini_text']),
+        providerOrder: JSON.stringify(['openrouter_deepseek_r1', 'openrouter_llama4_maverick', 'openrouter_mistral_small', 'gemini_text']),
         conditions: JSON.stringify({ freeOnly: true })
+      },
+      { 
+        serviceType: 'text', 
+        chainName: 'text_reasoning', 
+        providerOrder: JSON.stringify(['openrouter_deepseek_r1', 'openrouter_qwen3', 'anthropic']),
+        conditions: JSON.stringify({ capability: 'reasoning' })
+      },
+      { 
+        serviceType: 'text', 
+        chainName: 'text_bulk_content', 
+        providerOrder: JSON.stringify(['openrouter_deepseek_v3', 'openrouter_mistral_small', 'openrouter_llama4_maverick', 'gemini_text']),
+        conditions: JSON.stringify({ bulkGeneration: true, costOptimized: true })
       },
     ];
 

@@ -78,10 +78,22 @@ Preferred communication style: Simple, everyday language.
 - **Replit AI Integrations (Anthropic)**: Claude Sonnet 4.5.
 - **Google AI**: Gemini 1.5 Flash, `gemini-2.0-flash-exp-image-generation` model.
 - **Adobe Firefly**: Professional image generation with custom models support (v3 API).
+- **OpenRouter**: Unified AI gateway providing access to 100+ models (DeepSeek R1, Llama 4, Qwen 3, Mistral) - many FREE.
 - **ElevenLabs**: Text-to-speech.
 - **Runway**: AI video generation.
 - **Midjourney (via Replicate)**: Image generation.
 - **Alibaba Dashscope**: Image generation (`wan2.5-t2i-preview`, `qwen-image-plus`).
+
+### OpenRouter Integration
+- **Unified Gateway**: Single API key for 100+ AI models from DeepSeek, Meta, Alibaba, Mistral, Google.
+- **Free Models Available**: DeepSeek R1, Llama 4 Maverick/Scout, Mistral Small 3.1, Gemini 2.5 Pro Exp.
+- **Smart Fallback**: Integrated into self-healing provider system with automatic routing.
+- **Text Generation Chains**:
+  - `text_default`: anthropic → openrouter_deepseek_r1 → openrouter_llama4_maverick → gemini_text
+  - `text_free_only`: openrouter_deepseek_r1 → openrouter_llama4_maverick → openrouter_mistral_small → gemini_text
+  - `text_reasoning`: openrouter_deepseek_r1 → openrouter_qwen3 → anthropic
+  - `text_bulk_content`: openrouter_deepseek_v3 → openrouter_mistral_small → openrouter_llama4_maverick → gemini_text
+- **API Endpoints**: `/api/openrouter/test`, `/api/openrouter/models`, `/api/openrouter/generate`, `/api/openrouter/blog`, `/api/openrouter/social`, `/api/openrouter/analyze`.
 
 ### ML Self-Healing Provider System
 - **Provider Health Monitor**: Tracks real-time provider status, success rates, latency, and cost per request.

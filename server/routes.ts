@@ -3737,6 +3737,134 @@ export function registerVideoIngredientsRoutes(app: Express) {
     }
   });
 
+  // ==========================================
+  // OpenRouter API Routes (Unified AI Gateway)
+  // ==========================================
+
+  // Test OpenRouter connection
+  app.get("/api/openrouter/test", async (req, res) => {
+    try {
+      const { openRouterClient } = await import("../01-content-factory/integrations/openrouter");
+      const result = await openRouterClient.testConnection();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // List available OpenRouter models
+  app.get("/api/openrouter/models", async (req, res) => {
+    try {
+      const { openRouterClient, OPENROUTER_MODELS } = await import("../01-content-factory/integrations/openrouter");
+      res.json({
+        available: openRouterClient.isAvailable(),
+        models: Object.entries(OPENROUTER_MODELS).map(([key, model]) => ({
+          key,
+          ...model,
+        })),
+        freeModels: openRouterClient.getFreeModels(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate text with OpenRouter
+  app.post("/api/openrouter/generate", async (req, res) => {
+    try {
+      const { openRouterClient } = await import("../01-content-factory/integrations/openrouter");
+      const { modelKey, messages, temperature, maxTokens, preferFree } = req.body;
+
+      let result;
+      if (modelKey) {
+        result = await openRouterClient.generateText({
+          modelKey,
+          messages,
+          temperature,
+          maxTokens,
+        });
+      } else {
+        result = await openRouterClient.generateWithFallback({
+          messages,
+          preferFree: preferFree !== false,
+          temperature,
+          maxTokens,
+        });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Generate blog content with OpenRouter
+  app.post("/api/openrouter/blog", async (req, res) => {
+    try {
+      const { openRouterClient } = await import("../01-content-factory/integrations/openrouter");
+      const { topic, keywords } = req.body;
+
+      if (!topic) {
+        return res.status(400).json({ error: "topic is required" });
+      }
+
+      const result = await openRouterClient.generateBlogContent(
+        topic,
+        keywords || []
+      );
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Generate social content with OpenRouter
+  app.post("/api/openrouter/social", async (req, res) => {
+    try {
+      const { openRouterClient } = await import("../01-content-factory/integrations/openrouter");
+      const { topic, platform } = req.body;
+
+      if (!topic || !platform) {
+        return res.status(400).json({ error: "topic and platform are required" });
+      }
+
+      if (!['linkedin', 'twitter', 'instagram'].includes(platform)) {
+        return res.status(400).json({ error: "platform must be linkedin, twitter, or instagram" });
+      }
+
+      const result = await openRouterClient.generateSocialContent(topic, platform);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // Analyze content with OpenRouter
+  app.post("/api/openrouter/analyze", async (req, res) => {
+    try {
+      const { openRouterClient } = await import("../01-content-factory/integrations/openrouter");
+      const { content, analysisType } = req.body;
+
+      if (!content || !analysisType) {
+        return res.status(400).json({ error: "content and analysisType are required" });
+      }
+
+      if (!['seo', 'readability', 'sentiment'].includes(analysisType)) {
+        return res.status(400).json({ error: "analysisType must be seo, readability, or sentiment" });
+      }
+
+      const result = await openRouterClient.analyzeContent(content, analysisType);
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // ==========================================
+  // Adobe Firefly API Routes
+  // ==========================================
+
   // Test Adobe Firefly connection
   app.get("/api/adobe-firefly/test", async (req, res) => {
     try {
@@ -3917,6 +4045,18 @@ export function registerVideoIngredientsRoutes(app: Express) {
           : 'ANTHROPIC_API_KEY not set',
         remediation: anthropicKey ? undefined :
           'Get API key from https://console.anthropic.com',
+      };
+
+      // Check OpenRouter (Unified AI Gateway)
+      const openrouterKey = process.env.OPENROUTER_API_KEY;
+      providerStatus['openrouter'] = {
+        configured: !!openrouterKey,
+        status: openrouterKey ? 'working' : 'not_configured',
+        message: openrouterKey 
+          ? 'OpenRouter configured (DeepSeek R1, Llama 4, Qwen 3, Mistral - many FREE models)'
+          : 'OPENROUTER_API_KEY not set',
+        remediation: openrouterKey ? undefined :
+          'Get API key from https://openrouter.ai - Provides access to 100+ models with many free options',
       };
 
       // Summary
