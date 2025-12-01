@@ -28,6 +28,12 @@ The system emphasizes fast builds (Vite, esbuild), consistent UI (shadcn/ui), ty
 -   **Data Models**: KPIs, Pods, Phase Changes, Approval Queue, Alerts, content generation-specific schemas (e.g., video ingredients).
 -   **Abstraction**: `IStorage` interface with `DatabaseStorage` implementation.
 
+### Brand Consistency System
+-   **Reference Assets**: Logo URLs and website URLs serve as brand consistency anchors for all generated content.
+-   **Website URL Integration**: The import-guidelines endpoint saves websiteUrl to client records; all content generation agents include website URL as a brand reference in their prompts.
+-   **Reference-Constrained Prompts**: Image and video generation agents use logo references when available to ensure brand-consistent visual output.
+-   **EnrichedClientBrief**: Extended client brief type includes websiteUrl and full brand profile for comprehensive prompt context.
+
 ### Content Generation Systems
 -   **Content Factory (Python LangGraph)**:
     -   Orchestrates parallel content generation (topic, blog, social, adcopy, video, QA, publish) via a LangGraph StateGraph pipeline.

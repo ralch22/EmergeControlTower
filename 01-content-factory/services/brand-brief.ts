@@ -67,6 +67,7 @@ export interface EnrichedClientBrief {
   targetAudience: string;
   keywords: string[];
   contentGoals: string[];
+  websiteUrl?: string;
   textual: TextualBrandBrief;
   visual: VisualBrandBrief;
   hasFullProfile: boolean;
@@ -83,6 +84,7 @@ export function composeBrandBrief(
     contentGoals: string;
     brandProfile?: BrandProfileJSON | null;
     primaryLogoUrl?: string | null;
+    websiteUrl?: string | null;
   }
 ): EnrichedClientBrief {
   const bp = client.brandProfile;
@@ -147,6 +149,7 @@ export function composeBrandBrief(
       targetAudience: client.targetAudience,
       keywords: defaultTextual.keywords,
       contentGoals: defaultTextual.contentGoals,
+      websiteUrl: client.websiteUrl || undefined,
       textual: defaultTextual,
       visual: defaultVisual,
       hasFullProfile: false,
@@ -165,6 +168,7 @@ export function composeBrandBrief(
       targetAudience: client.targetAudience,
       keywords: defaultTextual.keywords,
       contentGoals: defaultTextual.contentGoals,
+      websiteUrl: client.websiteUrl || undefined,
       textual: defaultTextual,
       visual: defaultVisual,
       hasFullProfile: false,
@@ -263,6 +267,7 @@ export function composeBrandBrief(
     targetAudience: client.targetAudience,
     keywords: textual.keywords,
     contentGoals: textual.contentGoals,
+    websiteUrl: client.websiteUrl || undefined,
     textual,
     visual,
     hasFullProfile: true,
@@ -276,6 +281,7 @@ export function formatTextualBriefForPrompt(brief: EnrichedClientBrief): string 
 === BRAND IDENTITY ===
 Brand: ${t.brandName}${t.brandToken ? ` (${t.brandToken})` : ''}
 Tagline: "${t.tagline}"
+${brief.websiteUrl ? `Website: ${brief.websiteUrl}` : ''}
 ${t.mission ? `Mission: ${t.mission}` : ''}
 ${t.brandStory ? `Story: ${t.brandStory}` : ''}
 

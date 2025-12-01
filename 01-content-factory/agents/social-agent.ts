@@ -55,11 +55,11 @@ export async function generateSocialPost(
     
     const brandContext = isEnriched 
       ? formatTextualBriefForPrompt(enrichedBrief)
-      : `Brand Voice: ${brief.brandVoice}\nTarget Audience: ${brief.targetAudience}`;
+      : `Brand Voice: ${brief.brandVoice}\nTarget Audience: ${brief.targetAudience}${brief.websiteUrl ? `\nWebsite Reference: ${brief.websiteUrl} (maintain brand consistency with website)` : ''}`;
     
     const systemPrompt = isEnriched 
       ? buildSocialSystemPrompt(enrichedBrief, platform)
-      : `You are a social media content expert. Create content in the brand voice: ${brief.brandVoice}.`;
+      : `You are a social media content expert. Create content in the brand voice: ${brief.brandVoice}.${brief.websiteUrl ? ` Use ${brief.websiteUrl} as a reference for brand style and tone.` : ''}`;
     
     const effectiveCta = isEnriched ? getEffectiveCTA(enrichedBrief) : undefined;
     const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];

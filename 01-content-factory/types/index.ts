@@ -26,6 +26,9 @@ export interface ClientBrief {
   
   // Extended brand assets
   brandVoiceConfig?: BrandVoiceConfig;
+  
+  // Brand reference for consistency
+  websiteUrl?: string;
 }
 
 export type { 

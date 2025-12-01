@@ -537,7 +537,15 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
       }
 
       // Update client with the new brand profile
-      const updatedClient = await storage.updateClientBrandProfile(id, brandProfile);
+      await storage.updateClientBrandProfile(id, brandProfile);
+
+      // Also save the website URL to the client record as a reference
+      if (websiteUrl) {
+        await storage.updateClient(id, { websiteUrl });
+      }
+
+      // Refetch the client to get the complete updated record
+      const updatedClient = await storage.getClient(id);
 
       res.json({
         success: true,
@@ -1446,10 +1454,11 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
       // Build comprehensive brand brief from profile
       const buildBrandBrief = () => {
         const bp = client.brandProfile;
+        const websiteUrl = client.websiteUrl;
         if (!bp) {
           return {
-            context: `Brand: ${client.name}\nIndustry: ${client.industry}\nBrand Voice: ${client.brandVoice}\nTarget Audience: ${client.targetAudience}\nKeywords: ${client.keywords}\nContent Goals: ${client.contentGoals}`,
-            systemAddition: `Write in the brand voice: ${client.brandVoice}. Target audience: ${client.targetAudience}.`,
+            context: `Brand: ${client.name}\nIndustry: ${client.industry}\nBrand Voice: ${client.brandVoice}\nTarget Audience: ${client.targetAudience}\nKeywords: ${client.keywords}\nContent Goals: ${client.contentGoals}${websiteUrl ? `\nWebsite Reference: ${websiteUrl} (maintain brand consistency with website)` : ''}`,
+            systemAddition: `Write in the brand voice: ${client.brandVoice}. Target audience: ${client.targetAudience}.${websiteUrl ? ` Use ${websiteUrl} as a reference for brand style and tone.` : ''}`,
             ctas: [] as string[],
             forbiddenWords: [] as string[],
           };
@@ -1463,7 +1472,8 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
 Brand Name: ${t.brandName.primary}${t.brandName.token ? ` (Token: ${t.brandName.token})` : ''}
 Tagline: "${t.tagline.primary}"
 ${t.mission ? `Mission: ${t.mission}` : ''}
-${t.brandStory?.short ? `Brand Story: ${t.brandStory.short}` : ''}`;
+${t.brandStory?.short ? `Brand Story: ${t.brandStory.short}` : ''}
+${websiteUrl ? `Website Reference: ${websiteUrl} (maintain brand consistency with website)` : ''}`;
 
         const voicePersonality = `
 === VOICE & PERSONALITY ===
@@ -1505,7 +1515,7 @@ ${t.values.map(v => `• ${v.name}: ${v.description}`).join('\n')}` : '';
 
         return {
           context: `${brandIdentity}${voicePersonality}${audienceInfo}${contentGuidelines}${values}${visualContext}`,
-          systemAddition: `You are writing for ${t.brandName.primary}. Embody the ${t.personality.archetype} archetype with traits: ${t.personality.traits.join(', ')}. Use a ${t.tone.description} tone. Target audience: ${t.targetAudience.demographics}. Naturally incorporate these keywords: ${t.keywords.slice(0, 5).join(', ')}.${t.forbiddenWords?.length ? ` NEVER use: ${t.forbiddenWords.join(', ')}.` : ''}`,
+          systemAddition: `You are writing for ${t.brandName.primary}. Embody the ${t.personality.archetype} archetype with traits: ${t.personality.traits.join(', ')}. Use a ${t.tone.description} tone. Target audience: ${t.targetAudience.demographics}. Naturally incorporate these keywords: ${t.keywords.slice(0, 5).join(', ')}.${t.forbiddenWords?.length ? ` NEVER use: ${t.forbiddenWords.join(', ')}.` : ''}${websiteUrl ? ` Use ${websiteUrl} as a reference for brand style and tone.` : ''}`,
           ctas: t.callToActions || [],
           forbiddenWords: t.forbiddenWords || [],
         };

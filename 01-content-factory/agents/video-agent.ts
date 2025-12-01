@@ -183,11 +183,11 @@ export async function generateVideoScript(
     const brandVisualContext = buildBrandVisualContext(brief);
     const brandTextualContext = isEnriched 
       ? formatTextualBriefForPrompt(enrichedBrief)
-      : `Brand Voice: ${brief.brandVoice}\nTarget Audience: ${brief.targetAudience}`;
+      : `Brand Voice: ${brief.brandVoice}\nTarget Audience: ${brief.targetAudience}${brief.websiteUrl ? `\nWebsite Reference: ${brief.websiteUrl} (maintain brand consistency with website)` : ''}`;
     
     const systemPrompt = isEnriched 
       ? buildVideoSystemPrompt(enrichedBrief)
-      : BASE_SYSTEM_PROMPT;
+      : `${BASE_SYSTEM_PROMPT}${brief.websiteUrl ? ` Use ${brief.websiteUrl} as a reference for brand style and tone.` : ''}`;
     
     const effectiveCta = isEnriched ? getEffectiveCTA(enrichedBrief) : undefined;
     const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];

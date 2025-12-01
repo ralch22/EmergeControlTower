@@ -52,11 +52,11 @@ export async function generateAdCopy(
     
     const brandContext = isEnriched 
       ? formatTextualBriefForPrompt(enrichedBrief)
-      : `Target Audience: ${brief.targetAudience}\nContent Goals: ${brief.contentGoals.join(', ')}`;
+      : `Target Audience: ${brief.targetAudience}\nContent Goals: ${brief.contentGoals.join(', ')}${brief.websiteUrl ? `\nWebsite Reference: ${brief.websiteUrl} (maintain brand consistency with website)` : ''}`;
     
     const systemPrompt = isEnriched 
       ? buildAdCopySystemPrompt(enrichedBrief, platform)
-      : `You are a direct-response copywriter. Create high-converting ad copy for ${brief.clientName}.`;
+      : `You are a direct-response copywriter. Create high-converting ad copy for ${brief.clientName}.${brief.websiteUrl ? ` Use ${brief.websiteUrl} as a reference for brand style and tone.` : ''}`;
     
     const effectiveCta = isEnriched ? getEffectiveCTA(enrichedBrief) : brief.contentGoals?.[0];
     const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];
