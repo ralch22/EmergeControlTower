@@ -49,6 +49,8 @@ type VideoProjectApiResponse = {
     title: string;
     status: string;
     duration: number;
+    visualPrompt?: string;
+    voiceoverText?: string;
   }>;
   clips: Array<{
     clipId: string;
@@ -78,6 +80,8 @@ type VideoProject = {
     title: string;
     status: string;
     duration: number;
+    visualPrompt?: string;
+    voiceoverText?: string;
   }>;
   clips: Array<{
     clipId: string;
