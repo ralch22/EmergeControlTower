@@ -38,23 +38,28 @@ export interface PipelineState {
 type ProgressCallback = (state: PipelineState) => void;
 type CounterCallback = (increment: number) => Promise<void>;
 type ActivityLogCallback = (log: InsertActivityLog) => Promise<void>;
+type ContentSaveCallback = (content: GeneratedContent, qaScore?: number) => Promise<void>;
 
 export class ContentPipeline {
   private state: PipelineState;
   private onProgress?: ProgressCallback;
   private onContentCreated?: CounterCallback;
   private onActivityLog?: ActivityLogCallback;
+  private onContentSave?: ContentSaveCallback;
+  private savedContentIds: Set<string> = new Set();
 
   constructor(
     config: ContentRunConfig,
     options: {
+      runId?: string;
       onProgress?: ProgressCallback;
       onContentCreated?: CounterCallback;
       onActivityLog?: ActivityLogCallback;
+      onContentSave?: ContentSaveCallback;
     } = {}
   ) {
     this.state = {
-      runId: `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      runId: options.runId || `run_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       config,
       topics: [],
       contents: [],
@@ -72,6 +77,7 @@ export class ContentPipeline {
     this.onProgress = options.onProgress;
     this.onContentCreated = options.onContentCreated;
     this.onActivityLog = options.onActivityLog;
+    this.onContentSave = options.onContentSave;
   }
 
   private updateState(updates: Partial<PipelineState>) {
@@ -433,21 +439,50 @@ export class ContentPipeline {
 
   private async runQAGate(): Promise<void> {
     const qaPromises = this.state.contents.map(async (content) => {
-      const result = await reviewContent(content);
-      if (result.success && result.data) {
-        this.state.qaResults.set(content.id, result.data);
-        
-        if (result.data.passed) {
-          content.status = "pending_review";
-          this.state.stats.totalPassed++;
+      let qaScore: number | undefined;
+      
+      try {
+        const result = await reviewContent(content);
+        if (result.success && result.data) {
+          this.state.qaResults.set(content.id, result.data);
+          qaScore = result.data.score;
+          
+          if (result.data.passed) {
+            content.status = "pending_review";
+            this.state.stats.totalPassed++;
+          } else {
+            content.status = "draft";
+            this.state.stats.totalFailed++;
+          }
         } else {
+          // QA service returned an error, keep as draft
           content.status = "draft";
-          this.state.stats.totalFailed++;
+          console.warn(`[Pipeline] QA failed for ${content.id}: ${result.error || 'Unknown error'}`);
         }
+      } catch (err: any) {
+        // QA service exception, keep as draft
+        content.status = "draft";
+        console.error(`[Pipeline] QA error for ${content.id}: ${err.message}`);
       }
+      
+      // Always save content after QA attempt (whether it passed, failed, or errored)
+      await this.saveContent(content, qaScore);
     });
 
     await Promise.all(qaPromises);
+  }
+  
+  private async saveContent(content: GeneratedContent, qaScore?: number): Promise<void> {
+    if (!this.onContentSave) return;
+    if (this.savedContentIds.has(content.id)) return; // Skip duplicates
+    
+    try {
+      await this.onContentSave(content, qaScore);
+      this.savedContentIds.add(content.id);
+      console.log(`[Pipeline] Saved content: ${content.id}`);
+    } catch (err: any) {
+      console.error(`[Pipeline] Failed to save content ${content.id}: ${err.message}`);
+    }
   }
 
   getResult(): ContentRunResult {
@@ -471,9 +506,11 @@ export class ContentPipeline {
 export async function runContentPipeline(
   config: ContentRunConfig,
   options: {
+    runId?: string;
     onProgress?: ProgressCallback;
     onContentCreated?: CounterCallback;
     onActivityLog?: ActivityLogCallback;
+    onContentSave?: ContentSaveCallback;
   } = {}
 ): Promise<ContentRunResult> {
   const pipeline = new ContentPipeline(config, options);

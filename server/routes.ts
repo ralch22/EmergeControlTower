@@ -903,33 +903,36 @@ export async function registerRoutes(
         status: 'running'
       });
 
-      runContentPipeline(
-        {
-          clientId: client.id.toString(),
-          clientBrief,
-          topicCount,
-          contentTypes: contentTypes as ContentType[],
-          runType: 'single',
-        },
-        {
-          onContentCreated: async (count) => {
-            await storage.incrementAiOutput(count);
-          },
-          onActivityLog: async (log) => {
-            await storage.createActivityLog(log);
-          },
-          onProgress: async (state) => {
-            await storage.updateContentRun(runId, {
-              status: state.status,
-              totalPieces: state.stats.totalGenerated,
-              successfulPieces: state.stats.totalPassed,
-              failedPieces: state.stats.totalFailed,
-              completedAt: state.completedAt,
-            });
-
-            // Only save content when run is completed
-            if (state.status === 'completed') {
-              for (const content of state.contents) {
+      // Run pipeline with proper error handling (not fire-and-forget)
+      (async () => {
+        try {
+          await runContentPipeline(
+            {
+              clientId: client.id.toString(),
+              clientBrief,
+              topicCount,
+              contentTypes: contentTypes as ContentType[],
+              runType: 'single',
+            },
+            {
+              runId, // Pass server-assigned runId to align tracking
+              onContentCreated: async (count) => {
+                await storage.incrementAiOutput(count);
+              },
+              onActivityLog: async (log) => {
+                await storage.createActivityLog(log);
+              },
+              onProgress: async (state) => {
+                await storage.updateContentRun(runId, {
+                  status: state.status,
+                  totalPieces: state.stats.totalGenerated,
+                  successfulPieces: state.stats.totalPassed,
+                  failedPieces: state.stats.totalFailed,
+                  completedAt: state.completedAt,
+                });
+              },
+              // Save content progressively as it's generated
+              onContentSave: async (content, qaScore) => {
                 try {
                   await storage.createGeneratedContent({
                     contentId: content.id,
@@ -940,7 +943,7 @@ export async function registerRoutes(
                     content: content.content,
                     metadata: JSON.stringify(content.metadata),
                     status: content.status,
-                    qaScore: state.qaResults.get(content.id)?.score || null,
+                    qaScore: qaScore || null,
                   });
 
                   if (content.status === 'pending_review') {
@@ -952,14 +955,28 @@ export async function registerRoutes(
                       status: 'pending',
                     });
                   }
-                } catch {
-                  // Content may already exist, skip duplicates
+                } catch (err) {
+                  console.error(`[ContentFactory] Failed to save content: ${(err as Error).message}`);
                 }
-              }
+              },
             }
-          },
+          );
+        } catch (error: any) {
+          console.error(`[ContentFactory] Pipeline failed: ${error.message}`);
+          // Ensure run is marked as failed on error
+          await storage.updateContentRun(runId, {
+            status: 'failed',
+            completedAt: new Date(),
+          });
+          await storage.createActivityLog({
+            runId,
+            eventType: 'run_failed',
+            level: 'error',
+            message: `Content run failed: ${error.message}`,
+            metadata: JSON.stringify({ error: error.message }),
+          });
         }
-      ).catch(console.error);
+      })();
 
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Failed to start content run" });
@@ -1004,33 +1021,36 @@ export async function registerRoutes(
         estimatedPieces: 42
       });
 
-      runContentPipeline(
-        {
-          clientId: client.id.toString(),
-          clientBrief,
-          topicCount: 7,
-          contentTypes: ['blog', 'linkedin', 'twitter', 'instagram', 'facebook_ad', 'video_script'],
-          runType: 'weekly',
-        },
-        {
-          onContentCreated: async (count) => {
-            await storage.incrementAiOutput(count);
-          },
-          onActivityLog: async (log) => {
-            await storage.createActivityLog(log);
-          },
-          onProgress: async (state) => {
-            await storage.updateContentRun(runId, {
-              status: state.status,
-              totalPieces: state.stats.totalGenerated,
-              successfulPieces: state.stats.totalPassed,
-              failedPieces: state.stats.totalFailed,
-              completedAt: state.completedAt,
-            });
-
-            // Only save content when run is completed
-            if (state.status === 'completed') {
-              for (const content of state.contents) {
+      // Run pipeline with proper error handling (not fire-and-forget)
+      (async () => {
+        try {
+          await runContentPipeline(
+            {
+              clientId: client.id.toString(),
+              clientBrief,
+              topicCount: 7,
+              contentTypes: ['blog', 'linkedin', 'twitter', 'instagram', 'facebook_ad', 'video_script'],
+              runType: 'weekly',
+            },
+            {
+              runId, // Pass server-assigned runId to align tracking
+              onContentCreated: async (count) => {
+                await storage.incrementAiOutput(count);
+              },
+              onActivityLog: async (log) => {
+                await storage.createActivityLog(log);
+              },
+              onProgress: async (state) => {
+                await storage.updateContentRun(runId, {
+                  status: state.status,
+                  totalPieces: state.stats.totalGenerated,
+                  successfulPieces: state.stats.totalPassed,
+                  failedPieces: state.stats.totalFailed,
+                  completedAt: state.completedAt,
+                });
+              },
+              // Save content progressively as it's generated
+              onContentSave: async (content, qaScore) => {
                 try {
                   await storage.createGeneratedContent({
                     contentId: content.id,
@@ -1041,10 +1061,9 @@ export async function registerRoutes(
                     content: content.content,
                     metadata: JSON.stringify(content.metadata),
                     status: content.status,
-                    qaScore: state.qaResults.get(content.id)?.score || null,
+                    qaScore: qaScore || null,
                   });
 
-                  // Add to approval queue if pending review
                   if (content.status === 'pending_review') {
                     await storage.createApprovalItem({
                       client: client.name,
@@ -1055,16 +1074,68 @@ export async function registerRoutes(
                     });
                   }
                 } catch (err) {
-                  // Content may already exist, skip duplicates
+                  console.error(`[ContentFactory] Failed to save content: ${(err as Error).message}`);
                 }
-              }
+              },
             }
-          },
+          );
+        } catch (error: any) {
+          console.error(`[ContentFactory] Weekly pipeline failed: ${error.message}`);
+          // Ensure run is marked as failed on error
+          await storage.updateContentRun(runId, {
+            status: 'failed',
+            completedAt: new Date(),
+          });
+          await storage.createActivityLog({
+            runId,
+            eventType: 'run_failed',
+            level: 'error',
+            message: `Weekly content run failed: ${error.message}`,
+            metadata: JSON.stringify({ error: error.message }),
+          });
         }
-      ).catch(console.error);
+      })();
 
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Failed to start weekly content run" });
+    }
+  });
+
+  // Cleanup stuck runs (mark as failed if running for too long)
+  app.post("/api/content-factory/cleanup-stuck-runs", async (req, res) => {
+    try {
+      const { maxAgeMinutes = 30 } = req.body;
+      const runs = await storage.getContentRuns();
+      const now = new Date();
+      const cleanedRuns: string[] = [];
+      
+      for (const run of runs) {
+        if (run.status === 'running') {
+          const startTime = new Date(run.startedAt || now);
+          const ageMinutes = (now.getTime() - startTime.getTime()) / (1000 * 60);
+          
+          if (ageMinutes > maxAgeMinutes) {
+            await storage.updateContentRun(run.runId, {
+              status: 'failed',
+              completedAt: new Date(),
+            });
+            await storage.createActivityLog({
+              runId: run.runId,
+              eventType: 'run_cleanup',
+              level: 'warning',
+              message: `Content run marked as failed (stuck for ${Math.round(ageMinutes)} minutes)`,
+            });
+            cleanedRuns.push(run.runId);
+          }
+        }
+      }
+      
+      res.json({ 
+        message: `Cleaned up ${cleanedRuns.length} stuck runs`,
+        cleanedRuns 
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to cleanup stuck runs" });
     }
   });
 
