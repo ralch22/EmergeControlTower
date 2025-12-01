@@ -37,6 +37,13 @@ class BrandVoice(BaseModel):
     content_goals: List[str] = []
     past_winners: List[str] = []
     examples: List[str] = []
+    
+    # Visual and cinematic brand guidelines
+    visual_style: Optional[str] = Field(None, description="Overall visual aesthetic (e.g., 'cinematic with warm tones, high contrast, slow-motion transitions')")
+    color_palette: Optional[List[str]] = Field(None, description="Hex codes or color names (e.g., ['#FF0000', '#1A2B5C', 'navy blue'])")
+    fonts: Optional[List[str]] = Field(None, description="Preferred fonts (e.g., ['Arial', 'Helvetica'])")
+    reference_assets: Optional[Dict[str, str]] = Field(None, description="Key-value pairs of asset names to paths/URLs (e.g., {'logo': 'attached_assets/brand/logo.png'})")
+    cinematic_guidelines: Optional[str] = Field(None, description="Video-specific rules (e.g., 'Use 16:9 aspect ratio, dramatic lighting, orchestral music')")
 
 
 class ContentTopic(BaseModel):

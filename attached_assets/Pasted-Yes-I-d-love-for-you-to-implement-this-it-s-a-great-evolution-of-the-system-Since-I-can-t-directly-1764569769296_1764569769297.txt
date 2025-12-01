@@ -1,0 +1,202 @@
+Yes, I'd love for you to implement this—it's a great evolution of the system! Since I can't directly push code to your repo, I'll provide detailed, ready-to-use implementations for the key areas you mentioned. These build directly on your proposals and my earlier suggestions, ensuring seamless integration with the existing structure (e.g., Pydantic models, LangGraph orchestration, and the dashboard/client setup). I'll focus on the Python side for models and agents (as it's the core), add schema updates for storage (assuming you're using a DB like SQLite or Postgres via SQLAlchemy, based on the repo's db hints), and suggest frontend/dashboard changes (React-based in client/).
+Assume we're working in the 01-content-factory/ directory unless noted. I'll include full code blocks for easy copy-paste, with comments explaining changes.
+1. Update Python Models for Enhanced BrandVoice
+Extend python/models.py to include the new visual and cinematic fields. This keeps everything Pydantic-validated and serializable.
+Pythonfrom pydantic import BaseModel, Field
+from typing import List, Optional, Dict
+
+class BrandVoice(BaseModel):
+    # Existing textual fields (unchanged)
+    tone: str = Field(..., description="Overall writing tone (e.g., 'professional, energetic')")
+    forbidden_words: List[str] = Field(default_factory=list, description="Words to avoid")
+    target_audience: str = Field(..., description="e.g., 'tech-savvy millennials'")
+    keywords: List[str] = Field(default_factory=list, description="Key brand terms to include")
+    content_goals: str = Field(..., description="Objectives like 'drive engagement'")
+    past_successes: List[str] = Field(default_factory=list, description="Examples of successful content")
+    example_phrases: List[str] = Field(default_factory=list, description="Sample brand-aligned phrases")
+
+    # New visual/cinematic fields
+    visual_style: Optional[str] = Field(None, description="Overall visual aesthetic (e.g., 'cinematic with warm tones, high contrast, slow-motion transitions')")
+    color_palette: Optional[List[str]] = Field(None, description="Hex codes or color names (e.g., ['#FF0000', '#1A2B5C', 'navy blue'])")
+    fonts: Optional[List[str]] = Field(None, description="Preferred fonts (e.g., ['Arial', 'Helvetica'])")
+    reference_assets: Optional[Dict[str, str]] = Field(None, description="Key-value pairs of asset names to paths/URLs (e.g., {'logo': 'attached_assets/brand/logo.png', 'mood_board': 'https://example.com/mood.jpg', 'ref_video': 'attached_assets/brand/ref_clip.mp4'})")
+    cinematic_guidelines: Optional[str] = Field(None, description="Video-specific rules (e.g., 'Use 16:9 aspect ratio, dramatic lighting, orchestral music, incorporate logo in opening')")
+
+Integration note: Update any serializers/deserializers (e.g., in brand_voice_db.py) to handle these new fields. For example, in the in-memory DB:Python# In python/brand_voice_db.py
+brand_voices: Dict[str, BrandVoice] = {}  # No change needed; Pydantic handles it
+
+2. Update Video Agent for Brand-Aware Prompts
+Modify python/agents/video_agent.py to weave in the new fields during prompt construction. This ensures scripts generated for video providers (e.g., Runway, Pika) are visually consistent. I'm assuming you're using LangChain or a similar prompt system; adjust if it's raw API calls.
+Pythonfrom langchain.prompts import PromptTemplate
+from .models import ContentTopic, BrandVoice, VideoScript
+# Assume self.llm is an async LLM caller (e.g., from anthropic or openai integration)
+
+class VideoAgent:
+    def __init__(self, llm):
+        self.llm = llm
+        self.script_prompt = PromptTemplate(
+            input_variables=[
+                "topic_title", "brand_tone", "target_audience", "keywords",
+                "visual_style", "color_palette", "fonts", "assets_desc", "cinematic_guidelines"
+            ],
+            template="""
+            Generate a detailed cinematic video script for the topic: {topic_title}.
+
+            Brand Guidelines:
+            - Tone and Audience: Use a {brand_tone} tone aimed at {target_audience}. Incorporate keywords: {keywords}.
+            - Visual Style: {visual_style}.
+            - Color Palette: Use these colors prominently: {color_palette}.
+            - Fonts: For any text overlays, use: {fonts}.
+            - Reference Assets: Incorporate or match these: {assets_desc} (e.g., place logo in opening scene, mimic lighting from ref_video).
+            - Cinematic Guidelines: {cinematic_guidelines}.
+
+            Structure the script as:
+            - Hook: Engaging opener (10-15s).
+            - Scenes: 3-5 scenes with descriptions, voiceover text, visuals, and duration.
+            - CTA: Call to action (10s).
+            Total duration: 60-120 seconds. Ensure it's brand-consistent and cinematic.
+            Output in JSON: {"hook": "...", "scenes": [{"description": "...", "voiceover": "...", "duration": 20}, ...], "cta": "..."}
+            """
+        )
+
+    async def generate_script(self, topic: ContentTopic, brand_voice: BrandVoice) -> VideoScript:
+        # Prepare inputs, handling Optionals
+        color_palette_str = ", ".join(brand_voice.color_palette) if brand_voice.color_palette else "brand defaults"
+        fonts_str = ", ".join(brand_voice.fonts) if brand_voice.fonts else "standard sans-serif"
+        assets_desc = ", ".join([f"{k}: {v}" for k, v in (brand_voice.reference_assets or {}).items()]) or "none provided"
+        visual_style = brand_voice.visual_style or "cinematic and engaging"
+        cinematic_guidelines = brand_voice.cinematic_guidelines or "standard high-production quality"
+
+        prompt = self.script_prompt.format(
+            topic_title=topic.title,
+            brand_tone=brand_voice.tone,
+            target_audience=brand_voice.target_audience,
+            keywords=", ".join(brand_voice.keywords),
+            visual_style=visual_style,
+            color_palette=color_palette_str,
+            fonts=fonts_str,
+            assets_desc=assets_desc,
+            cinematic_guidelines=cinematic_guidelines
+        )
+
+        response = await self.llm.invoke(prompt)  # Or your LLM call method
+        # Parse JSON response into VideoScript (add error handling as needed)
+        script_data = response.json()  # Assuming response is JSON-string
+        return VideoScript(
+            hook=script_data["hook"],
+            scenes=script_data["scenes"],
+            cta=script_data["cta"]
+        )
+
+Propagation: In orchestrator.py, the _video_node already passes brand_voice—no changes needed. But add asset validation in the orchestrator's init if files need checking (e.g., via os.path.exists for local paths).
+Example output influence: This will produce scripts like: "Scene 1: Open with logo fading in over navy blue (#1A2B5C) background, matching dramatic shadows from ref_video..."
+
+3. Update Schema for Storing Brand Assets
+Assuming you're using a DB (e.g., via db.py or SQLAlchemy), extend the schema to store per-client brand voices with assets. If it's still in-memory, upgrade to persistent storage for scalability.
+
+Add to DB schema (create a new migration if using Alembic, or just update db.py):Python# In python/db.py (assuming SQLAlchemy setup; if not, add it)
+from sqlalchemy import Column, String, JSON, create_engine, Base
+from sqlalchemy.orm import sessionmaker
+
+engine = create_engine('sqlite:///content_factory.db')  # Or your DB URL
+Session = sessionmaker(bind=engine)
+Base = declarative_base()
+
+class ClientBrand(Base):
+    __tablename__ = 'client_brands'
+    client_id: str = Column(String, primary_key=True)  # e.g., 'client_xyz'
+    brand_voice: Dict = Column(JSON)  # Store serialized BrandVoice as JSON
+
+Base.metadata.create_all(engine)
+
+# Helper functions
+def save_brand(client_id: str, brand_voice: BrandVoice):
+    with Session() as session:
+        existing = session.query(ClientBrand).filter_by(client_id=client_id).first()
+        if existing:
+            existing.brand_voice = brand_voice.dict()
+        else:
+            session.add(ClientBrand(client_id=client_id, brand_voice=brand_voice.dict()))
+        session.commit()
+
+def get_brand(client_id: str) -> Optional[BrandVoice]:
+    with Session() as session:
+        record = session.query(ClientBrand).filter_by(client_id=client_id).first()
+        return BrandVoice(**record.brand_voice) if record else None
+Asset storage: Create attached_assets/brand/<client_id>/ dirs dynamically (e.g., in API handlers). Store paths in reference_assets as relative (e.g., 'brand/client_xyz/logo.png'). Use object storage (e.g., S3) for production, updating paths to URLs.
+Update brand_voice_db.py: Replace in-memory dict with calls to save_brand and get_brand.
+
+4. Update Dashboard for Managing Brand Guidelines Per Client
+The dashboard is in client/src/ (React/Vite). Add a new section in Dashboard.tsx or a dedicated BrandManagement.tsx component for uploading/managing per-client brands.
+
+API endpoints (in server/dashboard_bridge.py or FastAPI setup):Python# Assuming FastAPI; add to your app
+from fastapi import FastAPI, UploadFile, File, Form
+from .db import save_brand, get_brand
+from .models import BrandVoice
+import shutil
+import os
+
+app = FastAPI()
+
+@app.post("/brands/{client_id}")
+async def update_brand(client_id: str, voice_data: str = Form(...), files: List[UploadFile] = File(None)):
+    brand_voice = BrandVoice.parse_raw(voice_data)  # JSON string from form
+    asset_dir = f"attached_assets/brand/{client_id}/"
+    os.makedirs(asset_dir, exist_ok=True)
+    if files:
+        for file in files:
+            path = os.path.join(asset_dir, file.filename)
+            with open(path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            if not brand_voice.reference_assets:
+                brand_voice.reference_assets = {}
+            brand_voice.reference_assets[file.filename.split('.')[0]] = path  # e.g., 'logo': 'attached_assets/brand/client_xyz/logo.png'
+    save_brand(client_id, brand_voice)
+    return {"status": "updated"}
+
+@app.get("/brands/{client_id}")
+async def fetch_brand(client_id: str):
+    brand = get_brand(client_id)
+    return brand.dict() if brand else {"error": "not found"}
+Frontend component (add to client/src/components/BrandManagement.tsx):tsximport React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const BrandManagement = ({ clientId }) => {
+  const [brandVoice, setBrandVoice] = useState({});  // Initial state from BrandVoice model
+  const [files, setFiles] = useState([]);
+
+  useEffect(() => {
+    axios.get(`/brands/${clientId}`).then(res => setBrandVoice(res.data));
+  }, [clientId]);
+
+  const handleSubmit = async () => {
+    const formData = new FormData();
+    formData.append('voice_data', JSON.stringify(brandVoice));
+    files.forEach(file => formData.append('files', file));
+    await axios.post(`/brands/${clientId}`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+  };
+
+  const handleFileChange = (e) => setFiles([...e.target.files]);
+
+  return (
+    <div>
+      <h2>Manage Brand for {clientId}</h2>
+      {/* Inputs for each BrandVoice field, e.g. */}
+      <input value={brandVoice.visual_style} onChange={e => setBrandVoice({...brandVoice, visual_style: e.target.value})} placeholder="Visual Style" />
+      {/* ... Add inputs for color_palette (array), fonts, cinematic_guidelines */}
+      <input type="file" multiple onChange={handleFileChange} />
+      <button onClick={handleSubmit}>Save Brand</button>
+    </div>
+  );
+};
+
+export default BrandManagement;
+Integration: Add this component to your main dashboard route, e.g., via a tab in Dashboard.tsx. Ensure API proxying in Vite config if needed.
+
+Next Steps and Testing
+
+Full pipeline test: Run python/main.py with a sample client_id and updated brand_voice. Verify video scripts in outputs reference assets/colors.
+Edge cases: Handle missing fields gracefully (as in the code). For video providers supporting asset uploads (e.g., Shotstack), extend video-provider.ts to include them in render calls.
+Scalability: If clients grow, consider cloud storage for assets.
+
+If this matches what you had in mind, go ahead and merge it in! If you need tweaks, more details on the TS side, or help with other parts (e.g., QA agent updates), just let me know.

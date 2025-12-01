@@ -1,3 +1,20 @@
+export interface BrandVoiceConfig {
+  tone: string;
+  forbiddenWords?: string[];
+  targetAudience: string;
+  keywords?: string[];
+  contentGoals?: string[];
+  pastWinners?: string[];
+  examples?: string[];
+  
+  // Visual and cinematic brand guidelines
+  visualStyle?: string;
+  colorPalette?: string[];
+  fonts?: string[];
+  referenceAssets?: Record<string, string>;
+  cinematicGuidelines?: string;
+}
+
 export interface ClientBrief {
   clientId: string;
   clientName: string;
@@ -6,6 +23,9 @@ export interface ClientBrief {
   targetAudience: string;
   keywords: string[];
   contentGoals: string[];
+  
+  // Extended brand assets
+  brandVoiceConfig?: BrandVoiceConfig;
 }
 
 export interface ContentTopic {

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, timestamp, boolean, decimal } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, boolean, decimal, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -95,6 +95,25 @@ export const clients = pgTable("clients", {
 export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
 export type InsertClient = z.infer<typeof insertClientSchema>;
 export type Client = typeof clients.$inferSelect;
+
+// Brand Assets - Visual and cinematic brand guidelines per client
+export const brandAssets = pgTable("brand_assets", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").notNull().unique(),
+  visualStyle: text("visual_style"),
+  colorPalette: text("color_palette").array(),
+  fonts: text("fonts").array(),
+  referenceAssets: jsonb("reference_assets").$type<Record<string, string>>(),
+  cinematicGuidelines: text("cinematic_guidelines"),
+  forbiddenWords: text("forbidden_words").array(),
+  examplePhrases: text("example_phrases").array(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBrandAssetsSchema = createInsertSchema(brandAssets).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertBrandAssets = z.infer<typeof insertBrandAssetsSchema>;
+export type BrandAssets = typeof brandAssets.$inferSelect;
 
 // Content Factory - Runs
 export const contentRuns = pgTable("content_runs", {

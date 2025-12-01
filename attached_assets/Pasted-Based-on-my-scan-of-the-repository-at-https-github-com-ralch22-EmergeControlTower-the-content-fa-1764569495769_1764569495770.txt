@@ -1,0 +1,99 @@
+Based on my scan of the repository at https://github.com/ralch22/EmergeControlTower, the "content factory" appears to refer to the core content generation pipeline implemented primarily in the 01-content-factory directory. This is a multi-language setup (TypeScript and Python) using agent-based workflows to automate content creation, including topics, blog posts, social media posts, ad copy, and video scripts. It leverages LangGraph (in Python) for orchestration and integrates with external AI services (e.g., Anthropic, DALL-E, Runway, Luma, Pika for text, images, and videos) to produce outputs. The system emphasizes parallel processing, QA review, and publishing (e.g., via Buffer).
+The current implementation focuses on textual brand consistency through a BrandVoice model (defined in 01-content-factory/python/models.py), which includes attributes like tone, keywords, forbidden words, target audience, and example phrases. This is stored/retrieved via brand_voice_db.py and passed to agents (e.g., VideoAgent in python/agents/video_agent.py) to guide prompt construction for LLMs. However, it doesn't natively support ingesting brand assets (e.g., logos, color palettes, fonts, mood boards, reference videos) as visual design guidelines. Cinematic-style content is handled via video script generation in the VideoAgent, which produces structured scripts (hook, scenes, voiceover, duration) that can then be fed to video integrations (e.g., runway.ts, pika.ts, shotstack.ts) for rendering. These scripts incorporate brand voice but lack direct visual asset integration for precision.
+To modify the content factory to accept brand assets as design guidelines for highly accurate cinematic-style content (e.g., ensuring consistent visual aesthetics, lighting, pacing, or branding in generated videos), follow these steps. I'll focus on practical changes to the Python side (as it's the primary orchestrator via orchestrator.py), but similar patterns apply to the TypeScript pipeline in orchestrator/content-pipeline.ts.
+1. Extend the BrandVoice Model to Include Visual/Design Guidelines
+Update 01-content-factory/python/models.py to add fields for brand assets. This allows the system to treat them as structured inputs rather than ad-hoc data.
+Pythonfrom pydantic import BaseModel, Field
+from typing import List, Optional, Dict
+
+class BrandVoice(BaseModel):
+    # Existing fields...
+    tone: str = Field(..., description="Overall writing tone")
+    forbidden_words: List[str] = Field(default_factory=list)
+    target_audience: str
+    keywords: List[str]
+    content_goals: str
+    past_successes: List[str]
+    example_phrases: List[str]
+
+    # New fields for visual/cinematic guidelines
+    visual_style: Optional[str] = Field(None, description="Description of visual aesthetic, e.g., 'cinematic with warm tones, high contrast, slow-motion transitions'")
+    color_palette: Optional[List[str]] = Field(None, description="Hex codes or names, e.g., ['#FF0000', 'navy blue']")
+    fonts: Optional[List[str]] = Field(None, description="Preferred fonts, e.g., ['Arial', 'Helvetica']")
+    reference_assets: Optional[Dict[str, str]] = Field(None, description="URLs or file paths to assets, e.g., {'logo': 'attached_assets/logo.png', 'mood_board': 'https://example.com/mood.jpg', 'ref_video': 'attached_assets/ref_clip.mp4'}")
+    cinematic_guidelines: Optional[str] = Field(None, description="Specific rules for video, e.g., 'Use 16:9 aspect ratio, dramatic lighting, orchestral music'")
+
+Why this helps: Brand assets become part of the brand_voice passed throughout the pipeline (e.g., in ContentRunConfig). For accuracy, describe assets textually (e.g., "Incorporate the red logo from reference_assets['logo'] in the opening scene") or reference them directly if the integration supports uploads (e.g., Shotstack for asset ingestion).
+Storage update: In brand_voice_db.py, the in-memory dict already handles BrandVoice instances— no changes needed, but consider persisting to a real DB (e.g., via SQLAlchemy) for production.
+
+2. Modify the Orchestrator to Accept and Propagate Brand Assets
+In 01-content-factory/python/orchestrator.py, the ContentRunConfig already includes brand_voice. Ensure assets are loaded or referenced early.
+
+Add asset loading logic in __init__ or _topic_node if assets are files (e.g., from attached_assets dir):Pythonimport os
+
+# In ContentFactoryOrchestrator.__init__
+if self.config.brand_voice.reference_assets:
+    for asset_key, asset_path in self.config.brand_voice.reference_assets.items():
+        if os.path.exists(asset_path):  # e.g., 'attached_assets/logo.png'
+            # Optional: Pre-process or validate assets (e.g., extract colors via Pillow library)
+            print(f"Loaded asset {asset_key}: {asset_path}")
+        else:
+            self.errors.append(f"Asset not found: {asset_path}")
+The pipeline already passes brand_voice to agents— no core changes needed here, but add logging in _video_node for traceability:Pythonasync def _video_node(self, state: GraphState) -> Dict[str, Any]:
+    # Existing code...
+    for topic in video_topics:
+        try:
+            # Pass brand_voice (now with assets) to agent
+            script = await self.video_agent.generate_script(topic, state["config"].brand_voice)
+            # ... rest
+        # ...
+
+3. Update the VideoAgent to Incorporate Guidelines in Prompts
+In 01-content-factory/python/agents/video_agent.py (assuming it uses an LLM like Anthropic or OpenAI via integrations), modify generate_script to build prompts that reference brand assets for cinematic accuracy.
+
+Example modification:Pythonfrom .models import ContentTopic, BrandVoice, VideoScript
+from langchain.prompts import PromptTemplate  # Assuming LangChain usage
+
+class VideoAgent:
+    def __init__(self):
+        self.prompt_template = PromptTemplate(
+            input_variables=["topic", "brand_voice", "visual_style", "cinematic_guidelines", "assets_desc"],
+            template="""
+            Generate a cinematic video script for topic: {topic.title}
+            Follow brand voice: {brand_voice.tone}, targeting {brand_voice.target_audience}.
+            Incorporate visual style: {visual_style}
+            Cinematic guidelines: {cinematic_guidelines}
+            Use these brand assets as references: {assets_desc} (e.g., place logo in scenes, match colors to palette).
+            Script structure: Hook, scenes with voiceover, CTA. Aim for 60-120 seconds.
+            """
+        )
+
+    async def generate_script(self, topic: ContentTopic, brand_voice: BrandVoice) -> VideoScript:
+        assets_desc = ", ".join([f"{k}: {v}" for k, v in brand_voice.reference_assets.items()]) if brand_voice.reference_assets else "None"
+        prompt = self.prompt_template.format(
+            topic=topic,
+            brand_voice=brand_voice,
+            visual_style=brand_voice.visual_style or "default",
+            cinematic_guidelines=brand_voice.cinematic_guidelines or "standard cinematic",
+            assets_desc=assets_desc
+        )
+        # Call LLM (e.g., via anthropic.ts or similar integration)
+        response = await self.llm.invoke(prompt)  # Assuming self.llm is set up
+        # Parse response into VideoScript...
+        return VideoScript(...)  # Populate with parsed hook, script, etc.
+For actual video rendering: After script generation, in integrations like shotstack.ts or runway.ts, modify to upload/reference assets if supported (e.g., Shotstack allows asset URLs in render requests). Add a post-script step in the orchestrator to call video-provider.ts with script + assets for final video output.
+
+4. Handle Brand Assets Input/Storage
+
+Upload mechanism: Use the attached_assets dir for storing files (e.g., via client upload in the client dir frontend). Reference them in BrandVoice.reference_assets as relative paths (e.g., 'attached_assets/my_logo.png').
+Frontend integration: If using the client dir (likely React/Vite), add forms to upload assets and update brand voice via API calls to server (e.g., via dashboard_bridge.py).
+QA integration: In qa_agent.py, add checks for cinematic adherence (e.g., "Does the script reference brand colors?").
+
+5. Testing and Edge Cases
+
+Run the pipeline via main.py in python/ or root main.py.
+For accuracy: Test with sample assets—e.g., provide a mood board image and ensure prompts describe it (e.g., "Match the dramatic shadows from ref_video").
+Limitations: If integrations don't support image references (e.g., pure text-to-video like early Pika), accuracy relies on descriptive prompts. For advanced control, integrate tools like ControlNet (via ml dir) if expanding to custom models.
+Dependencies: Ensure requirements.txt includes libs like pillow for asset processing or langchain for prompts.
+
+This setup ensures brand assets guide the entire flow without overhauling the architecture, leading to more precise cinematic outputs (e.g., scripts that specify "Use navy blue from color_palette for backgrounds"). If the repo's TS side is your focus, apply analogous changes to content-pipeline.ts by extending ContentRunConfig and passing to generateVideoScript.
