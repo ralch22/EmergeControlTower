@@ -1,0 +1,45 @@
+1. Textual Components (/textual/)
+These are editable documents containing brand messaging guidelines.
+shield_brand_name.txt (Plain text file with the brand name and usage rules).
+shield_tagline.txt (Plain text file with slogan and variations).
+shield_brand_story.docx or .txt (Word or text file with 150-200 word narrative).
+shield_values.txt (Text file with bulleted list of 5 values).
+shield_personality.txt (Text file describing traits and application).
+shield_tone.txt (Text file with tone description and examples).
+shield_forbidden_words.txt (Text file with list of words to avoid).
+shield_keywords.txt (Text file with list of keywords).
+shield_content_goals.txt (Text file with objectives).
+shield_past_successes.txt (Text file with list of successes).
+shield_example_phrases.txt (Text file with list of phrases).
+2. Visual and Design Components (/visual/)
+These include guidelines and supporting files for design consistency.
+shield_visual_style.txt (Text file describing the style).
+shield_color_palette.png (Image swatch with hex codes labeled; also provide as .json or .txt list).
+shield_fonts.zip (Zip containing font files: Inter and Fira Code in .otf/.ttf; include Google Fonts links in a .txt).
+shield_cinematic_guidelines.txt (Text file with video rules).
+shield_iconography_guidelines.txt (Text file with rules for icons/shapes).
+shield_usage_rules.txt (Text file with dos/don'ts).
+shield_accessibility_guidelines.txt (Text file with standards).
+3. Reference Assets (/assets/)
+These are the core visual files, optimized for web/video use.
+Logos (/assets/logos/):
+shield_logo_full-color.svg (Vector full-color variant).
+shield_logo_full-color.png (1024x1024 PNG).
+shield_logo_monochrome.svg (Vector monochrome variant).
+shield_logo_monochrome.png (1024x1024 PNG).
+shield_logo_inverted.svg (Vector inverted variant).
+shield_logo_inverted.png (1024x1024 PNG).
+Mood Board (/assets/mood-board/):
+shield_mood_board.jpg (1920x1080 collage).
+Reference Video (/assets/videos/):
+shield_reference_video.mp4 (1920x1080, 30s, <100MB).
+Tokenomics Infographic (/assets/infographics/):
+shield_tokenomics.svg (Vector version).
+shield_tokenomics.png (1200x1200 raster).
+Icon Set (/assets/icons/):
+shield_icons.zip (Zip with 10+ SVGs: e.g., shield_icon_lock.svg, shield_icon_flame.svg, etc., each 48x48 base).
+Individual files (unzipped for reference):
+shield_icon_lock.svg
+shield_icon_flame.svg
+shield_icon_arrow.svg
+(And 7+ more as specified in brief).
