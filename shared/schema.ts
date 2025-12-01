@@ -79,7 +79,7 @@ export const insertAlertSchema = createInsertSchema(alerts).omit({ id: true, cre
 export type InsertAlert = z.infer<typeof insertAlertSchema>;
 export type Alert = typeof alerts.$inferSelect;
 
-// Content Factory - Clients
+// Content Factory - Clients with Full Brand Profile
 export const clients = pgTable("clients", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -90,7 +90,77 @@ export const clients = pgTable("clients", {
   contentGoals: text("content_goals").notNull(),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  // Full brand profile JSON (comprehensive brand identity)
+  brandProfile: jsonb("brand_profile").$type<BrandProfileJSON>(),
+  // Primary logo reference
+  primaryLogoUrl: text("primary_logo_url"),
+  websiteUrl: text("website_url"),
+  socialHandles: jsonb("social_handles").$type<Record<string, string>>(),
 });
+
+// Brand Profile JSON type for the jsonb column
+export interface BrandProfileJSON {
+  version: string;
+  lastUpdated?: string;
+  textual: {
+    brandName: { primary: string; token?: string; abbreviation?: string; usageNotes?: string };
+    tagline: { primary: string; alternatives?: string[]; maxWords?: number };
+    brandStory: { short: string; medium?: string; full?: string };
+    mission?: string;
+    vision?: string;
+    values: Array<{ name: string; description: string }>;
+    personality: { archetype: string; traits: string[]; avoidTraits?: string[] };
+    tone: { description: string; formality: number; energy: number; technicality: number; warmth: number };
+    forbiddenWords: string[];
+    keywords: string[];
+    contentGoals: string[];
+    pastSuccesses?: string[];
+    examplePhrases: string[];
+    callToActions?: string[];
+    targetAudience: { demographics: string; psychographics?: string; painPoints?: string[]; goals?: string[] };
+  };
+  visual: {
+    visualStyle: { description: string; aesthetic: string[]; moodKeywords: string[]; patterns?: string[]; motifs?: string[] };
+    colorPalette: {
+      darkMode: {
+        background: { name: string; hex: string; usage: string };
+        accent: { name: string; hex: string; usage: string };
+        textPrimary: { name: string; hex: string; usage: string };
+        textSecondary?: { name: string; hex: string; usage: string };
+        success?: { name: string; hex: string; usage: string };
+        warning?: { name: string; hex: string; usage: string };
+        error?: { name: string; hex: string; usage: string };
+      };
+      lightMode?: {
+        background: { name: string; hex: string; usage: string };
+        accent: { name: string; hex: string; usage: string };
+        textPrimary: { name: string; hex: string; usage: string };
+      };
+      additionalColors?: Array<{ name: string; hex: string; usage: string }>;
+    };
+    typography: {
+      fonts: Array<{ family: string; category: string; weights: number[]; usage: string; googleFontsUrl?: string }>;
+    };
+    iconography: { style: string; cornerStyle?: string; shape?: string; colorApproach: string; sizeBase: number };
+    cinematicGuidelines: {
+      aspectRatio: string;
+      resolution: string;
+      duration: { short: number; medium: number; long: number };
+      pacing: string;
+      motionStyle: string;
+      transitionStyle?: string;
+      soundtrackStyle?: string;
+      colorGrading?: string;
+    };
+    accessibility: { standard: string; minContrastRatio: number; altTextRequired: boolean };
+    usageRules: { dos: string[]; donts: string[] };
+  };
+  referenceAssets?: {
+    logos?: Array<{ id: string; type: string; variant?: string; url: string; isPrimary?: boolean }>;
+    icons?: Array<{ id: string; type: string; url: string }>;
+    moodBoards?: Array<{ id: string; type: string; url: string }>;
+  };
+}
 
 export const insertClientSchema = createInsertSchema(clients).omit({ id: true, createdAt: true });
 export type InsertClient = z.infer<typeof insertClientSchema>;

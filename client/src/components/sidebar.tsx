@@ -27,6 +27,7 @@ const navItems = [
   { path: "/clients", label: "Clients", icon: Users },
   { path: "/brand-assets", label: "Brand Guidelines", icon: Palette },
   { path: "/brand-files", label: "Brand Files", icon: FolderOpen },
+  { path: "/brand-control", label: "Brand Control", icon: Palette },
   { path: "/control-tower", label: "Control Tower", icon: Shield },
   { path: "/provider-health", label: "Provider Health", icon: Activity },
   { path: "/settings", label: "Settings", icon: Settings },

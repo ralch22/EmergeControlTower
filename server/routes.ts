@@ -310,6 +310,214 @@ export async function registerRoutes(
     }
   });
 
+  // Get a single client with brand profile
+  app.get("/api/clients/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const client = await storage.getClientWithBrandProfile(id);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+      res.json(client);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch client" });
+    }
+  });
+
+  // Update a client
+  app.put("/api/clients/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const client = await storage.updateClient(id, req.body);
+      res.json(client);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to update client" });
+    }
+  });
+
+  // Update client brand profile
+  app.put("/api/clients/:id/brand-profile", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { brandProfile, logoUrl } = req.body;
+      const client = await storage.updateClientBrandProfile(id, brandProfile, logoUrl);
+      res.json(client);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to update brand profile" });
+    }
+  });
+
+  // Delete a client (soft delete)
+  app.delete("/api/clients/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await storage.deleteClient(id);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete client" });
+    }
+  });
+
+  // ===== BRAND ASSET GENERATION ROUTES =====
+
+  // Generate mood board for a client
+  app.post("/api/clients/:id/generate/mood-board", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const client = await storage.getClientWithBrandProfile(id);
+      if (!client || !client.brandProfile) {
+        return res.status(400).json({ error: "Client brand profile not found" });
+      }
+
+      const { generateMoodBoard } = await import("../01-content-factory/services/brand-asset-generator");
+      const result = await generateMoodBoard(client.brandProfile, id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Mood board generation error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate mood board" });
+    }
+  });
+
+  // Generate icon set for a client
+  app.post("/api/clients/:id/generate/icons", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const client = await storage.getClientWithBrandProfile(id);
+      if (!client || !client.brandProfile) {
+        return res.status(400).json({ error: "Client brand profile not found" });
+      }
+
+      const iconNames = req.body.iconNames || ['lock', 'shield', 'flame', 'arrow', 'chain', 'wallet', 'chart', 'secure', 'yield', 'bridge'];
+      const { generateIconSet } = await import("../01-content-factory/services/brand-asset-generator");
+      const result = await generateIconSet(client.brandProfile, id, iconNames);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Icon set generation error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate icon set" });
+    }
+  });
+
+  // Generate infographic for a client
+  app.post("/api/clients/:id/generate/infographic", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const client = await storage.getClientWithBrandProfile(id);
+      if (!client || !client.brandProfile) {
+        return res.status(400).json({ error: "Client brand profile not found" });
+      }
+
+      const { type = 'tokenomics', data } = req.body;
+      const { generateInfographic } = await import("../01-content-factory/services/brand-asset-generator");
+      const result = await generateInfographic(client.brandProfile, id, type, data);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Infographic generation error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate infographic" });
+    }
+  });
+
+  // Generate logo variant for a client
+  app.post("/api/clients/:id/generate/logo-variant", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const client = await storage.getClientWithBrandProfile(id);
+      if (!client || !client.brandProfile) {
+        return res.status(400).json({ error: "Client brand profile not found" });
+      }
+
+      const { variantType = 'monochrome' } = req.body;
+      const { generateLogoVariant } = await import("../01-content-factory/services/brand-asset-generator");
+      const result = await generateLogoVariant(client.brandProfile, id, variantType, client.primaryLogoUrl || undefined);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Logo variant generation error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate logo variant" });
+    }
+  });
+
+  // Generate social post image for a client
+  app.post("/api/clients/:id/generate/social-image", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const client = await storage.getClientWithBrandProfile(id);
+      if (!client || !client.brandProfile) {
+        return res.status(400).json({ error: "Client brand profile not found" });
+      }
+
+      const { platform = 'linkedin', topic } = req.body;
+      const { generateSocialPostImage } = await import("../01-content-factory/services/brand-asset-generator");
+      const result = await generateSocialPostImage(client.brandProfile, id, platform, topic);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Social image generation error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate social image" });
+    }
+  });
+
+  // Generate text content for a client
+  app.post("/api/clients/:id/generate/text-content", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const client = await storage.getClientWithBrandProfile(id);
+      if (!client || !client.brandProfile) {
+        return res.status(400).json({ error: "Client brand profile not found" });
+      }
+
+      const { contentType = 'social_caption', topic } = req.body;
+      if (!topic) {
+        return res.status(400).json({ error: "Topic is required" });
+      }
+      
+      const { generateTextContent } = await import("../01-content-factory/services/brand-asset-generator");
+      const result = await generateTextContent(client.brandProfile, id, contentType, topic);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Text content generation error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate text content" });
+    }
+  });
+
+  // Generate promo video script for a client
+  app.post("/api/clients/:id/generate/promo-script", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const client = await storage.getClientWithBrandProfile(id);
+      if (!client || !client.brandProfile) {
+        return res.status(400).json({ error: "Client brand profile not found" });
+      }
+
+      const { duration = 30 } = req.body;
+      const { generatePromoVideoScript } = await import("../01-content-factory/services/brand-asset-generator");
+      const result = await generatePromoVideoScript(client.brandProfile, id, duration);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Promo script generation error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate promo script" });
+    }
+  });
+
+  // Generate complete brand package for a client
+  app.post("/api/clients/:id/generate/complete-package", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const client = await storage.getClientWithBrandProfile(id);
+      if (!client || !client.brandProfile) {
+        return res.status(400).json({ error: "Client brand profile not found" });
+      }
+
+      const options = req.body.options || {};
+      const { generateCompleteBrandPackage } = await import("../01-content-factory/services/brand-asset-generator");
+      const result = await generateCompleteBrandPackage(client.brandProfile, id, {
+        ...options,
+        referenceLogoUrl: client.primaryLogoUrl || undefined,
+      });
+      res.json(result);
+    } catch (error: any) {
+      console.error("Complete package generation error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate complete package" });
+    }
+  });
+
   // ===== BRAND ASSETS ROUTES =====
 
   // Get all brand assets
@@ -4383,7 +4591,7 @@ export function registerVideoIngredientsRoutes(app: Express) {
       const { healthMonitor, PROVIDER_CONFIG } = await import("../01-content-factory/services/provider-health-monitor");
       
       // Get unique service types from provider config
-      const serviceTypes = [...new Set(Object.values(PROVIDER_CONFIG).map(p => p.serviceType))];
+      const serviceTypes = Array.from(new Set(Object.values(PROVIDER_CONFIG).map(p => p.serviceType)));
       const orders: Record<string, string[]> = {};
       
       for (const type of serviceTypes) {

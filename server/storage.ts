@@ -116,6 +116,10 @@ export interface IStorage {
   getClients(): Promise<Client[]>;
   getClient(id: number): Promise<Client | undefined>;
   createClient(client: InsertClient): Promise<Client>;
+  updateClient(id: number, updates: Partial<InsertClient>): Promise<Client>;
+  updateClientBrandProfile(id: number, brandProfile: any, logoUrl?: string): Promise<Client>;
+  getClientWithBrandProfile(id: number): Promise<Client | undefined>;
+  deleteClient(id: number): Promise<void>;
 
   // Content Runs
   getContentRuns(): Promise<ContentRun[]>;
@@ -413,8 +417,39 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createClient(insertClient: InsertClient): Promise<Client> {
-    const [client] = await db.insert(clients).values(insertClient).returning();
+    const [client] = await db.insert(clients).values(insertClient as any).returning();
     return client;
+  }
+
+  async updateClient(id: number, updates: Partial<InsertClient>): Promise<Client> {
+    const [client] = await db
+      .update(clients)
+      .set(updates as any)
+      .where(eq(clients.id, id))
+      .returning();
+    return client;
+  }
+
+  async updateClientBrandProfile(id: number, brandProfile: any, logoUrl?: string): Promise<Client> {
+    const updateData: any = { brandProfile };
+    if (logoUrl) {
+      updateData.primaryLogoUrl = logoUrl;
+    }
+    const [client] = await db
+      .update(clients)
+      .set(updateData)
+      .where(eq(clients.id, id))
+      .returning();
+    return client;
+  }
+
+  async getClientWithBrandProfile(id: number): Promise<Client | undefined> {
+    const [client] = await db.select().from(clients).where(eq(clients.id, id));
+    return client || undefined;
+  }
+
+  async deleteClient(id: number): Promise<void> {
+    await db.update(clients).set({ isActive: false }).where(eq(clients.id, id));
   }
 
   // Content Runs
