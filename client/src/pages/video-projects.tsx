@@ -110,6 +110,22 @@ type SceneInput = {
   imageUrl: string;
 };
 
+type Client = {
+  id: number;
+  name: string;
+  industry: string;
+};
+
+type GeneratedContent = {
+  contentId: string;
+  clientId: number;
+  type: string;
+  title: string;
+  content: string;
+  status: string;
+  createdAt: string;
+};
+
 const statusColors: Record<string, string> = {
   pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
   generating: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -144,7 +160,10 @@ export default function VideoProjectsPage() {
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isIngredientsOpen, setIsIngredientsOpen] = useState(false);
+  const [isCreateFromContentOpen, setIsCreateFromContentOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<VideoProject | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<string>("");
+  const [selectedContentId, setSelectedContentId] = useState<string>("");
   const [newProject, setNewProject] = useState({
     title: "",
     description: "",
@@ -176,6 +195,16 @@ export default function VideoProjectsPage() {
   const { data: videoIngredients = [] } = useQuery<VideoIngredient[]>({
     queryKey: ["/api/video-ingredients"],
     refetchInterval: 5000,
+  });
+
+  const { data: clients = [] } = useQuery<Client[]>({
+    queryKey: ["/api/clients"],
+  });
+
+  const { data: approvedContent = [] } = useQuery<GeneratedContent[]>({
+    queryKey: ["/api/content", selectedClientId],
+    enabled: !!selectedClientId,
+    select: (data) => data.filter(c => c.status === "approved"),
   });
 
   const createMutation = useMutation({
@@ -380,6 +409,28 @@ export default function VideoProjectsPage() {
     },
   });
 
+  const createFromContentMutation = useMutation({
+    mutationFn: async (contentId: string) => {
+      const res = await fetch("/api/video-projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentId, clientId: parseInt(selectedClientId) }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/video-projects"] });
+      setIsCreateFromContentOpen(false);
+      setSelectedClientId("");
+      setSelectedContentId("");
+      toast({ title: "Video project created", description: "Project created from approved content. Ready to generate!" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const getProjectStats = (project: VideoProject) => {
     const scenes = project.scenes || [];
     const clips = project.clips || [];
@@ -479,6 +530,16 @@ export default function VideoProjectsPage() {
             </Link>
 
             <Button 
+              className="bg-green-600 hover:bg-green-500"
+              onClick={() => setIsCreateFromContentOpen(true)}
+              disabled={clients.length === 0}
+              data-testid="button-create-from-content"
+            >
+              <Film className="w-4 h-4 mr-2" />
+              From Content
+            </Button>
+
+            <Button 
               className="bg-purple-600 hover:bg-purple-500"
               onClick={() => createTestMutation.mutate()}
               disabled={createTestMutation.isPending}
@@ -516,6 +577,82 @@ export default function VideoProjectsPage() {
                 <SelectItem value="wan">Wan</SelectItem>
               </SelectContent>
             </Select>
+
+            <Dialog open={isCreateFromContentOpen} onOpenChange={setIsCreateFromContentOpen}>
+              <DialogContent className="bg-zinc-900 border-zinc-700 max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle className="text-cyan-400">Create Video from Approved Content</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 mt-4">
+                  <div>
+                    <Label>Select Client</Label>
+                    <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+                      <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="select-client-for-video">
+                        <SelectValue placeholder="Choose a client..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {clients.map((client) => (
+                          <SelectItem key={client.id} value={client.id.toString()}>
+                            {client.name} ({client.industry})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {selectedClientId && (
+                    <div>
+                      <Label>Select Approved Content</Label>
+                      {approvedContent.length === 0 ? (
+                        <div className="p-3 bg-zinc-800 rounded border border-zinc-700 text-zinc-400 text-sm">
+                          No approved content available for this client
+                        </div>
+                      ) : (
+                        <Select value={selectedContentId} onValueChange={setSelectedContentId}>
+                          <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="select-content-for-video">
+                            <SelectValue placeholder="Choose content..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {approvedContent.map((content) => (
+                              <SelectItem key={content.contentId} value={content.contentId}>
+                                {content.title} ({content.type})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex gap-3 justify-end pt-4">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setIsCreateFromContentOpen(false);
+                        setSelectedClientId("");
+                        setSelectedContentId("");
+                      }}
+                      className="border-zinc-700"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      className="bg-green-600 hover:bg-green-500"
+                      onClick={() => createFromContentMutation.mutate(selectedContentId)}
+                      disabled={!selectedClientId || !selectedContentId || createFromContentMutation.isPending}
+                      data-testid="button-create-from-content-confirm"
+                    >
+                      {createFromContentMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      ) : (
+                        <Film className="w-4 h-4 mr-2" />
+                      )}
+                      Create Video Project
+                    </Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
 
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
               <DialogTrigger asChild>
