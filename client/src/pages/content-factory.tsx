@@ -11,6 +11,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import {
   Factory,
@@ -37,6 +44,9 @@ import {
   PenTool,
   Filter,
   X,
+  Film,
+  Mic,
+  Type,
 } from "lucide-react";
 
 type Client = {
@@ -181,6 +191,110 @@ function formatRelativeTime(dateString: string) {
   return formatDate(dateString);
 }
 
+function formatContentPreview(content: GeneratedContent): string {
+  if (content.type === "video_script") {
+    try {
+      const scriptData = JSON.parse(content.content);
+      const sceneCount = scriptData.scenes?.length || 0;
+      const duration = scriptData.duration || 0;
+      const hook = scriptData.hook || "";
+      return `[${duration}s Video • ${sceneCount} Scenes] ${hook}`;
+    } catch {
+      return content.content.substring(0, 150);
+    }
+  }
+  return content.content.substring(0, 150);
+}
+
+function VideoScriptViewer({ content }: { content: GeneratedContent }) {
+  try {
+    const scriptData = JSON.parse(content.content);
+    return (
+      <div className="space-y-6">
+        <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Mic className="w-4 h-4 text-cyan-400" />
+            <span className="text-sm font-medium text-cyan-400">Opening Hook</span>
+          </div>
+          <p className="text-white text-lg font-medium">{scriptData.hook}</p>
+        </div>
+        
+        <div className="flex items-center gap-4 text-sm text-zinc-400">
+          <span className="flex items-center gap-1">
+            <Clock className="w-4 h-4" />
+            {scriptData.duration}s Duration
+          </span>
+          <span className="flex items-center gap-1">
+            <Film className="w-4 h-4" />
+            {scriptData.scenes?.length || 0} Scenes
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          <h4 className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+            <Film className="w-4 h-4" />
+            Scene Breakdown
+          </h4>
+          {scriptData.scenes?.map((scene: any, idx: number) => (
+            <div key={idx} className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700">
+              <div className="flex items-center justify-between mb-3">
+                <Badge variant="outline" className="text-cyan-400 border-cyan-500/30">
+                  Scene {scene.sceneNumber} • {scene.duration}s
+                </Badge>
+                {scene.textOverlay && (
+                  <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
+                    <Type className="w-3 h-3 mr-1" />
+                    Text Overlay
+                  </Badge>
+                )}
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <span className="text-xs text-zinc-500 uppercase tracking-wide">Visual</span>
+                  <p className="text-sm text-zinc-300 mt-1">{scene.visualDescription}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-zinc-500 uppercase tracking-wide">Voiceover</span>
+                  <p className="text-sm text-white mt-1 italic">"{scene.voiceover}"</p>
+                </div>
+                {scene.textOverlay && (
+                  <div>
+                    <span className="text-xs text-zinc-500 uppercase tracking-wide">On-Screen Text</span>
+                    <p className="text-sm text-yellow-400 mt-1 font-mono whitespace-pre-line">{scene.textOverlay}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Play className="w-4 h-4 text-green-400" />
+            <span className="text-sm font-medium text-green-400">Call to Action</span>
+          </div>
+          <p className="text-white">{scriptData.callToAction}</p>
+        </div>
+
+        <div className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700">
+          <div className="flex items-center gap-2 mb-2">
+            <Mic className="w-4 h-4 text-purple-400" />
+            <span className="text-sm font-medium text-purple-400">Full Voiceover Script</span>
+          </div>
+          <p className="text-sm text-zinc-300 leading-relaxed">{scriptData.voiceoverText}</p>
+        </div>
+      </div>
+    );
+  } catch {
+    return (
+      <div className="text-zinc-400">
+        <p>Unable to parse video script content.</p>
+        <pre className="mt-4 text-xs bg-zinc-800 p-4 rounded overflow-auto">{content.content}</pre>
+      </div>
+    );
+  }
+}
+
 export default function ContentFactoryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -189,6 +303,7 @@ export default function ContentFactoryPage() {
   const [contentTab, setContentTab] = useState<string>("all");
   const [selectedContentType, setSelectedContentType] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  const [viewingContent, setViewingContent] = useState<GeneratedContent | null>(null);
 
   const { data: clients = [], isLoading: isLoadingClients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
@@ -795,8 +910,9 @@ export default function ContentFactoryPage() {
                     return (
                       <div
                         key={content.contentId}
-                        className="p-4 bg-zinc-800/50 rounded-lg border border-zinc-700 hover:border-zinc-600 transition-colors"
+                        className="p-4 bg-zinc-800/50 rounded-lg border border-zinc-700 hover:border-cyan-500/50 transition-colors cursor-pointer"
                         data-testid={`content-card-${content.contentId}`}
+                        onClick={() => setViewingContent(content)}
                       >
                         <div className="flex items-start justify-between mb-2">
                           <Badge className={typeConf.color}>
@@ -812,7 +928,7 @@ export default function ContentFactoryPage() {
                           {content.title}
                         </h4>
                         <p className="text-xs text-zinc-400 line-clamp-3 mb-3">
-                          {content.content.substring(0, 150)}...
+                          {formatContentPreview(content)}...
                         </p>
                         <div className="flex items-center justify-between">
                           <span className="text-xs text-zinc-500">
@@ -932,6 +1048,74 @@ export default function ContentFactoryPage() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={viewingContent !== null} onOpenChange={(open) => !open && setViewingContent(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] bg-zinc-900 border-zinc-700">
+          {viewingContent && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3">
+                  <Badge className={contentTypeConfig[viewingContent.type]?.color || contentTypeConfig.blog.color}>
+                    {contentTypeConfig[viewingContent.type]?.icon || contentTypeConfig.blog.icon}
+                    <span className="ml-1">{contentTypeConfig[viewingContent.type]?.label || "Content"}</span>
+                  </Badge>
+                  <Badge className={statusConfig[viewingContent.status]?.color || statusConfig.draft.color}>
+                    {statusConfig[viewingContent.status]?.icon || statusConfig.draft.icon}
+                    <span className="ml-1">{statusConfig[viewingContent.status]?.label || "Draft"}</span>
+                  </Badge>
+                </div>
+                <DialogTitle className="text-xl text-white mt-2">{viewingContent.title}</DialogTitle>
+              </DialogHeader>
+              <ScrollArea className="max-h-[60vh] mt-4">
+                {viewingContent.type === "video_script" ? (
+                  <VideoScriptViewer content={viewingContent} />
+                ) : (
+                  <div className="prose prose-invert prose-sm max-w-none">
+                    <div className="whitespace-pre-wrap text-zinc-300 text-sm leading-relaxed">
+                      {viewingContent.content}
+                    </div>
+                  </div>
+                )}
+              </ScrollArea>
+              {viewingContent.status === "pending_review" && (
+                <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-zinc-700">
+                  <Button
+                    variant="outline"
+                    className="border-red-500/50 text-red-400 hover:bg-red-500/20"
+                    onClick={() => {
+                      updateStatusMutation.mutate({
+                        contentId: viewingContent.contentId,
+                        status: "rejected",
+                      });
+                      setViewingContent(null);
+                    }}
+                    disabled={updateStatusMutation.isPending}
+                    data-testid="button-reject-modal"
+                  >
+                    <ThumbsDown className="w-4 h-4 mr-2" />
+                    Reject
+                  </Button>
+                  <Button
+                    className="bg-green-600 hover:bg-green-700"
+                    onClick={() => {
+                      updateStatusMutation.mutate({
+                        contentId: viewingContent.contentId,
+                        status: "approved",
+                      });
+                      setViewingContent(null);
+                    }}
+                    disabled={updateStatusMutation.isPending}
+                    data-testid="button-approve-modal"
+                  >
+                    <ThumbsUp className="w-4 h-4 mr-2" />
+                    Approve
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
