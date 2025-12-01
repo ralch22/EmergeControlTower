@@ -102,6 +102,10 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
+  // Initialize brand asset generator with storage instance
+  const { setStorageInstance } = await import('../01-content-factory/services/brand-asset-generator');
+  setStorageInstance(storage);
+  
   // Register test runner routes
   const { registerTestRoutes } = await import('./test-runner');
   registerTestRoutes(app);

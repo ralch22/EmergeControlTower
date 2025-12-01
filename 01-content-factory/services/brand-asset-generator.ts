@@ -10,7 +10,7 @@ import type {
   AssetGenerationRequest, 
   AssetGenerationResult 
 } from '../types/brand-profile';
-import type { BrandProfileJSON } from '../../shared/schema';
+import type { BrandProfileJSON, InsertBrandAssetFile, Client } from '../../shared/schema';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -19,9 +19,96 @@ const uuidv4 = () => randomUUID();
 // ============================================
 // BRAND ASSET GENERATOR SERVICE
 // Generates all brand assets using Smart Prompt Engine
+// With database persistence for generated assets
 // ============================================
 
 const ASSET_OUTPUT_DIR = 'uploads/brand-assets';
+
+// Storage interface for database persistence
+let storageInstance: any = null;
+
+export function setStorageInstance(storage: any) {
+  storageInstance = storage;
+}
+
+// Helper to persist generated asset to database
+async function persistAssetToDatabase(
+  clientId: number,
+  localPath: string,
+  category: string,
+  subcategory: string | null,
+  purpose: string,
+  mimeType: string,
+  dimensions?: { width: number; height: number },
+  metadata?: Record<string, unknown>
+): Promise<void> {
+  if (!storageInstance) {
+    console.warn('[BrandAssetGenerator] Storage instance not set - asset not persisted to database');
+    return;
+  }
+
+  try {
+    const fileName = path.basename(localPath);
+    const fileStats = fs.statSync(localPath);
+    
+    const assetRecord: InsertBrandAssetFile = {
+      clientId,
+      category,
+      subcategory,
+      fileName,
+      originalName: fileName,
+      filePath: localPath,
+      fileType: path.extname(fileName).slice(1) || 'png',
+      mimeType,
+      fileSize: fileStats.size,
+      purpose,
+      metadata: {
+        ...metadata,
+        dimensions,
+        generatedAt: new Date().toISOString(),
+        source: 'brand-asset-generator',
+      },
+    };
+
+    await storageInstance.createBrandAssetFile(assetRecord);
+    console.log(`[BrandAssetGenerator] Asset persisted to database: ${fileName}`);
+  } catch (error: any) {
+    console.error(`[BrandAssetGenerator] Failed to persist asset to database:`, error.message);
+  }
+}
+
+// Helper to get client's logo reference for prompts
+async function getClientLogoReference(clientId: number): Promise<string | undefined> {
+  if (!storageInstance) return undefined;
+  
+  try {
+    const client: Client | undefined = await storageInstance.getClient(clientId);
+    if (client?.primaryLogoUrl) {
+      return client.primaryLogoUrl;
+    }
+    
+    // Try to get logo from brand asset files
+    const logoFile = await storageInstance.getBrandAssetFilesByPurpose(clientId, 'logo_full_color');
+    if (logoFile?.filePath) {
+      return logoFile.filePath;
+    }
+  } catch (error: any) {
+    console.warn(`[BrandAssetGenerator] Could not fetch logo reference:`, error.message);
+  }
+  
+  return undefined;
+}
+
+// Helper to enhance prompt with logo reference
+function enhancePromptWithLogoReference(prompt: string, logoPath?: string, brandName?: string): string {
+  if (logoPath) {
+    return `${prompt}\n\nIMPORTANT: This asset MUST be consistent with the brand's existing logo identity. Reference logo is available at: ${logoPath}. Maintain the same visual style, color usage patterns, and design language as the existing brand identity.`;
+  }
+  if (brandName) {
+    return `${prompt}\n\nBrand name: ${brandName}. Ensure all generated assets reflect the brand identity.`;
+  }
+  return prompt;
+}
 
 // Ensure output directory exists
 function ensureOutputDir(clientId: number): string {
@@ -147,13 +234,17 @@ export async function generateMoodBoard(
   const startTime = Date.now();
   const brandProfile = 'clientId' in profile ? profile : jsonToBrandProfile(profile, clientId);
   
+  // Get logo reference for brand consistency
+  const logoReference = await getClientLogoReference(clientId);
+  
   const promptContext = generatePrompt({
     brandProfile,
     assetType: 'mood_board',
   });
   
-  const formattedPrompt = formatPromptForProvider(promptContext, 'gemini');
-  console.log(`[BrandAssetGenerator] Generating mood board for client ${clientId}`);
+  let formattedPrompt = formatPromptForProvider(promptContext, 'gemini');
+  formattedPrompt = enhancePromptWithLogoReference(formattedPrompt, logoReference, brandProfile.textual.brandName.primary);
+  console.log(`[BrandAssetGenerator] Generating mood board for client ${clientId} (logo ref: ${logoReference ? 'yes' : 'no'})`);
   
   // Try Gemini first, then Fal
   let result: AssetGenerationResult;
@@ -165,6 +256,12 @@ export async function generateMoodBoard(
       if (geminiResult.success && geminiResult.imageDataUrl) {
         const filename = `mood_board_${uuidv4().slice(0, 8)}.png`;
         const localPath = await saveImageToFile(geminiResult.imageDataUrl, clientId, filename);
+        
+        // Persist to database
+        await persistAssetToDatabase(
+          clientId, localPath, 'assets', 'mood-board', 'mood_board',
+          'image/png', { width: 1920, height: 1080 }, { provider: 'gemini' }
+        );
         
         await healthMonitor.recordRequest('gemini_image', 'image_generation', uuidv4(), {
           success: true,
@@ -207,6 +304,12 @@ export async function generateMoodBoard(
       if (falResult.success && falResult.imageUrl) {
         const filename = `mood_board_${uuidv4().slice(0, 8)}.png`;
         const localPath = await downloadAndSaveImage(falResult.imageUrl, clientId, filename);
+        
+        // Persist to database
+        await persistAssetToDatabase(
+          clientId, localPath, 'assets', 'mood-board', 'mood_board',
+          'image/png', { width: 1920, height: 1080 }, { provider: 'fal' }
+        );
         
         await healthMonitor.recordRequest('fal_flux', 'image_generation', uuidv4(), {
           success: true,
@@ -258,7 +361,10 @@ export async function generateIconSet(
   const brandProfile = 'clientId' in profile ? profile : jsonToBrandProfile(profile, clientId);
   const assets: AssetGenerationResult['assets'] = [];
   
-  console.log(`[BrandAssetGenerator] Generating ${iconNames.length} icons for client ${clientId}`);
+  // Get logo reference for brand consistency
+  const logoReference = await getClientLogoReference(clientId);
+  
+  console.log(`[BrandAssetGenerator] Generating ${iconNames.length} icons for client ${clientId} (logo ref: ${logoReference ? 'yes' : 'no'})`);
   
   for (const iconName of iconNames) {
     const promptContext = generatePrompt({
@@ -267,7 +373,8 @@ export async function generateIconSet(
       options: { iconNames: [iconName] },
     });
     
-    const formattedPrompt = formatPromptForProvider(promptContext, 'gemini');
+    let formattedPrompt = formatPromptForProvider(promptContext, 'gemini');
+    formattedPrompt = enhancePromptWithLogoReference(formattedPrompt, logoReference, brandProfile.textual.brandName.primary);
     
     try {
       const geminiResult = await generateImageWithGemini(
@@ -278,6 +385,12 @@ export async function generateIconSet(
       if (geminiResult.success && geminiResult.imageDataUrl) {
         const filename = `icon_${iconName}_${uuidv4().slice(0, 8)}.png`;
         const localPath = await saveImageToFile(geminiResult.imageDataUrl, clientId, filename);
+        
+        // Persist to database
+        await persistAssetToDatabase(
+          clientId, localPath, 'assets', 'icons', 'icon_individual',
+          'image/png', { width: 48, height: 48 }, { iconName, provider: 'gemini' }
+        );
         
         assets.push({
           id: uuidv4(),
@@ -318,14 +431,18 @@ export async function generateInfographic(
   const startTime = Date.now();
   const brandProfile = 'clientId' in profile ? profile : jsonToBrandProfile(profile, clientId);
   
+  // Get logo reference for brand consistency
+  const logoReference = await getClientLogoReference(clientId);
+  
   const promptContext = generatePrompt({
     brandProfile,
     assetType: 'infographic',
     options: { infographicData: { type, ...data } },
   });
   
-  const formattedPrompt = formatPromptForProvider(promptContext, 'gemini');
-  console.log(`[BrandAssetGenerator] Generating ${type} infographic for client ${clientId}`);
+  let formattedPrompt = formatPromptForProvider(promptContext, 'gemini');
+  formattedPrompt = enhancePromptWithLogoReference(formattedPrompt, logoReference, brandProfile.textual.brandName.primary);
+  console.log(`[BrandAssetGenerator] Generating ${type} infographic for client ${clientId} (logo ref: ${logoReference ? 'yes' : 'no'})`);
   
   // Try Gemini first
   if (!healthMonitor.isProviderQuarantined('gemini_image')) {
@@ -338,6 +455,12 @@ export async function generateInfographic(
       if (geminiResult.success && geminiResult.imageDataUrl) {
         const filename = `infographic_${type}_${uuidv4().slice(0, 8)}.png`;
         const localPath = await saveImageToFile(geminiResult.imageDataUrl, clientId, filename);
+        
+        // Persist to database
+        await persistAssetToDatabase(
+          clientId, localPath, 'assets', 'infographics', `${type}_infographic`,
+          'image/png', { width: 1200, height: 1200 }, { type, provider: 'gemini' }
+        );
         
         await healthMonitor.recordRequest('gemini_image', 'image_generation', uuidv4(), {
           success: true,
@@ -381,6 +504,12 @@ export async function generateInfographic(
       if (falResult.success && falResult.imageUrl) {
         const filename = `infographic_${type}_${uuidv4().slice(0, 8)}.png`;
         const localPath = await downloadAndSaveImage(falResult.imageUrl, clientId, filename);
+        
+        // Persist to database
+        await persistAssetToDatabase(
+          clientId, localPath, 'assets', 'infographics', `${type}_infographic`,
+          'image/png', { width: 1200, height: 1200 }, { type, provider: 'fal' }
+        );
         
         await healthMonitor.recordRequest('fal_flux', 'image_generation', uuidv4(), {
           success: true,
@@ -433,6 +562,9 @@ export async function generateLogoVariant(
   const startTime = Date.now();
   const brandProfile = 'clientId' in profile ? profile : jsonToBrandProfile(profile, clientId);
   
+  // Get logo reference - use provided or fetch from client
+  const logoReference = referenceLogoUrl || await getClientLogoReference(clientId);
+  
   const promptContext = generatePrompt({
     brandProfile,
     assetType: 'logo_variant',
@@ -440,11 +572,9 @@ export async function generateLogoVariant(
   });
   
   let formattedPrompt = formatPromptForProvider(promptContext, 'gemini');
-  if (referenceLogoUrl) {
-    formattedPrompt += ` Reference style from original logo.`;
-  }
+  formattedPrompt = enhancePromptWithLogoReference(formattedPrompt, logoReference, brandProfile.textual.brandName.primary);
   
-  console.log(`[BrandAssetGenerator] Generating ${variantType} logo variant for client ${clientId}`);
+  console.log(`[BrandAssetGenerator] Generating ${variantType} logo variant for client ${clientId} (logo ref: ${logoReference ? 'yes' : 'no'})`);
   
   try {
     const geminiResult = await generateImageWithGemini(
@@ -455,6 +585,12 @@ export async function generateLogoVariant(
     if (geminiResult.success && geminiResult.imageDataUrl) {
       const filename = `logo_${variantType}_${uuidv4().slice(0, 8)}.png`;
       const localPath = await saveImageToFile(geminiResult.imageDataUrl, clientId, filename);
+      
+      // Persist to database
+      await persistAssetToDatabase(
+        clientId, localPath, 'logos', variantType, `logo_${variantType}`,
+        'image/png', { width: 1024, height: 1024 }, { variantType, provider: 'gemini' }
+      );
       
       return {
         success: true,
@@ -496,6 +632,9 @@ export async function generateSocialPostImage(
   const startTime = Date.now();
   const brandProfile = 'clientId' in profile ? profile : jsonToBrandProfile(profile, clientId);
   
+  // Get logo reference for brand consistency
+  const logoReference = await getClientLogoReference(clientId);
+  
   const promptContext = generatePrompt({
     brandProfile,
     assetType: 'social_post',
@@ -505,8 +644,9 @@ export async function generateSocialPostImage(
     },
   });
   
-  const formattedPrompt = formatPromptForProvider(promptContext, 'gemini');
-  console.log(`[BrandAssetGenerator] Generating ${platform} social post image for client ${clientId}`);
+  let formattedPrompt = formatPromptForProvider(promptContext, 'gemini');
+  formattedPrompt = enhancePromptWithLogoReference(formattedPrompt, logoReference, brandProfile.textual.brandName.primary);
+  console.log(`[BrandAssetGenerator] Generating ${platform} social post image for client ${clientId} (logo ref: ${logoReference ? 'yes' : 'no'})`);
   
   const dimensions: Record<string, { width: number; height: number }> = {
     linkedin: { width: 1200, height: 627 },
@@ -524,6 +664,12 @@ export async function generateSocialPostImage(
     if (geminiResult.success && geminiResult.imageDataUrl) {
       const filename = `social_${platform}_${uuidv4().slice(0, 8)}.png`;
       const localPath = await saveImageToFile(geminiResult.imageDataUrl, clientId, filename);
+      
+      // Persist to database
+      await persistAssetToDatabase(
+        clientId, localPath, 'assets', 'social', `social_${platform}`,
+        'image/png', dimensions[platform], { platform, topic, provider: 'gemini' }
+      );
       
       return {
         success: true,
