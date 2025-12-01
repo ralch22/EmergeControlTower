@@ -48,6 +48,7 @@ import {
   Film,
   Mic,
   Type,
+  ImageIcon,
 } from "lucide-react";
 
 type Client = {
@@ -969,30 +970,50 @@ export default function ContentFactoryPage() {
                   {filteredContent.map((content) => {
                     const typeConf = contentTypeConfig[content.type] || contentTypeConfig.blog;
                     const statusConf = statusConfig[content.status] || statusConfig.draft;
+                    const metadata = content.metadata 
+                      ? (typeof content.metadata === 'string' 
+                        ? JSON.parse(content.metadata) 
+                        : content.metadata)
+                      : {};
+                    const imageUrl = metadata?.imageDataUrl;
+                    
                     return (
                       <div
                         key={content.contentId}
-                        className="p-4 bg-zinc-800/50 rounded-lg border border-zinc-700 hover:border-cyan-500/50 transition-colors cursor-pointer"
+                        className="bg-zinc-800/50 rounded-lg border border-zinc-700 hover:border-cyan-500/50 transition-colors cursor-pointer overflow-hidden"
                         data-testid={`content-card-${content.contentId}`}
                         onClick={() => setViewingContent(content)}
                       >
-                        <div className="flex items-start justify-between mb-2">
-                          <Badge className={typeConf.color}>
-                            {typeConf.icon}
-                            <span className="ml-1">{typeConf.label}</span>
-                          </Badge>
-                          <Badge className={statusConf.color}>
-                            {statusConf.icon}
-                            <span className="ml-1">{statusConf.label}</span>
-                          </Badge>
-                        </div>
-                        <h4 className="text-sm font-medium text-white mb-2 line-clamp-2">
-                          {content.title}
-                        </h4>
-                        <p className="text-xs text-zinc-400 line-clamp-3 mb-3">
-                          {formatContentPreview(content)}...
-                        </p>
-                        <div className="flex items-center justify-between">
+                        {imageUrl && (
+                          <div className="h-32 w-full overflow-hidden">
+                            <img 
+                              src={imageUrl} 
+                              alt={content.title}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).parentElement!.style.display = 'none';
+                              }}
+                            />
+                          </div>
+                        )}
+                        <div className="p-4">
+                          <div className="flex items-start justify-between mb-2">
+                            <Badge className={typeConf.color}>
+                              {typeConf.icon}
+                              <span className="ml-1">{typeConf.label}</span>
+                            </Badge>
+                            <Badge className={statusConf.color}>
+                              {statusConf.icon}
+                              <span className="ml-1">{statusConf.label}</span>
+                            </Badge>
+                          </div>
+                          <h4 className="text-sm font-medium text-white mb-2 line-clamp-2">
+                            {content.title}
+                          </h4>
+                          <p className="text-xs text-zinc-400 line-clamp-3 mb-3">
+                            {formatContentPreview(content)}...
+                          </p>
+                          <div className="flex items-center justify-between">
                           <span className="text-xs text-zinc-500">
                             {formatRelativeTime(content.createdAt)}
                           </span>
@@ -1057,6 +1078,7 @@ export default function ContentFactoryPage() {
                               QA: {content.qaScore}%
                             </Badge>
                           )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -1173,9 +1195,36 @@ export default function ContentFactoryPage() {
                 {viewingContent.type === "video_script" ? (
                   <VideoScriptViewer content={viewingContent} />
                 ) : (
-                  <div className="prose prose-invert prose-sm max-w-none">
-                    <div className="whitespace-pre-wrap text-zinc-300 text-sm leading-relaxed">
-                      {viewingContent.content}
+                  <div className="space-y-4">
+                    {(() => {
+                      const metadata = viewingContent.metadata 
+                        ? (typeof viewingContent.metadata === 'string' 
+                          ? JSON.parse(viewingContent.metadata) 
+                          : viewingContent.metadata)
+                        : {};
+                      const imageUrl = metadata?.imageDataUrl;
+                      
+                      return imageUrl ? (
+                        <div className="rounded-lg overflow-hidden border border-zinc-700">
+                          <img 
+                            src={imageUrl} 
+                            alt={`${viewingContent.title} - Generated Image`}
+                            className="w-full h-auto max-h-64 object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                          <div className="bg-zinc-800/50 px-3 py-1.5 text-xs text-zinc-400 flex items-center gap-1">
+                            <ImageIcon className="w-3 h-3" />
+                            AI-Generated Image (Nano Banana Pro)
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+                    <div className="prose prose-invert prose-sm max-w-none">
+                      <div className="whitespace-pre-wrap text-zinc-300 text-sm leading-relaxed">
+                        {viewingContent.content}
+                      </div>
                     </div>
                   </div>
                 )}

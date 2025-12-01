@@ -1,4 +1,5 @@
 import { generateWithClaude } from "../integrations/anthropic";
+import { generateImageWithNanoBananaPro } from "../integrations/nano-banana-pro";
 import type { ClientBrief, ContentTopic, GeneratedContent, AgentResponse } from "../types";
 
 const SYSTEM_PROMPT = `You are an expert long-form content writer for B2B and B2C brands. You create compelling, SEO-optimized blog posts that:
@@ -44,6 +45,31 @@ Format in Markdown. Make it scannable with bullet points where appropriate.`;
     const titleMatch = content.match(/^#\s*(.+)$/m);
     const title = titleMatch ? titleMatch[1] : topic.title;
 
+    let imageDataUrl: string | undefined;
+    
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
+    if (geminiKey) {
+      try {
+        console.log(`[BlogAgent] Generating hero image with Nano Banana Pro...`);
+        const imagePrompt = `Professional blog header image for article: "${title}". Industry: ${brief.industry || 'business'}. Clean, modern, editorial style.`;
+        const imageResult = await generateImageWithNanoBananaPro(imagePrompt, {
+          resolution: '2K',
+          style: 'editorial photography, professional, clean composition, modern design',
+        });
+        
+        if (imageResult.success && imageResult.imageDataUrl) {
+          imageDataUrl = imageResult.imageDataUrl;
+          console.log(`[BlogAgent] Hero image generated successfully`);
+        } else {
+          console.log(`[BlogAgent] Image generation failed: ${imageResult.error}`);
+        }
+      } catch (imageError: any) {
+        console.log(`[BlogAgent] Image generation error:`, imageError.message);
+      }
+    } else {
+      console.log(`[BlogAgent] Skipping image generation - no Gemini API key configured`);
+    }
+
     const generatedContent: GeneratedContent = {
       id: `blog_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       topicId: topic.id,
@@ -54,6 +80,7 @@ Format in Markdown. Make it scannable with bullet points where appropriate.`;
       metadata: {
         wordCount: content.split(/\s+/).length,
         characterCount: content.length,
+        imageDataUrl,
       },
       status: 'draft',
       createdAt: new Date(),

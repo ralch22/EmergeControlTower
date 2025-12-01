@@ -1,5 +1,5 @@
 import { generateWithClaude } from "../integrations/anthropic";
-import { generateAdCreativeImage } from "../integrations/gemini-image";
+import { generateImageWithNanoBananaPro } from "../integrations/nano-banana-pro";
 import type { ClientBrief, ContentTopic, GeneratedContent, ContentType, AgentResponse } from "../types";
 
 const AD_CONFIGS = {
@@ -85,20 +85,33 @@ Format output as JSON:
 
     let imageDataUrl: string | undefined;
     
-    if (process.env.AI_INTEGRATIONS_GEMINI_API_KEY && platform === 'facebook_ad') {
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
+    if (geminiKey) {
       try {
-        const imageResult = await generateAdCreativeImage(
-          `${brief.clientName} - ${topic.title}`,
-          platform
+        console.log(`[AdCopyAgent] Generating ad creative image with Nano Banana Pro for ${platform}...`);
+        const adStyle = platform === 'facebook_ad' 
+          ? 'eye-catching, scroll-stopping, vibrant colors, clear focal point, marketing focused'
+          : 'clean, professional, minimal, high contrast, conversion-optimized';
+        
+        const imageResult = await generateImageWithNanoBananaPro(
+          `Advertisement creative for: ${brief.clientName} - ${topic.title}. Marketing focused, conversion-optimized.`,
+          {
+            resolution: '2K',
+            style: adStyle,
+          }
         );
         
         if (imageResult.success && imageResult.imageDataUrl) {
           imageDataUrl = imageResult.imageDataUrl;
           console.log(`[AdCopyAgent] Image generated for ${platform}`);
+        } else {
+          console.log(`[AdCopyAgent] Image generation failed for ${platform}: ${imageResult.error}`);
         }
-      } catch (imageError) {
-        console.log(`[AdCopyAgent] Image generation skipped for ${platform}:`, imageError);
+      } catch (imageError: any) {
+        console.log(`[AdCopyAgent] Image generation error for ${platform}:`, imageError.message);
       }
+    } else {
+      console.log(`[AdCopyAgent] Skipping image generation - no Gemini API key configured`);
     }
 
     const generatedContent: GeneratedContent = {

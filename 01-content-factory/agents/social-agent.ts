@@ -1,5 +1,5 @@
 import { generateWithClaude } from "../integrations/anthropic";
-import { generateSocialMediaImage } from "../integrations/gemini-image";
+import { generateSocialMediaGraphic } from "../integrations/nano-banana-pro";
 import type { ClientBrief, ContentTopic, GeneratedContent, ContentType, AgentResponse } from "../types";
 
 const PLATFORM_CONFIGS = {
@@ -68,9 +68,11 @@ Output ONLY the post content, ready to publish.`;
     
     let imageDataUrl: string | undefined;
     
-    if (process.env.AI_INTEGRATIONS_GEMINI_API_KEY && (platform === 'instagram' || platform === 'linkedin')) {
+    const geminiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
+    if (geminiKey) {
       try {
-        const imageResult = await generateSocialMediaImage(
+        console.log(`[SocialAgent] Generating image with Nano Banana Pro for ${platform} post...`);
+        const imageResult = await generateSocialMediaGraphic(
           topic.title,
           platform,
           brief.brandVoice
@@ -79,10 +81,14 @@ Output ONLY the post content, ready to publish.`;
         if (imageResult.success && imageResult.imageDataUrl) {
           imageDataUrl = imageResult.imageDataUrl;
           console.log(`[SocialAgent] Image generated for ${platform} post`);
+        } else {
+          console.log(`[SocialAgent] Image generation failed for ${platform}: ${imageResult.error}`);
         }
-      } catch (imageError) {
-        console.log(`[SocialAgent] Image generation skipped for ${platform}:`, imageError);
+      } catch (imageError: any) {
+        console.log(`[SocialAgent] Image generation error for ${platform}:`, imageError.message);
       }
+    } else {
+      console.log(`[SocialAgent] Skipping image generation - no Gemini API key configured`);
     }
     
     const generatedContent: GeneratedContent = {
