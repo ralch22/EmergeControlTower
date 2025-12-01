@@ -242,8 +242,9 @@ export async function generateVideoWithRunway(
 
   const { duration = 5, aspectRatio = '16:9', model = 'gen4_turbo', imageBase64 } = options;
   
-  // Runway requires specific pixel ratios
-  const runwayRatio = aspectRatio === '9:16' ? '768:1280' : '1280:768';
+  // Runway requires specific pixel ratios from their allowed list:
+  // 1280:720, 720:1280, 1104:832, 832:1104, 960:960, 1584:672
+  const runwayRatio = aspectRatio === '9:16' ? '720:1280' : '1280:720';
   let { imageUrl } = options;
 
   // If DALL-E base64 image is provided, convert to data URL for Runway
