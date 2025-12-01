@@ -132,7 +132,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "hidden md:flex flex-col h-screen bg-zinc-950 border-r border-zinc-800 transition-all duration-300 flex-shrink-0",
+        "flex flex-col h-screen bg-zinc-950 border-r border-zinc-800 transition-all duration-300 flex-shrink-0",
         collapsed ? "w-16" : "w-64"
       )}
       data-testid="sidebar-desktop"
@@ -142,7 +142,7 @@ export function Sidebar() {
       <Button
         variant="ghost"
         size="icon"
-        className="absolute bottom-20 -right-3 w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-400 hover:text-white hidden md:flex"
+        className="absolute bottom-20 -right-3 w-6 h-6 rounded-full bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 text-zinc-400 hover:text-white flex"
         onClick={() => setCollapsed(!collapsed)}
         data-testid="button-toggle-sidebar"
       >
