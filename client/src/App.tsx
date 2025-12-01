@@ -17,6 +17,7 @@ import Clients from "@/pages/clients";
 import BrandAssets from "@/pages/brand-assets";
 import BrandFiles from "@/pages/brand-files";
 import ProviderHealth from "@/pages/provider-health";
+import QualityReview from "@/pages/quality-review";
 
 function Router() {
   return (
@@ -34,6 +35,7 @@ function Router() {
         <Route path="/settings" component={Settings} />
         <Route path="/control-tower" component={ControlTower} />
         <Route path="/provider-health" component={ProviderHealth} />
+        <Route path="/quality-review" component={QualityReview} />
         <Route component={NotFound} />
       </Switch>
     </SidebarLayout>

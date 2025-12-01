@@ -16,12 +16,14 @@ import {
   Palette,
   FolderOpen,
   Activity,
+  Star,
 } from "lucide-react";
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: LayoutDashboard },
   { path: "/content-factory", label: "Content Factory", icon: Factory },
   { path: "/video-projects", label: "Video Projects", icon: Video },
+  { path: "/quality-review", label: "Quality Review", icon: Star },
   { path: "/clients", label: "Clients", icon: Users },
   { path: "/brand-assets", label: "Brand Guidelines", icon: Palette },
   { path: "/brand-files", label: "Brand Files", icon: FolderOpen },

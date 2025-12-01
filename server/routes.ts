@@ -4430,6 +4430,414 @@ export function registerVideoIngredientsRoutes(app: Express) {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // ===== QUALITY METRICS & OPTIMIZATION ROUTES =====
+
+  // Initialize quality system on startup
+  app.post("/api/quality/initialize", async (req, res) => {
+    try {
+      await storage.initializeProviderQualityScores();
+      await storage.initializeDefaultQualityTiers();
+      res.json({ success: true, message: "Quality system initialized" });
+    } catch (error: any) {
+      console.error("[Quality] Initialization error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Quality Reviews - Submit a new quality review
+  app.post("/api/quality/reviews", async (req, res) => {
+    try {
+      const { 
+        contentType, 
+        contentId, 
+        overallRating, 
+        isAccepted,
+        rejectionReason,
+        visualQuality,
+        audioQuality,
+        brandAlignment,
+        scriptCoherence,
+        cinematicAppeal,
+        qualityTags,
+        reviewedBy,
+        reviewerNotes,
+        providerUsed,
+        generationParams 
+      } = req.body;
+
+      if (!contentType || !contentId) {
+        return res.status(400).json({ error: "contentType and contentId are required" });
+      }
+
+      const reviewId = `review_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const review = await storage.createQualityReview({
+        reviewId,
+        contentType,
+        contentId,
+        overallRating,
+        isAccepted,
+        rejectionReason,
+        visualQuality,
+        audioQuality,
+        brandAlignment,
+        scriptCoherence,
+        cinematicAppeal,
+        qualityTags,
+        reviewedBy,
+        reviewerNotes,
+        providerUsed,
+        generationParams: generationParams ? JSON.stringify(generationParams) : undefined,
+      });
+
+      // Update provider quality scores if provider is known
+      if (providerUsed && isAccepted !== undefined) {
+        try {
+          const qualityScore = await storage.getProviderQualityScore(providerUsed, contentType === 'video_clip' ? 'video' : 'image');
+          if (qualityScore) {
+            const newTotalReviews = qualityScore.totalReviews + 1;
+            const newTotalAccepted = isAccepted ? qualityScore.totalAccepted + 1 : qualityScore.totalAccepted;
+            const newTotalRejected = !isAccepted ? qualityScore.totalRejected + 1 : qualityScore.totalRejected;
+            const newAcceptanceRate = ((newTotalAccepted / newTotalReviews) * 100).toFixed(2);
+            
+            // Calculate new average rating
+            const currentAvgRating = parseFloat(qualityScore.avgUserRating || "0");
+            const newAvgRating = overallRating 
+              ? ((currentAvgRating * qualityScore.totalReviews + overallRating) / newTotalReviews).toFixed(2)
+              : qualityScore.avgUserRating;
+
+            await storage.updateProviderQualityScore(providerUsed, contentType === 'video_clip' ? 'video' : 'image', {
+              totalReviews: newTotalReviews,
+              totalAccepted: newTotalAccepted,
+              totalRejected: newTotalRejected,
+              acceptanceRate: newAcceptanceRate,
+              avgUserRating: newAvgRating,
+            });
+          }
+        } catch (scoreError) {
+          console.warn("[Quality] Could not update provider score:", scoreError);
+        }
+      }
+
+      res.status(201).json(review);
+    } catch (error: any) {
+      console.error("[Quality] Review submission error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Quality Reviews - Get reviews for specific content
+  app.get("/api/quality/reviews/content/:contentType/:contentId", async (req, res) => {
+    try {
+      const { contentType, contentId } = req.params;
+      const reviews = await storage.getQualityReviewsForContent(contentType, contentId);
+      res.json(reviews);
+    } catch (error: any) {
+      console.error("[Quality] Error fetching reviews:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Quality Reviews - Get recent reviews
+  app.get("/api/quality/reviews", async (req, res) => {
+    try {
+      const { limit, provider } = req.query;
+      if (provider && typeof provider === 'string') {
+        const reviews = await storage.getQualityReviewsByProvider(provider, parseInt(limit as string) || 50);
+        return res.json(reviews);
+      }
+      const reviews = await storage.getRecentQualityReviews(parseInt(limit as string) || 50);
+      res.json(reviews);
+    } catch (error: any) {
+      console.error("[Quality] Error fetching reviews:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Quality Metrics - Submit objective quality metrics
+  app.post("/api/quality/metrics", async (req, res) => {
+    try {
+      const metricId = `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const metric = await storage.createQualityMetric({
+        metricId,
+        ...req.body,
+      });
+      res.status(201).json(metric);
+    } catch (error: any) {
+      console.error("[Quality] Metric submission error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Quality Metrics - Get metrics for content
+  app.get("/api/quality/metrics/content/:contentType/:contentId", async (req, res) => {
+    try {
+      const { contentType, contentId } = req.params;
+      const metrics = await storage.getQualityMetricsForContent(contentType, contentId);
+      res.json(metrics);
+    } catch (error: any) {
+      console.error("[Quality] Error fetching metrics:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Provider Quality Scores - Get all provider quality scores
+  app.get("/api/quality/provider-scores", async (req, res) => {
+    try {
+      const scores = await storage.getAllProviderQualityScores();
+      res.json(scores);
+    } catch (error: any) {
+      console.error("[Quality] Error fetching provider scores:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Provider Quality Scores - Get specific provider score
+  app.get("/api/quality/provider-scores/:providerName/:serviceType", async (req, res) => {
+    try {
+      const { providerName, serviceType } = req.params;
+      const score = await storage.getProviderQualityScore(providerName, serviceType);
+      if (!score) {
+        return res.status(404).json({ error: "Provider quality score not found" });
+      }
+      res.json(score);
+    } catch (error: any) {
+      console.error("[Quality] Error fetching provider score:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Quality Tier Configs - Get all tier configurations
+  app.get("/api/quality/tiers", async (req, res) => {
+    try {
+      const tiers = await storage.getAllQualityTierConfigs();
+      res.json(tiers);
+    } catch (error: any) {
+      console.error("[Quality] Error fetching tiers:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Quality Tier Configs - Get specific tier
+  app.get("/api/quality/tiers/:tierName", async (req, res) => {
+    try {
+      const tier = await storage.getQualityTierConfig(req.params.tierName);
+      if (!tier) {
+        return res.status(404).json({ error: "Quality tier not found" });
+      }
+      res.json(tier);
+    } catch (error: any) {
+      console.error("[Quality] Error fetching tier:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Quality Tier Configs - Update tier settings
+  app.patch("/api/quality/tiers/:tierName", async (req, res) => {
+    try {
+      const tier = await storage.updateQualityTierConfig(req.params.tierName, req.body);
+      res.json(tier);
+    } catch (error: any) {
+      console.error("[Quality] Error updating tier:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Quality Feedback Loop - Get recent feedback actions
+  app.get("/api/quality/feedback", async (req, res) => {
+    try {
+      const { limit, provider } = req.query;
+      if (provider && typeof provider === 'string') {
+        const feedback = await storage.getQualityFeedbackByProvider(provider, parseInt(limit as string) || 50);
+        return res.json(feedback);
+      }
+      const feedback = await storage.getRecentQualityFeedback(parseInt(limit as string) || 50);
+      res.json(feedback);
+    } catch (error: any) {
+      console.error("[Quality] Error fetching feedback:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Quick accept/reject endpoint for video projects
+  app.post("/api/video-projects/:projectId/quality-review", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { isAccepted, overallRating, rejectionReason, reviewedBy } = req.body;
+
+      const project = await storage.getVideoProject(projectId);
+      if (!project) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      const reviewId = `review_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      const review = await storage.createQualityReview({
+        reviewId,
+        contentType: 'video_project',
+        contentId: projectId,
+        overallRating,
+        isAccepted,
+        rejectionReason,
+        reviewedBy: reviewedBy || 'user',
+      });
+
+      // Update project quality status
+      await storage.updateVideoProject(projectId, {
+        isQualityApproved: isAccepted,
+        qualityReviewedAt: new Date(),
+      });
+
+      res.json({ 
+        review, 
+        message: isAccepted ? 'Project approved' : 'Project rejected',
+        projectId,
+      });
+    } catch (error: any) {
+      console.error("[Quality] Project review error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Comprehensive quality dashboard endpoint
+  app.get("/api/quality/dashboard", async (req, res) => {
+    try {
+      const [
+        providerScores,
+        qualityTiers,
+        recentReviews,
+        recentFeedback
+      ] = await Promise.all([
+        storage.getAllProviderQualityScores(),
+        storage.getAllQualityTierConfigs(),
+        storage.getRecentQualityReviews(20),
+        storage.getRecentQualityFeedback(20),
+      ]);
+
+      // Calculate summary statistics
+      const totalReviews = recentReviews.length;
+      const acceptedReviews = recentReviews.filter(r => r.isAccepted).length;
+      const avgRating = recentReviews.filter(r => r.overallRating).reduce((sum, r) => sum + (r.overallRating || 0), 0) / (recentReviews.filter(r => r.overallRating).length || 1);
+
+      res.json({
+        summary: {
+          totalReviews,
+          acceptedReviews,
+          rejectedReviews: totalReviews - acceptedReviews,
+          acceptanceRate: totalReviews > 0 ? ((acceptedReviews / totalReviews) * 100).toFixed(1) : 100,
+          averageRating: avgRating.toFixed(1),
+        },
+        providerScores,
+        qualityTiers,
+        recentReviews,
+        recentFeedback,
+      });
+    } catch (error: any) {
+      console.error("[Quality] Dashboard error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get quality-aware provider status (combines operational health + quality metrics)
+  app.get("/api/quality/provider-status", async (req, res) => {
+    try {
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      const allStatus = await healthMonitor.getAllProviderQualityStatus();
+      
+      res.json({
+        providers: allStatus,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error("[Quality] Provider status error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get quality-aware routing order for a service type
+  app.get("/api/quality/routing/:serviceType", async (req, res) => {
+    try {
+      const { serviceType } = req.params;
+      const { tier = 'production', freeOnly, minQualityScore } = req.query;
+      
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      const providerOrder = await healthMonitor.getQualityAwareProviderOrder(serviceType, {
+        qualityTier: tier as any,
+        freeOnly: freeOnly === 'true',
+        minQualityScore: minQualityScore ? parseFloat(minQualityScore as string) : undefined,
+      });
+      
+      res.json({
+        serviceType,
+        tier,
+        providerOrder,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error("[Quality] Routing error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Update provider quality from review feedback
+  app.post("/api/quality/provider-feedback", async (req, res) => {
+    try {
+      const { providerName, serviceType, isAccepted, rating } = req.body;
+      
+      if (!providerName || !serviceType || typeof isAccepted !== 'boolean') {
+        return res.status(400).json({ error: "providerName, serviceType, and isAccepted are required" });
+      }
+      
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      await healthMonitor.updateProviderQualityFromReview(
+        providerName,
+        serviceType,
+        isAccepted,
+        rating
+      );
+      
+      res.json({
+        success: true,
+        message: `Quality score updated for ${providerName}`,
+        providerName,
+        serviceType,
+        isAccepted,
+        rating,
+      });
+    } catch (error: any) {
+      console.error("[Quality] Provider feedback error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get recommended quality tier based on requirements
+  app.post("/api/quality/recommend-tier", async (req, res) => {
+    try {
+      const { targetResolution, isPremiumClient, isHighVisibility, budget } = req.body;
+      
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      const recommendedTier = healthMonitor.getRecommendedTier({
+        targetResolution,
+        isPremiumClient,
+        isHighVisibility,
+        budget,
+      });
+      
+      res.json({
+        recommendedTier,
+        factors: {
+          targetResolution: targetResolution || 'not specified',
+          isPremiumClient: isPremiumClient || false,
+          isHighVisibility: isHighVisibility || false,
+          budget: budget || 'not specified',
+        },
+      });
+    } catch (error: any) {
+      console.error("[Quality] Recommend tier error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
 }
 
 // Helper to split voiceover script across scenes

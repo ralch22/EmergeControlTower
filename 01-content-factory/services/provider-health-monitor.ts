@@ -5,9 +5,12 @@ import {
   providerErrorPatterns,
   providerFallbackChains,
   healingActionsLog,
-  activityLogs 
+  activityLogs,
+  providerQualityScores,
+  qualityTierConfigs
 } from "../../shared/schema";
 import { eq, and, desc, sql, gt } from "drizzle-orm";
+import type { QualityTier } from "../../shared/schema";
 
 // Provider configuration with cost and tier information
 export const PROVIDER_CONFIG = {
@@ -140,6 +143,25 @@ export interface ProviderHealthStatus {
   lastError?: string;
   priority: number;
   isFreeProvider: boolean;
+}
+
+export interface ProviderQualityStatus {
+  providerName: string;
+  serviceType: string;
+  operationalHealth: number;  // 0-100
+  qualityScore: number;       // 0-100 
+  combinedScore: number;      // Weighted combination
+  acceptanceRate: number;     // % of outputs accepted
+  avgUserRating: number;      // 1-5
+  totalReviews: number;
+}
+
+export interface QualityAwareRoutingOptions {
+  freeOnly?: boolean;
+  excludeProviders?: string[];
+  requestParams?: Record<string, unknown>;
+  qualityTier?: QualityTier;
+  minQualityScore?: number;
 }
 
 export interface RequestResult {
@@ -720,6 +742,314 @@ class ProviderHealthMonitor {
     }
 
     console.log('[HealthMonitor] All provider priorities recalculated');
+  }
+
+  // ==========================================
+  // QUALITY-AWARE ROUTING METHODS
+  // ==========================================
+
+  /**
+   * Get provider quality status combining operational health and quality metrics
+   */
+  async getProviderQualityStatus(providerName: string, serviceType: string): Promise<ProviderQualityStatus | null> {
+    const [metrics] = await db.select()
+      .from(providerMetrics)
+      .where(and(
+        eq(providerMetrics.providerName, providerName),
+        eq(providerMetrics.serviceType, serviceType)
+      ))
+      .limit(1);
+
+    if (!metrics) return null;
+
+    const [qualityScores] = await db.select()
+      .from(providerQualityScores)
+      .where(and(
+        eq(providerQualityScores.providerName, providerName),
+        eq(providerQualityScores.serviceType, serviceType)
+      ))
+      .limit(1);
+
+    const operationalHealth = parseFloat(metrics.healthScore || '50');
+    const qualityScore = qualityScores ? parseFloat(qualityScores.avgQualityScore || '50') : 50;
+    const qualityWeight = qualityScores ? parseFloat(qualityScores.qualityWeight || '0.5') : 0.5;
+    
+    // Combined score: weighted average of operational health and quality
+    const combinedScore = (operationalHealth * (1 - qualityWeight)) + (qualityScore * qualityWeight);
+
+    return {
+      providerName,
+      serviceType,
+      operationalHealth,
+      qualityScore,
+      combinedScore,
+      acceptanceRate: qualityScores ? parseFloat(qualityScores.acceptanceRate || '100') : 100,
+      avgUserRating: qualityScores ? parseFloat(qualityScores.avgUserRating || '3') : 3,
+      totalReviews: qualityScores?.totalReviews || 0,
+    };
+  }
+
+  /**
+   * Get quality-aware provider order for a service type
+   * Factors in both operational health and quality metrics with tier-specific weighting
+   */
+  async getQualityAwareProviderOrder(
+    serviceType: string, 
+    options: QualityAwareRoutingOptions = {}
+  ): Promise<string[]> {
+    const now = new Date();
+    const { qualityTier = 'production', minQualityScore = 0 } = options;
+
+    // Get tier configuration for quality weighting
+    const [tierConfig] = await db.select()
+      .from(qualityTierConfigs)
+      .where(eq(qualityTierConfigs.tierName, qualityTier))
+      .limit(1);
+
+    const qualityWeight = tierConfig?.qualityWeightOverride 
+      ? parseFloat(tierConfig.qualityWeightOverride) 
+      : (qualityTier === 'cinematic_4k' ? 0.7 : qualityTier === 'draft' ? 0.3 : 0.5);
+
+    // Get all providers for this service type
+    const metrics = await db.select()
+      .from(providerMetrics)
+      .where(and(
+        eq(providerMetrics.serviceType, serviceType),
+        eq(providerMetrics.isHealthy, true)
+      ));
+
+    // Get quality scores for all providers
+    const allQualityScores = await db.select()
+      .from(providerQualityScores)
+      .where(eq(providerQualityScores.serviceType, serviceType));
+
+    const qualityScoreMap = new Map(
+      allQualityScores.map(q => [q.providerName, q])
+    );
+
+    // Build provider list with combined scores
+    let providers = metrics
+      .filter(p => {
+        // Filter out rate-limited providers
+        if (p.rateLimitResetAt && new Date(p.rateLimitResetAt) > now) return false;
+        return true;
+      })
+      .map(p => {
+        const qualityData = qualityScoreMap.get(p.providerName);
+        const operationalHealth = parseFloat(p.healthScore || '50');
+        const qualityScore = qualityData ? parseFloat(qualityData.avgQualityScore || '50') : 50;
+        
+        // Calculate combined score with tier-specific weighting
+        const combinedScore = (operationalHealth * (1 - qualityWeight)) + (qualityScore * qualityWeight);
+
+        return {
+          providerName: p.providerName,
+          operationalHealth,
+          qualityScore,
+          combinedScore,
+          isFreeProvider: p.isFreeProvider,
+          basePriority: PROVIDER_CONFIG[p.providerName as ProviderName]?.basePriority || 50,
+          acceptanceRate: qualityData ? parseFloat(qualityData.acceptanceRate || '100') : 100,
+        };
+      })
+      .filter(p => p.qualityScore >= minQualityScore);
+
+    // Apply tier-specific filtering
+    if (tierConfig) {
+      // For cinematic tier, filter out providers with low acceptance rates
+      if (qualityTier === 'cinematic_4k') {
+        providers = providers.filter(p => p.acceptanceRate >= 70);
+      }
+
+      // Preferred providers get a boost
+      const preferredProviders = tierConfig.preferredProviders || [];
+      const excludedProviders = tierConfig.excludedProviders || [];
+
+      providers = providers
+        .filter(p => !excludedProviders.includes(p.providerName))
+        .map(p => ({
+          ...p,
+          combinedScore: preferredProviders.includes(p.providerName) 
+            ? p.combinedScore * 1.2 // 20% boost for preferred providers
+            : p.combinedScore,
+        }));
+
+      // For draft tier, prioritize free providers
+      if (tierConfig.prioritizeFree) {
+        providers.sort((a, b) => {
+          if (a.isFreeProvider && !b.isFreeProvider) return -1;
+          if (!a.isFreeProvider && b.isFreeProvider) return 1;
+          return b.combinedScore - a.combinedScore;
+        });
+      } else {
+        providers.sort((a, b) => b.combinedScore - a.combinedScore);
+      }
+    } else {
+      // Default sorting by combined score
+      providers.sort((a, b) => b.combinedScore - a.combinedScore);
+    }
+
+    // Apply additional options
+    if (options.freeOnly) {
+      providers = providers.filter(p => p.isFreeProvider);
+    }
+
+    if (options.excludeProviders) {
+      providers = providers.filter(p => !options.excludeProviders!.includes(p.providerName));
+    }
+
+    // Apply error pattern filtering if request params provided
+    if (options.requestParams) {
+      providers = await this.filterByErrorPatterns(
+        providers.map(p => ({ providerName: p.providerName })),
+        options.requestParams
+      ) as typeof providers;
+    }
+
+    console.log(`[HealthMonitor] Quality-aware routing for ${serviceType} (tier: ${qualityTier}):`, 
+      providers.map(p => `${p.providerName}(${p.combinedScore.toFixed(1)})`).join(' > '));
+
+    return providers.map(p => p.providerName);
+  }
+
+  /**
+   * Get all providers with combined quality status for dashboard display
+   */
+  async getAllProviderQualityStatus(): Promise<ProviderQualityStatus[]> {
+    const metrics = await db.select().from(providerMetrics);
+    const allQualityScores = await db.select().from(providerQualityScores);
+
+    const qualityScoreMap = new Map(
+      allQualityScores.map(q => [`${q.providerName}:${q.serviceType}`, q])
+    );
+
+    return metrics.map(m => {
+      const key = `${m.providerName}:${m.serviceType}`;
+      const qualityData = qualityScoreMap.get(key);
+      
+      const operationalHealth = parseFloat(m.healthScore || '50');
+      const qualityScore = qualityData ? parseFloat(qualityData.avgQualityScore || '50') : 50;
+      const qualityWeight = qualityData ? parseFloat(qualityData.qualityWeight || '0.5') : 0.5;
+      const combinedScore = (operationalHealth * (1 - qualityWeight)) + (qualityScore * qualityWeight);
+
+      return {
+        providerName: m.providerName,
+        serviceType: m.serviceType,
+        operationalHealth,
+        qualityScore,
+        combinedScore,
+        acceptanceRate: qualityData ? parseFloat(qualityData.acceptanceRate || '100') : 100,
+        avgUserRating: qualityData ? parseFloat(qualityData.avgUserRating || '3') : 3,
+        totalReviews: qualityData?.totalReviews || 0,
+      };
+    });
+  }
+
+  /**
+   * Update provider quality score after a user review
+   */
+  async updateProviderQualityFromReview(
+    providerName: string,
+    serviceType: string,
+    isAccepted: boolean,
+    rating?: number
+  ): Promise<void> {
+    const [existing] = await db.select()
+      .from(providerQualityScores)
+      .where(and(
+        eq(providerQualityScores.providerName, providerName),
+        eq(providerQualityScores.serviceType, serviceType)
+      ))
+      .limit(1);
+
+    if (!existing) {
+      // Create new quality score entry
+      await db.insert(providerQualityScores).values({
+        providerName,
+        serviceType,
+        totalReviews: 1,
+        totalAccepted: isAccepted ? 1 : 0,
+        totalRejected: isAccepted ? 0 : 1,
+        acceptanceRate: isAccepted ? "100" : "0",
+        avgUserRating: rating ? String(rating) : null,
+        avgQualityScore: isAccepted ? "75" : "25",
+        qualityHealthScore: isAccepted ? "75" : "25",
+      });
+    } else {
+      const newTotalReviews = existing.totalReviews + 1;
+      const newTotalAccepted = isAccepted ? existing.totalAccepted + 1 : existing.totalAccepted;
+      const newTotalRejected = isAccepted ? existing.totalRejected : existing.totalRejected + 1;
+      const newAcceptanceRate = ((newTotalAccepted / newTotalReviews) * 100);
+      
+      // Update quality score based on acceptance rate
+      const currentQualityScore = parseFloat(existing.avgQualityScore || '50');
+      const qualityImpact = isAccepted ? 2 : -5; // Rejections have larger impact
+      const newQualityScore = Math.max(0, Math.min(100, currentQualityScore + qualityImpact));
+
+      // Calculate new average rating
+      const currentAvgRating = parseFloat(existing.avgUserRating || '3');
+      const newAvgRating = rating 
+        ? ((currentAvgRating * existing.totalReviews) + rating) / newTotalReviews
+        : currentAvgRating;
+
+      await db.update(providerQualityScores)
+        .set({
+          totalReviews: newTotalReviews,
+          totalAccepted: newTotalAccepted,
+          totalRejected: newTotalRejected,
+          acceptanceRate: newAcceptanceRate.toFixed(2),
+          avgUserRating: newAvgRating.toFixed(2),
+          avgQualityScore: newQualityScore.toFixed(2),
+          qualityHealthScore: newQualityScore.toFixed(2),
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(providerQualityScores.providerName, providerName),
+          eq(providerQualityScores.serviceType, serviceType)
+        ));
+
+      // Log healing action if quality drops significantly
+      if (!isAccepted && currentQualityScore - newQualityScore >= 5) {
+        await this.logHealingAction(
+          providerName,
+          'quality_downgrade',
+          { qualityScore: currentQualityScore, acceptanceRate: existing.acceptanceRate },
+          { qualityScore: newQualityScore, acceptanceRate: newAcceptanceRate.toFixed(2) },
+          `Quality score dropped to ${newQualityScore.toFixed(1)} after rejection`,
+          'quality_feedback'
+        );
+      }
+    }
+  }
+
+  /**
+   * Get the recommended quality tier based on content requirements
+   */
+  getRecommendedTier(requirements: {
+    targetResolution?: string;
+    isPremiumClient?: boolean;
+    isHighVisibility?: boolean;
+    budget?: 'low' | 'medium' | 'high';
+  }): QualityTier {
+    const { targetResolution, isPremiumClient, isHighVisibility, budget } = requirements;
+
+    // High visibility content or 4K resolution -> cinematic tier
+    if (isHighVisibility || targetResolution === '4k') {
+      return 'cinematic_4k';
+    }
+
+    // Premium clients default to production tier
+    if (isPremiumClient) {
+      return 'production';
+    }
+
+    // Budget considerations
+    if (budget === 'low') {
+      return 'draft';
+    }
+
+    // Default to production for balanced quality/cost
+    return 'production';
   }
 }
 

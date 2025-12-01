@@ -43,6 +43,16 @@ import {
   type InsertBrandAssets,
   type BrandAssetFile,
   type InsertBrandAssetFile,
+  type ContentQualityReview,
+  type InsertContentQualityReview,
+  type ContentQualityMetric,
+  type InsertContentQualityMetric,
+  type ProviderQualityScore,
+  type InsertProviderQualityScore,
+  type QualityTierConfig,
+  type InsertQualityTierConfig,
+  type QualityFeedbackLoop,
+  type InsertQualityFeedbackLoop,
   kpis,
   pods,
   phaseChanges,
@@ -64,7 +74,12 @@ import {
   anomalyModels,
   activityLogs,
   brandAssets,
-  brandAssetFiles
+  brandAssetFiles,
+  contentQualityReviews,
+  contentQualityMetrics,
+  providerQualityScores,
+  qualityTierConfigs,
+  qualityFeedbackLoop
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, inArray } from "drizzle-orm";
@@ -224,6 +239,38 @@ export interface IStorage {
   updateBrandAssetFile(id: number, updates: Partial<InsertBrandAssetFile>): Promise<BrandAssetFile>;
   deleteBrandAssetFile(id: number): Promise<void>;
   deleteBrandAssetFilesByClient(clientId: number): Promise<{ deletedCount: number }>;
+
+  // Quality Reviews
+  createQualityReview(review: InsertContentQualityReview): Promise<ContentQualityReview>;
+  getQualityReview(reviewId: string): Promise<ContentQualityReview | undefined>;
+  getQualityReviewsForContent(contentType: string, contentId: string): Promise<ContentQualityReview[]>;
+  getQualityReviewsByProvider(providerName: string, limit?: number): Promise<ContentQualityReview[]>;
+  getRecentQualityReviews(limit?: number): Promise<ContentQualityReview[]>;
+
+  // Quality Metrics
+  createQualityMetric(metric: InsertContentQualityMetric): Promise<ContentQualityMetric>;
+  getQualityMetric(metricId: string): Promise<ContentQualityMetric | undefined>;
+  getQualityMetricsForContent(contentType: string, contentId: string): Promise<ContentQualityMetric[]>;
+  getQualityMetricsByProvider(providerName: string, limit?: number): Promise<ContentQualityMetric[]>;
+
+  // Provider Quality Scores
+  getProviderQualityScore(providerName: string, serviceType: string): Promise<ProviderQualityScore | undefined>;
+  getAllProviderQualityScores(): Promise<ProviderQualityScore[]>;
+  createProviderQualityScore(score: InsertProviderQualityScore): Promise<ProviderQualityScore>;
+  updateProviderQualityScore(providerName: string, serviceType: string, updates: Partial<InsertProviderQualityScore>): Promise<ProviderQualityScore>;
+  initializeProviderQualityScores(): Promise<void>;
+
+  // Quality Tier Configs
+  getQualityTierConfig(tierName: string): Promise<QualityTierConfig | undefined>;
+  getAllQualityTierConfigs(): Promise<QualityTierConfig[]>;
+  createQualityTierConfig(config: InsertQualityTierConfig): Promise<QualityTierConfig>;
+  updateQualityTierConfig(tierName: string, updates: Partial<InsertQualityTierConfig>): Promise<QualityTierConfig>;
+  initializeDefaultQualityTiers(): Promise<void>;
+
+  // Quality Feedback Loop
+  createQualityFeedback(feedback: InsertQualityFeedbackLoop): Promise<QualityFeedbackLoop>;
+  getRecentQualityFeedback(limit?: number): Promise<QualityFeedbackLoop[]>;
+  getQualityFeedbackByProvider(providerName: string, limit?: number): Promise<QualityFeedbackLoop[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1198,6 +1245,261 @@ export class DatabaseStorage implements IStorage {
   async deleteBrandAssetFilesByClient(clientId: number): Promise<{ deletedCount: number }> {
     const result = await db.delete(brandAssetFiles).where(eq(brandAssetFiles.clientId, clientId));
     return { deletedCount: result.rowCount || 0 };
+  }
+
+  // Quality Reviews
+  async createQualityReview(review: InsertContentQualityReview): Promise<ContentQualityReview> {
+    const [result] = await db.insert(contentQualityReviews).values(review).returning();
+    return result;
+  }
+
+  async getQualityReview(reviewId: string): Promise<ContentQualityReview | undefined> {
+    const [result] = await db
+      .select()
+      .from(contentQualityReviews)
+      .where(eq(contentQualityReviews.reviewId, reviewId));
+    return result || undefined;
+  }
+
+  async getQualityReviewsForContent(contentType: string, contentId: string): Promise<ContentQualityReview[]> {
+    return await db
+      .select()
+      .from(contentQualityReviews)
+      .where(and(
+        eq(contentQualityReviews.contentType, contentType),
+        eq(contentQualityReviews.contentId, contentId)
+      ))
+      .orderBy(desc(contentQualityReviews.createdAt));
+  }
+
+  async getQualityReviewsByProvider(providerName: string, limit: number = 50): Promise<ContentQualityReview[]> {
+    return await db
+      .select()
+      .from(contentQualityReviews)
+      .where(eq(contentQualityReviews.providerUsed, providerName))
+      .orderBy(desc(contentQualityReviews.createdAt))
+      .limit(limit);
+  }
+
+  async getRecentQualityReviews(limit: number = 50): Promise<ContentQualityReview[]> {
+    return await db
+      .select()
+      .from(contentQualityReviews)
+      .orderBy(desc(contentQualityReviews.createdAt))
+      .limit(limit);
+  }
+
+  // Quality Metrics
+  async createQualityMetric(metric: InsertContentQualityMetric): Promise<ContentQualityMetric> {
+    const [result] = await db.insert(contentQualityMetrics).values(metric).returning();
+    return result;
+  }
+
+  async getQualityMetric(metricId: string): Promise<ContentQualityMetric | undefined> {
+    const [result] = await db
+      .select()
+      .from(contentQualityMetrics)
+      .where(eq(contentQualityMetrics.metricId, metricId));
+    return result || undefined;
+  }
+
+  async getQualityMetricsForContent(contentType: string, contentId: string): Promise<ContentQualityMetric[]> {
+    return await db
+      .select()
+      .from(contentQualityMetrics)
+      .where(and(
+        eq(contentQualityMetrics.contentType, contentType),
+        eq(contentQualityMetrics.contentId, contentId)
+      ))
+      .orderBy(desc(contentQualityMetrics.analyzedAt));
+  }
+
+  async getQualityMetricsByProvider(providerName: string, limit: number = 50): Promise<ContentQualityMetric[]> {
+    return await db
+      .select()
+      .from(contentQualityMetrics)
+      .where(eq(contentQualityMetrics.providerUsed, providerName))
+      .orderBy(desc(contentQualityMetrics.analyzedAt))
+      .limit(limit);
+  }
+
+  // Provider Quality Scores
+  async getProviderQualityScore(providerName: string, serviceType: string): Promise<ProviderQualityScore | undefined> {
+    const [result] = await db
+      .select()
+      .from(providerQualityScores)
+      .where(and(
+        eq(providerQualityScores.providerName, providerName),
+        eq(providerQualityScores.serviceType, serviceType)
+      ));
+    return result || undefined;
+  }
+
+  async getAllProviderQualityScores(): Promise<ProviderQualityScore[]> {
+    return await db
+      .select()
+      .from(providerQualityScores)
+      .orderBy(desc(providerQualityScores.avgQualityScore));
+  }
+
+  async createProviderQualityScore(score: InsertProviderQualityScore): Promise<ProviderQualityScore> {
+    const [result] = await db.insert(providerQualityScores).values(score).returning();
+    return result;
+  }
+
+  async updateProviderQualityScore(providerName: string, serviceType: string, updates: Partial<InsertProviderQualityScore>): Promise<ProviderQualityScore> {
+    const [result] = await db
+      .update(providerQualityScores)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(and(
+        eq(providerQualityScores.providerName, providerName),
+        eq(providerQualityScores.serviceType, serviceType)
+      ))
+      .returning();
+    return result;
+  }
+
+  async initializeProviderQualityScores(): Promise<void> {
+    const providers = [
+      { providerName: 'veo31', serviceType: 'video' },
+      { providerName: 'runway', serviceType: 'video' },
+      { providerName: 'gemini_image', serviceType: 'image' },
+      { providerName: 'adobe_firefly', serviceType: 'image' },
+      { providerName: 'fal_ai', serviceType: 'image' },
+      { providerName: 'dashscope', serviceType: 'image' },
+      { providerName: 'elevenlabs', serviceType: 'audio' },
+      { providerName: 'openai_tts', serviceType: 'audio' },
+      { providerName: 'anthropic', serviceType: 'text' },
+      { providerName: 'gemini_text', serviceType: 'text' },
+      { providerName: 'openrouter_deepseek_r1', serviceType: 'text' },
+      { providerName: 'openrouter_llama4_maverick', serviceType: 'text' },
+      { providerName: 'openrouter_mistral_small', serviceType: 'text' },
+    ];
+
+    for (const provider of providers) {
+      const existing = await this.getProviderQualityScore(provider.providerName, provider.serviceType);
+      if (!existing) {
+        await this.createProviderQualityScore({
+          providerName: provider.providerName,
+          serviceType: provider.serviceType,
+          avgQualityScore: "50",
+          acceptanceRate: "100",
+          qualityHealthScore: "50",
+          qualityWeight: "0.5",
+        });
+      }
+    }
+  }
+
+  // Quality Tier Configs
+  async getQualityTierConfig(tierName: string): Promise<QualityTierConfig | undefined> {
+    const [result] = await db
+      .select()
+      .from(qualityTierConfigs)
+      .where(eq(qualityTierConfigs.tierName, tierName));
+    return result || undefined;
+  }
+
+  async getAllQualityTierConfigs(): Promise<QualityTierConfig[]> {
+    return await db
+      .select()
+      .from(qualityTierConfigs)
+      .orderBy(qualityTierConfigs.minQualityScore);
+  }
+
+  async createQualityTierConfig(config: InsertQualityTierConfig): Promise<QualityTierConfig> {
+    const [result] = await db.insert(qualityTierConfigs).values(config).returning();
+    return result;
+  }
+
+  async updateQualityTierConfig(tierName: string, updates: Partial<InsertQualityTierConfig>): Promise<QualityTierConfig> {
+    const [result] = await db
+      .update(qualityTierConfigs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(qualityTierConfigs.tierName, tierName))
+      .returning();
+    return result;
+  }
+
+  async initializeDefaultQualityTiers(): Promise<void> {
+    const tiers: InsertQualityTierConfig[] = [
+      {
+        tierName: 'draft',
+        displayName: 'Draft (Fast)',
+        description: 'Quick preview quality. Prioritizes speed and cost over visual quality. Good for rapid iteration.',
+        targetResolution: '720p',
+        minBitrate: 2000,
+        minFrameRate: 24,
+        minQualityScore: 30,
+        minCoherenceScore: 40,
+        minAestheticScore: 30,
+        maxRetries: 2,
+        prioritizeFree: true,
+        qualityWeightOverride: "0.3",
+        isActive: true,
+      },
+      {
+        tierName: 'production',
+        displayName: 'Production (Balanced)',
+        description: 'Production-ready quality. Balanced between quality, speed, and cost. Suitable for most content.',
+        targetResolution: '1080p',
+        minBitrate: 5000,
+        minFrameRate: 30,
+        minQualityScore: 60,
+        minCoherenceScore: 65,
+        minAestheticScore: 55,
+        maxRetries: 3,
+        prioritizeFree: false,
+        qualityWeightOverride: "0.5",
+        isActive: true,
+      },
+      {
+        tierName: 'cinematic_4k',
+        displayName: 'Cinematic 4K (Premium)',
+        description: 'Maximum quality for flagship content. Prioritizes visual excellence over speed and cost.',
+        targetResolution: '4k',
+        minBitrate: 15000,
+        minFrameRate: 30,
+        minQualityScore: 80,
+        minCoherenceScore: 80,
+        minAestheticScore: 75,
+        maxRetries: 5,
+        autoUpgradeOnFailure: true,
+        prioritizeFree: false,
+        qualityWeightOverride: "0.7",
+        isActive: true,
+      },
+    ];
+
+    for (const tier of tiers) {
+      const existing = await this.getQualityTierConfig(tier.tierName);
+      if (!existing) {
+        await this.createQualityTierConfig(tier);
+      }
+    }
+  }
+
+  // Quality Feedback Loop
+  async createQualityFeedback(feedback: InsertQualityFeedbackLoop): Promise<QualityFeedbackLoop> {
+    const [result] = await db.insert(qualityFeedbackLoop).values(feedback).returning();
+    return result;
+  }
+
+  async getRecentQualityFeedback(limit: number = 50): Promise<QualityFeedbackLoop[]> {
+    return await db
+      .select()
+      .from(qualityFeedbackLoop)
+      .orderBy(desc(qualityFeedbackLoop.createdAt))
+      .limit(limit);
+  }
+
+  async getQualityFeedbackByProvider(providerName: string, limit: number = 50): Promise<QualityFeedbackLoop[]> {
+    return await db
+      .select()
+      .from(qualityFeedbackLoop)
+      .where(eq(qualityFeedbackLoop.providerName, providerName))
+      .orderBy(desc(qualityFeedbackLoop.createdAt))
+      .limit(limit);
   }
 }
 
