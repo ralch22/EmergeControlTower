@@ -386,6 +386,12 @@ export async function generateVideoWithFallback(
       continue;
     }
 
+    // CRITICAL: Check quarantine status BEFORE attempting (self-healing)
+    if (healthMonitor.isProviderQuarantined(enabledProvider.name)) {
+      console.log(`[VideoProvider] Skipping ${enabledProvider.name}: currently quarantined`);
+      continue;
+    }
+
     if (!config.isConfigured()) {
       console.log(`[VideoProvider] ${config.displayName} not configured, trying next...`);
       continue;
@@ -437,6 +443,22 @@ export async function generateVideoWithFallback(
       console.log(`[VideoProvider] ${config.displayName} failed: ${result.error}`);
       lastError = result.error || 'Unknown error';
       
+      // Check for hard failures that warrant quarantine
+      const hardFailurePatterns = [
+        'not available', 'access denied', 'quota exceeded', 
+        'model not found', 'waitlist', 'forbidden', 'unauthorized',
+        'not enabled', 'billing', 'subscription'
+      ];
+      const isHardFailure = hardFailurePatterns.some(pattern => 
+        lastError.toLowerCase().includes(pattern)
+      );
+      
+      if (isHardFailure) {
+        console.log(`[VideoProvider] HARD FAILURE detected for ${enabledProvider.name}: ${lastError}`);
+        await healthMonitor.quarantineProvider(enabledProvider.name, lastError);
+        continue; // Skip to next provider
+      }
+      
       if (result.error?.includes('rate limit')) {
         console.log(`[VideoProvider] Rate limited, trying next provider...`);
         continue;
@@ -461,6 +483,21 @@ export async function generateVideoWithFallback(
         context?.sceneId,
         { duration: options.duration, promptLength: prompt.length }
       ).catch(err => console.error('[VideoProvider] Failed to record metrics:', err));
+      
+      // Also check for hard failures in exception
+      const hardFailurePatterns = [
+        'not available', 'access denied', 'quota exceeded', 
+        'model not found', 'waitlist', 'forbidden', 'unauthorized',
+        'not enabled', 'billing', 'subscription'
+      ];
+      const isHardFailure = hardFailurePatterns.some(pattern => 
+        lastError.toLowerCase().includes(pattern)
+      );
+      
+      if (isHardFailure) {
+        console.log(`[VideoProvider] HARD FAILURE (exception) detected for ${enabledProvider.name}: ${lastError}`);
+        await healthMonitor.quarantineProvider(enabledProvider.name, lastError);
+      }
     }
   }
 

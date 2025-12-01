@@ -12,6 +12,20 @@ import {
 import { eq, and, desc, sql, gt } from "drizzle-orm";
 import type { QualityTier } from "../../shared/schema";
 
+// Provider quarantine tracking - in-memory for speed
+const providerQuarantine: Map<string, { until: Date; reason: string; failureCount: number }> = new Map();
+
+// Hard failure patterns that trigger long quarantine
+const HARD_FAILURE_PATTERNS = [
+  { pattern: /access denied/i, quarantineMinutes: 60, reason: 'access_denied' },
+  { pattern: /model access denied/i, quarantineMinutes: 60, reason: 'access_denied' },
+  { pattern: /403/i, quarantineMinutes: 60, reason: 'forbidden' },
+  { pattern: /not available/i, quarantineMinutes: 120, reason: 'unavailable' },
+  { pattern: /waitlist/i, quarantineMinutes: 1440, reason: 'waitlist_required' }, // 24 hours
+  { pattern: /quota exceeded/i, quarantineMinutes: 30, reason: 'quota_exceeded' },
+  { pattern: /429/i, quarantineMinutes: 15, reason: 'rate_limited' },
+];
+
 // Provider configuration with cost and tier information
 export const PROVIDER_CONFIG = {
   // Video providers
@@ -22,12 +36,61 @@ export const PROVIDER_CONFIG = {
     basePriority: 90,
     constraints: { maxDuration: 8 }
   },
+  veo2: { 
+    serviceType: 'video', 
+    isFree: true, 
+    costPerRequest: 0, 
+    basePriority: 85,
+    constraints: { maxDuration: 8 }
+  },
+  wan: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.02, 
+    basePriority: 75,
+    constraints: { maxDuration: 5 }
+  },
   runway: { 
     serviceType: 'video', 
     isFree: false, 
     costPerRequest: 0.05,
     basePriority: 70,
     constraints: { allowedDurations: [5, 10] }
+  },
+  pika: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.03, 
+    basePriority: 65,
+    constraints: { maxDuration: 3 }
+  },
+  luma: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.05, 
+    basePriority: 60,
+    constraints: {}
+  },
+  fal: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.04, 
+    basePriority: 55,
+    constraints: {}
+  },
+  fal_kling: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.06, 
+    basePriority: 50,
+    constraints: {}
+  },
+  fal_minimax: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.04, 
+    basePriority: 45,
+    constraints: {}
   },
   
   // Image providers
@@ -212,8 +275,14 @@ class ProviderHealthMonitor {
       { 
         serviceType: 'video', 
         chainName: 'video_default', 
-        providerOrder: JSON.stringify(['veo31', 'runway']),
+        providerOrder: JSON.stringify(['runway', 'veo31', 'fal', 'fal_kling', 'pika', 'luma']),
         isDefault: true 
+      },
+      { 
+        serviceType: 'video', 
+        chainName: 'video_reliable', 
+        providerOrder: JSON.stringify(['runway', 'fal', 'fal_kling', 'fal_minimax']),
+        conditions: JSON.stringify({ prioritizeReliability: true })
       },
       { 
         serviceType: 'video', 
@@ -317,6 +386,9 @@ class ProviderHealthMonitor {
 
       if (!result.success && result.errorMessage) {
         await this.learnErrorPattern(providerName, result, requestParams);
+        
+        // Check for HARD failures that require quarantine
+        await this.checkAndQuarantineProvider(providerName, result.errorMessage);
       }
 
       if (this.isRateLimitError(result.errorCode, result.errorMessage)) {
@@ -326,6 +398,95 @@ class ProviderHealthMonitor {
     } catch (error) {
       console.error(`[HealthMonitor] Error recording request:`, error);
     }
+  }
+
+  // Check if provider should be quarantined based on error pattern
+  private async checkAndQuarantineProvider(providerName: string, errorMessage: string): Promise<void> {
+    for (const { pattern, quarantineMinutes, reason } of HARD_FAILURE_PATTERNS) {
+      if (pattern.test(errorMessage)) {
+        const existing = providerQuarantine.get(providerName);
+        const failureCount = (existing?.failureCount || 0) + 1;
+        
+        // Increase quarantine time with each failure (up to 24 hours)
+        const multiplier = Math.min(failureCount, 10);
+        const actualMinutes = Math.min(quarantineMinutes * multiplier, 1440);
+        const until = new Date(Date.now() + actualMinutes * 60 * 1000);
+        
+        providerQuarantine.set(providerName, { until, reason, failureCount });
+        
+        // Also mark as unhealthy in DB
+        await db.update(providerMetrics)
+          .set({
+            isHealthy: false,
+            priority: 0,
+            rateLimitResetAt: until,
+            updatedAt: new Date(),
+          })
+          .where(eq(providerMetrics.providerName, providerName));
+        
+        await this.logHealingAction(
+          providerName,
+          'quarantine_activated',
+          null,
+          { reason, quarantineMinutes: actualMinutes, failureCount, until: until.toISOString() },
+          `HARD FAILURE: ${reason} - Provider quarantined for ${actualMinutes} minutes (failure #${failureCount})`,
+          'system_auto_heal'
+        );
+        
+        console.log(`[HealthMonitor] QUARANTINE: ${providerName} disabled for ${actualMinutes} minutes due to ${reason}`);
+        return;
+      }
+    }
+  }
+
+  // Check if a provider is currently quarantined
+  isProviderQuarantined(providerName: string): boolean {
+    const quarantine = providerQuarantine.get(providerName);
+    if (!quarantine) return false;
+    
+    if (new Date() > quarantine.until) {
+      // Quarantine expired, remove it
+      providerQuarantine.delete(providerName);
+      console.log(`[HealthMonitor] Quarantine expired for ${providerName}, re-enabling`);
+      return false;
+    }
+    
+    return true;
+  }
+
+  // Get quarantine status for all providers
+  getQuarantineStatus(): Array<{ provider: string; reason: string; until: Date; failureCount: number }> {
+    const now = new Date();
+    const status: Array<{ provider: string; reason: string; until: Date; failureCount: number }> = [];
+    
+    providerQuarantine.forEach((info, provider) => {
+      if (info.until > now) {
+        status.push({ provider, ...info });
+      }
+    });
+    
+    return status;
+  }
+
+  // Manually release a provider from quarantine
+  async releaseFromQuarantine(providerName: string): Promise<boolean> {
+    if (providerQuarantine.has(providerName)) {
+      providerQuarantine.delete(providerName);
+      
+      const config = PROVIDER_CONFIG[providerName as ProviderName];
+      await db.update(providerMetrics)
+        .set({
+          isHealthy: true,
+          priority: config?.basePriority || 50,
+          rateLimitResetAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(providerMetrics.providerName, providerName));
+      
+      console.log(`[HealthMonitor] Manually released ${providerName} from quarantine`);
+      return true;
+    }
+    return false;
   }
 
   private async updateProviderMetrics(
@@ -560,8 +721,18 @@ class ProviderHealthMonitor {
 
     let providers = await query;
 
+    // Filter out rate-limited providers
     providers = providers.filter(p => {
       if (p.rateLimitResetAt && new Date(p.rateLimitResetAt) > now) {
+        return false;
+      }
+      return true;
+    });
+
+    // Filter out quarantined providers (CRITICAL for self-healing)
+    providers = providers.filter(p => {
+      if (this.isProviderQuarantined(p.providerName)) {
+        console.log(`[HealthMonitor] Skipping quarantined provider: ${p.providerName}`);
         return false;
       }
       return true;
@@ -579,7 +750,16 @@ class ProviderHealthMonitor {
       providers = await this.filterByErrorPatterns(providers, options.requestParams);
     }
 
-    return providers.map(p => p.providerName);
+    // Log working providers for debugging
+    const providerNames = providers.map(p => p.providerName);
+    if (providerNames.length === 0) {
+      console.warn(`[HealthMonitor] WARNING: No healthy providers available for ${serviceType}!`);
+      console.warn(`[HealthMonitor] Quarantined providers:`, this.getQuarantineStatus());
+    } else {
+      console.log(`[HealthMonitor] Available ${serviceType} providers: ${providerNames.join(', ')}`);
+    }
+
+    return providerNames;
   }
 
   private async filterByErrorPatterns<T extends { providerName: string }>(

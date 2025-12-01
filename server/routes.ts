@@ -4269,6 +4269,84 @@ export function registerVideoIngredientsRoutes(app: Express) {
     }
   });
 
+  // Get quarantine status for all providers
+  app.get("/api/providers/quarantine", async (req, res) => {
+    try {
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      
+      const quarantineStatus = healthMonitor.getQuarantineStatus();
+      const allStatus = await healthMonitor.getAllProviderStatus();
+      
+      const quarantinedProviders = quarantineStatus.map(q => ({
+        ...q,
+        minutesRemaining: Math.max(0, Math.round((new Date(q.until).getTime() - Date.now()) / 60000)),
+      }));
+      
+      res.json({
+        quarantined: quarantinedProviders,
+        activeProviders: allStatus.filter(p => p.isHealthy).map(p => p.providerName),
+        summary: {
+          quarantinedCount: quarantinedProviders.length,
+          activeCount: allStatus.filter(p => p.isHealthy).length,
+          totalProviders: allStatus.length,
+        },
+      });
+    } catch (error: any) {
+      console.error("[ProviderHealth] Error fetching quarantine status:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Release a provider from quarantine manually
+  app.post("/api/providers/quarantine/:providerName/release", async (req, res) => {
+    try {
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      const { providerName } = req.params;
+      
+      const released = await healthMonitor.releaseFromQuarantine(providerName);
+      
+      if (released) {
+        res.json({
+          success: true,
+          message: `Provider ${providerName} released from quarantine`,
+          provider: providerName,
+        });
+      } else {
+        res.status(404).json({
+          success: false,
+          message: `Provider ${providerName} was not in quarantine`,
+        });
+      }
+    } catch (error: any) {
+      console.error("[ProviderHealth] Error releasing from quarantine:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Clear all quarantines (emergency reset)
+  app.post("/api/providers/quarantine/clear-all", async (req, res) => {
+    try {
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      
+      const currentQuarantine = healthMonitor.getQuarantineStatus();
+      let releasedCount = 0;
+      
+      for (const q of currentQuarantine) {
+        const released = await healthMonitor.releaseFromQuarantine(q.provider);
+        if (released) releasedCount++;
+      }
+      
+      res.json({
+        success: true,
+        message: `Released ${releasedCount} providers from quarantine`,
+        releasedCount,
+      });
+    } catch (error: any) {
+      console.error("[ProviderHealth] Error clearing quarantines:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Recalculate all provider priorities
   app.post("/api/providers/recalculate-priorities", async (req, res) => {
     try {
@@ -4918,9 +4996,48 @@ async function generateFromIngredients(projectId: string, ingredients: any) {
             });
             await storage.updateVideoScene(scene.sceneId, { status: 'ready' });
           } else {
+            // Video completion failed - try static image fallback
+            console.log(`[IngredientsToVideo] Video completion failed for scene ${scene.sceneNumber}, trying static image fallback...`);
+            if (imageUrl) {
+              // Mark as ready with static image - Shotstack can use images as clips
+              await storage.updateVideoClip(clipId, {
+                status: 'ready',
+                videoUrl: imageUrl, // Shotstack supports image URLs as clip sources
+                provider: 'static_image_fallback',
+                errorMessage: `Static image fallback (original error: ${completed.error})`,
+              });
+              await storage.updateVideoScene(scene.sceneId, { 
+                status: 'ready',
+              });
+              console.log(`[IngredientsToVideo] Scene ${scene.sceneNumber} using static image fallback - Shotstack will render as image clip`);
+            } else {
+              await storage.updateVideoClip(clipId, {
+                status: 'failed',
+                errorMessage: completed.error,
+              });
+              await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
+            }
+          }
+        } else {
+          // Video generation failed - try static image fallback
+          console.log(`[IngredientsToVideo] Video generation failed for scene ${scene.sceneNumber}: ${videoResult.error}`);
+          if (imageUrl) {
+            // Mark as ready with static image - Shotstack can use images as clips
+            // Store as videoUrl with isStaticImage flag in metadata for assembly
+            await storage.updateVideoClip(clipId, {
+              status: 'ready',
+              videoUrl: imageUrl, // Shotstack supports image URLs as clip sources
+              provider: 'static_image_fallback',
+              errorMessage: `Static image fallback (original error: ${videoResult.error})`,
+            });
+            await storage.updateVideoScene(scene.sceneId, { 
+              status: 'ready',
+            });
+            console.log(`[IngredientsToVideo] Scene ${scene.sceneNumber} using static image fallback - Shotstack will render as image clip`);
+          } else {
             await storage.updateVideoClip(clipId, {
               status: 'failed',
-              errorMessage: completed.error,
+              errorMessage: videoResult.error,
             });
             await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
           }
