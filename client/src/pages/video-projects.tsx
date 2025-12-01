@@ -479,6 +479,20 @@ export default function VideoProjectsPage() {
             </Link>
 
             <Button 
+              className="bg-purple-600 hover:bg-purple-500"
+              onClick={() => createTestMutation.mutate()}
+              disabled={createTestMutation.isPending}
+              data-testid="button-create-test-project"
+            >
+              {createTestMutation.isPending ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+              ) : (
+                <Sparkles className="w-4 h-4 mr-2" />
+              )}
+              Create Test Project
+            </Button>
+
+            <Button 
               variant="outline" 
               className="border-red-500/50 text-red-400 hover:bg-red-500/20 hover:border-red-500"
               onClick={() => clearAllMutation.mutate()}
