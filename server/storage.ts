@@ -126,6 +126,7 @@ export interface IStorage {
   getContentRun(runId: string): Promise<ContentRun | undefined>;
   createContentRun(run: InsertContentRun): Promise<ContentRun>;
   updateContentRun(runId: string, updates: Partial<InsertContentRun>): Promise<ContentRun>;
+  clearContentRuns(): Promise<{ deletedCount: number }>;
 
   // Generated Content
   getGeneratedContent(runId: string): Promise<GeneratedContentRecord[]>;
@@ -474,6 +475,11 @@ export class DatabaseStorage implements IStorage {
       .where(eq(contentRuns.runId, runId))
       .returning();
     return run;
+  }
+
+  async clearContentRuns(): Promise<{ deletedCount: number }> {
+    const result = await db.delete(contentRuns);
+    return { deletedCount: result.rowCount || 0 };
   }
 
   // Generated Content

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,7 @@ import {
   List,
   Layers,
   Cpu,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -603,7 +604,27 @@ export function ActivityPanel() {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
+  const [isClearing, setIsClearing] = useState(false);
   const previousRunsRef = useRef<Map<string, ActiveRun>>(new Map());
+  const queryClient = useQueryClient();
+
+  const handleClearMonitor = async () => {
+    setIsClearing(true);
+    try {
+      const res = await fetch("/api/pipeline-monitor/clear", { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to clear monitor");
+      const result = await res.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/pipeline-status"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/content-runs"] });
+      toast.success("Pipeline monitor cleared", {
+        description: `Removed ${result.runsDeleted} runs and ${result.eventsDeleted} events`,
+      });
+    } catch (error: any) {
+      toast.error("Failed to clear monitor", { description: error.message });
+    } finally {
+      setIsClearing(false);
+    }
+  };
 
   const { data: clients = [] } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
@@ -803,6 +824,17 @@ export function ActivityPanel() {
               <h3 className="font-medium text-white text-sm">Pipeline Monitor</h3>
             </div>
             <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleClearMonitor}
+                disabled={isClearing}
+                className="h-7 w-7 p-0 text-zinc-400 hover:text-red-400 hover:bg-zinc-700"
+                title="Clear all runs and events"
+                data-testid="button-clear-pipeline"
+              >
+                {isClearing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"

@@ -5405,6 +5405,38 @@ export function registerVideoIngredientsRoutes(app: Express) {
     }
   });
 
+  // Clear all content runs (active runs)
+  app.delete("/api/content-runs/clear", async (req, res) => {
+    try {
+      const result = await storage.clearContentRuns();
+      res.json({ 
+        success: true, 
+        message: 'Cleared all content runs',
+        deletedCount: result.deletedCount 
+      });
+    } catch (error: any) {
+      console.error("[ContentRuns] Error clearing runs:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Clear pipeline monitor (both runs and events)
+  app.delete("/api/pipeline-monitor/clear", async (req, res) => {
+    try {
+      const runsResult = await storage.clearContentRuns();
+      const logsResult = await storage.clearActivityLogs();
+      res.json({ 
+        success: true, 
+        message: 'Cleared all pipeline runs and events',
+        runsDeleted: runsResult.deletedCount,
+        eventsDeleted: logsResult.deletedCount
+      });
+    } catch (error: any) {
+      console.error("[Pipeline] Error clearing monitor:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ===== QUALITY METRICS & OPTIMIZATION ROUTES =====
 
   // Initialize quality system on startup
