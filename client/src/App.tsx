@@ -16,6 +16,7 @@ import ContentFactory from "@/pages/content-factory";
 import Clients from "@/pages/clients";
 import BrandAssets from "@/pages/brand-assets";
 import BrandFiles from "@/pages/brand-files";
+import ProviderHealth from "@/pages/provider-health";
 
 function Router() {
   return (
@@ -32,6 +33,7 @@ function Router() {
         <Route path="/video-assembly/:projectId" component={VideoAssembly} />
         <Route path="/settings" component={Settings} />
         <Route path="/control-tower" component={ControlTower} />
+        <Route path="/provider-health" component={ProviderHealth} />
         <Route component={NotFound} />
       </Switch>
     </SidebarLayout>

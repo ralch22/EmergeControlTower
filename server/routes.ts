@@ -3982,6 +3982,43 @@ export function registerVideoIngredientsRoutes(app: Express) {
     }
   });
 
+  // Get recent healing actions
+  app.get("/api/providers/healing-actions", async (req, res) => {
+    try {
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      const limit = parseInt(req.query.limit as string) || 20;
+      const actions = await healthMonitor.getRecentHealingActions(limit);
+      res.json(actions);
+    } catch (error: any) {
+      console.error("[ProviderHealth] Error getting healing actions:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get smart order for all service types
+  app.get("/api/providers/smart-order", async (req, res) => {
+    try {
+      const { healthMonitor, PROVIDER_CONFIG } = await import("../01-content-factory/services/provider-health-monitor");
+      
+      // Get unique service types from provider config
+      const serviceTypes = [...new Set(Object.values(PROVIDER_CONFIG).map(p => p.serviceType))];
+      const orders: Record<string, string[]> = {};
+      
+      for (const type of serviceTypes) {
+        try {
+          orders[type] = await healthMonitor.getSmartProviderOrder(type);
+        } catch {
+          orders[type] = [];
+        }
+      }
+      
+      res.json(orders);
+    } catch (error: any) {
+      console.error("[ProviderHealth] Error getting smart orders:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Clear all content library items
   app.delete("/api/content/clear-all", async (req, res) => {
     try {

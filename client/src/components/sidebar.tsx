@@ -15,6 +15,7 @@ import {
   ChevronRight,
   Palette,
   FolderOpen,
+  Activity,
 } from "lucide-react";
 
 const navItems = [
@@ -25,6 +26,7 @@ const navItems = [
   { path: "/brand-assets", label: "Brand Guidelines", icon: Palette },
   { path: "/brand-files", label: "Brand Files", icon: FolderOpen },
   { path: "/control-tower", label: "Control Tower", icon: Shield },
+  { path: "/provider-health", label: "Provider Health", icon: Activity },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
 
