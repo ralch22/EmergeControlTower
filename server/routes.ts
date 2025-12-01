@@ -517,7 +517,10 @@ Generate a JSON object with this exact structure:
 
 Return ONLY the JSON object, no additional text or markdown formatting.`;
 
-      const claudeResponse = await generateWithClaude(parsePrompt);
+      const claudeResponse = await generateWithClaude(
+        "You are an expert at parsing and structuring brand guidelines into JSON format.",
+        parsePrompt
+      );
       
       // Parse the JSON from Claude's response
       let brandProfile;
@@ -1401,6 +1404,235 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
       res.json(content);
     } catch (error) {
       res.status(500).json({ error: "Failed to update content status" });
+    }
+  });
+
+  // ===== SINGLE CONTENT GENERATION =====
+  // Generate a single piece of content without running the full pipeline
+  app.post("/api/content/generate-single", async (req, res) => {
+    try {
+      const { singleContentRequestSchema } = await import("@shared/schema");
+      const validation = singleContentRequestSchema.safeParse(req.body);
+      
+      if (!validation.success) {
+        return res.status(400).json({ 
+          error: "Invalid request", 
+          details: validation.error.flatten() 
+        });
+      }
+
+      const { clientId, contentType, topic, brief, tone, targetLength, keywords, callToAction } = validation.data;
+
+      // Fetch client data for brand context
+      const client = await storage.getClient(clientId);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+
+      // Create a unique run ID for single content generation
+      const runId = `single-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const contentId = `content-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+      // Create a minimal content run for tracking
+      await storage.createContentRun({
+        runId,
+        clientId,
+        status: "running",
+        totalPieces: 1,
+        successfulPieces: 0,
+        failedPieces: 0,
+      });
+
+      // Build the prompt based on content type
+      const brandContext = client.brandProfile 
+        ? `Brand Context:\n${JSON.stringify(client.brandProfile, null, 2)}\n\n`
+        : `Brand Voice: ${client.brandVoice}\nTarget Audience: ${client.targetAudience}\n\n`;
+
+      const contentPrompts: Record<string, { system: string; template: (topic: string, brief: string, extra: string) => string }> = {
+        blog: {
+          system: "You are an expert content writer specializing in SEO-optimized blog posts. Write engaging, informative content that provides value to readers.",
+          template: (topic, brief, extra) => `Write a comprehensive blog post about: ${topic}
+
+${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+
+Requirements:
+- Length: ${targetLength === 'long' ? '1500-2000' : targetLength === 'short' ? '500-800' : '1000-1500'} words
+- Include an engaging introduction
+- Use subheadings for better readability
+- Include actionable insights
+- End with a compelling conclusion
+${callToAction ? `- Include this call-to-action: ${callToAction}` : ''}`
+        },
+        linkedin: {
+          system: "You are a LinkedIn content strategist. Create professional, engaging posts that drive engagement and establish thought leadership.",
+          template: (topic, brief, extra) => `Write a LinkedIn post about: ${topic}
+
+${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+
+Requirements:
+- Professional yet engaging tone
+- Include a hook in the first line
+- Use line breaks for readability
+- Include relevant hashtags (3-5)
+- ${targetLength === 'long' ? 'Longer format with detailed insights' : targetLength === 'short' ? 'Short, punchy format' : 'Medium length with clear value'}
+${callToAction ? `- End with: ${callToAction}` : '- End with a question or call-to-action'}`
+        },
+        twitter: {
+          system: "You are a Twitter/X content expert. Create viral, engaging tweets that maximize engagement within character limits.",
+          template: (topic, brief, extra) => `Write a Twitter/X post about: ${topic}
+
+${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+
+Requirements:
+- Maximum 280 characters (or thread if longer format requested)
+- Attention-grabbing opening
+- Include 1-2 relevant hashtags
+- ${targetLength === 'long' ? 'Create a thread with 3-5 connected tweets' : 'Single impactful tweet'}
+${callToAction ? `- Include: ${callToAction}` : ''}`
+        },
+        instagram: {
+          system: "You are an Instagram content creator. Write captions that drive engagement and build community.",
+          template: (topic, brief, extra) => `Write an Instagram caption about: ${topic}
+
+${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+
+Requirements:
+- Engaging opening line (shown before "more")
+- Use emojis strategically
+- Include 5-10 relevant hashtags at the end
+- ${targetLength === 'long' ? 'Longer storytelling format' : targetLength === 'short' ? 'Short, punchy caption' : 'Medium length with personality'}
+${callToAction ? `- Include CTA: ${callToAction}` : '- End with a question or call-to-action'}`
+        },
+        facebook_ad: {
+          system: "You are a Facebook/Meta advertising expert. Create compelling ad copy that drives conversions.",
+          template: (topic, brief, extra) => `Write Facebook ad copy about: ${topic}
+
+${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+
+Requirements:
+- Primary text (125 characters ideal, max 500)
+- Headline (25-40 characters)
+- Description (optional, 20 characters)
+- Clear value proposition
+- Strong call-to-action
+${callToAction ? `- CTA button text: ${callToAction}` : ''}`
+        },
+        video_script: {
+          system: "You are a video script writer. Create engaging scripts with clear scene breakdowns for video production.",
+          template: (topic, brief, extra) => `Write a video script about: ${topic}
+
+${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+
+Requirements:
+- Duration: ${targetLength === 'long' ? '90-120 seconds' : targetLength === 'short' ? '30-45 seconds' : '60-90 seconds'}
+- Include hook, main content, and call-to-action
+- Break down into scenes with visual descriptions
+- Include voiceover text for each scene
+- Suggest b-roll or visual elements
+${callToAction ? `- End with: ${callToAction}` : ''}`
+        },
+        email: {
+          system: "You are an email marketing expert. Write compelling emails that drive opens, clicks, and conversions.",
+          template: (topic, brief, extra) => `Write a marketing email about: ${topic}
+
+${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+
+Requirements:
+- Subject line (max 50 characters)
+- Preview text (max 100 characters)
+- Compelling opening
+- Clear value proposition
+- ${targetLength === 'long' ? 'Detailed email body' : targetLength === 'short' ? 'Short and punchy' : 'Medium length'}
+- Strong call-to-action button text
+${callToAction ? `- Primary CTA: ${callToAction}` : ''}`
+        },
+        ad_copy: {
+          system: "You are an advertising copywriter. Create compelling ad copy for various platforms.",
+          template: (topic, brief, extra) => `Write advertising copy about: ${topic}
+
+${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+
+Requirements:
+- Multiple headline variations (3-5)
+- Multiple description variations (3-5)
+- Clear unique selling proposition
+- Emotional triggers
+- Strong calls-to-action
+${callToAction ? `- Include CTA: ${callToAction}` : ''}`
+        },
+      };
+
+      const promptConfig = contentPrompts[contentType] || contentPrompts.blog;
+      const extraContext = keywords?.length ? `Keywords to include: ${keywords.join(', ')}\n` : '';
+      const toneContext = tone ? `Tone: ${tone}\n` : '';
+
+      const userPrompt = promptConfig.template(topic, brief || '', extraContext + toneContext);
+
+      // Generate content using text generation service
+      const { generateTextWithFallback } = await import("../01-content-factory/services/text-generation");
+      
+      const result = await generateTextWithFallback(userPrompt, {
+        systemPrompt: promptConfig.system,
+        maxTokens: targetLength === 'long' ? 4000 : targetLength === 'short' ? 1500 : 2500,
+        temperature: 0.7,
+        fallbackChain: 'default',
+      });
+
+      if (!result.success || !result.content) {
+        // Update run as failed
+        await storage.updateContentRunStatus(runId, "failed", { failedPieces: 1 });
+        
+        return res.status(500).json({ 
+          error: "Content generation failed",
+          details: result.error 
+        });
+      }
+
+      // Create the generated content record
+      const generatedContentData = {
+        contentId,
+        runId,
+        clientId,
+        type: contentType,
+        title: topic.substring(0, 100),
+        content: result.content,
+        metadata: JSON.stringify({
+          provider: result.provider,
+          generationType: 'single',
+          topic,
+          brief,
+          tone,
+          targetLength,
+          keywords,
+          callToAction,
+          usage: result.usage,
+        }),
+        status: "draft",
+        qaScore: null,
+      };
+
+      const savedContent = await storage.createGeneratedContent(generatedContentData);
+
+      // Update run as completed
+      await storage.updateContentRunStatus(runId, "completed", { 
+        successfulPieces: 1,
+        completedAt: new Date(),
+      });
+
+      // Increment AI output counter
+      await storage.incrementAiOutput(1);
+
+      res.json({
+        success: true,
+        content: {
+          ...savedContent,
+          provider: result.provider,
+        },
+        runId,
+      });
+    } catch (error: any) {
+      console.error("Single content generation error:", error);
+      res.status(500).json({ error: error.message || "Failed to generate content" });
     }
   });
 
