@@ -22,8 +22,19 @@ import {
   Upload,
   Download,
   Sparkles,
-  Wand2
+  Wand2,
+  Link,
+  Globe
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
 interface Client {
@@ -74,6 +85,10 @@ export default function BrandControlPage() {
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [generatingAssets, setGeneratingAssets] = useState<Record<string, boolean>>({});
   const [generatedResults, setGeneratedResults] = useState<Record<string, GenerationResult>>({});
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [guidelinesUrl, setGuidelinesUrl] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -98,15 +113,34 @@ export default function BrandControlPage() {
   });
 
   const getClientLogoUrl = (): string | null => {
-    if (selectedClient?.primaryLogoUrl && !selectedClient.primaryLogoUrl.includes('placeholder')) {
-      return selectedClient.primaryLogoUrl;
-    }
+    // First priority: Check brand asset files for actual uploaded logos
     const logoFile = brandAssetFiles.find(
       f => f.subcategory === 'logos' || f.category === 'logos' || f.purpose?.includes('logo')
     );
     if (logoFile) {
       return `/api/brand-asset-files/download/${logoFile.id}`;
     }
+    
+    // Second priority: Use primaryLogoUrl if it's a valid internal path
+    if (selectedClient?.primaryLogoUrl) {
+      const url = selectedClient.primaryLogoUrl;
+      // Only use if it's our internal download path (not placeholder/external CDN)
+      if (url.startsWith('/api/brand-asset-files/download/')) {
+        return url;
+      }
+      // Block known placeholder patterns
+      const isPlaceholder = 
+        url.includes('placeholder') ||
+        url.includes('via.placeholder') ||
+        url.includes('placehold.co') ||
+        url.includes('dummyimage') ||
+        url.startsWith('data:image/svg') ||
+        url.length < 20; // Too short to be a real URL
+      if (!isPlaceholder) {
+        return url;
+      }
+    }
+    
     return null;
   };
 
@@ -162,6 +196,44 @@ export default function BrandControlPage() {
       assetType: "complete-package",
       options: { options: {} }
     });
+  };
+
+  const handleImportGuidelines = async () => {
+    if (!selectedClientId || (!guidelinesUrl && !websiteUrl)) return;
+    
+    setIsImporting(true);
+    try {
+      const response = await fetch(`/api/clients/${selectedClientId}/import-guidelines`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ guidelinesUrl, websiteUrl }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Import failed");
+      }
+      
+      const result = await response.json();
+      queryClient.invalidateQueries({ queryKey: ["/api/clients", selectedClientId] });
+      
+      toast({
+        title: "Guidelines Imported",
+        description: "Brand profile has been generated from external sources",
+      });
+      
+      setImportDialogOpen(false);
+      setGuidelinesUrl("");
+      setWebsiteUrl("");
+    } catch (error: any) {
+      toast({
+        title: "Import Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const assetTypes = [
@@ -315,14 +387,143 @@ export default function BrandControlPage() {
                               ))}
                             </div>
                           </div>
+
+                          <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+                            <DialogTrigger asChild>
+                              <Button variant="outline" className="w-full mt-4" data-testid="button-import-guidelines">
+                                <Link className="w-4 h-4 mr-2" />
+                                Re-import from URL
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-[500px]">
+                              <DialogHeader>
+                                <DialogTitle>Import Brand Guidelines</DialogTitle>
+                                <DialogDescription>
+                                  Re-import brand guidelines from external sources. This will update your existing profile.
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-4 py-4">
+                                <div className="space-y-2">
+                                  <Label htmlFor="guidelinesUrl">Design Guidelines URL</Label>
+                                  <Input
+                                    id="guidelinesUrl"
+                                    placeholder="https://github.com/company/repo/blob/main/design-guidelines.md"
+                                    value={guidelinesUrl}
+                                    onChange={(e) => setGuidelinesUrl(e.target.value)}
+                                    data-testid="input-guidelines-url"
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    Link to a markdown file with design guidelines (GitHub, GitLab, etc.)
+                                  </p>
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor="websiteUrl">Website URL</Label>
+                                  <Input
+                                    id="websiteUrl"
+                                    placeholder="https://shield.finance"
+                                    value={websiteUrl}
+                                    onChange={(e) => setWebsiteUrl(e.target.value)}
+                                    data-testid="input-website-url"
+                                  />
+                                  <p className="text-xs text-muted-foreground">
+                                    Company website to extract brand messaging and content
+                                  </p>
+                                </div>
+                              </div>
+                              <DialogFooter>
+                                <Button
+                                  onClick={handleImportGuidelines}
+                                  disabled={isImporting || (!guidelinesUrl && !websiteUrl)}
+                                  data-testid="button-confirm-import"
+                                >
+                                  {isImporting ? (
+                                    <>
+                                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                      Importing...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Globe className="w-4 h-4 mr-2" />
+                                      Import Guidelines
+                                    </>
+                                  )}
+                                </Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
                         </div>
                       ) : (
                         <div className="text-center py-8">
                           <p className="text-muted-foreground mb-4">No brand profile configured yet</p>
-                          <Button variant="outline">
-                            <Upload className="w-4 h-4 mr-2" />
-                            Upload Brand Profile
-                          </Button>
+                          <div className="flex flex-col gap-2 max-w-xs mx-auto">
+                            <Button variant="outline" data-testid="button-upload-profile">
+                              <Upload className="w-4 h-4 mr-2" />
+                              Upload Brand Profile
+                            </Button>
+                            <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+                              <DialogTrigger asChild>
+                                <Button variant="default" data-testid="button-import-guidelines-empty">
+                                  <Link className="w-4 h-4 mr-2" />
+                                  Import from URL
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent className="sm:max-w-[500px]">
+                                <DialogHeader>
+                                  <DialogTitle>Import Brand Guidelines</DialogTitle>
+                                  <DialogDescription>
+                                    Import brand guidelines from external sources like GitHub or company websites.
+                                  </DialogDescription>
+                                </DialogHeader>
+                                <div className="space-y-4 py-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="guidelinesUrl">Design Guidelines URL</Label>
+                                    <Input
+                                      id="guidelinesUrl"
+                                      placeholder="https://github.com/company/repo/blob/main/design-guidelines.md"
+                                      value={guidelinesUrl}
+                                      onChange={(e) => setGuidelinesUrl(e.target.value)}
+                                      data-testid="input-guidelines-url-empty"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                      Link to a markdown file with design guidelines (GitHub, GitLab, etc.)
+                                    </p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="websiteUrl">Website URL</Label>
+                                    <Input
+                                      id="websiteUrl"
+                                      placeholder="https://shield.finance"
+                                      value={websiteUrl}
+                                      onChange={(e) => setWebsiteUrl(e.target.value)}
+                                      data-testid="input-website-url-empty"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                      Company website to extract brand messaging and content
+                                    </p>
+                                  </div>
+                                </div>
+                                <DialogFooter>
+                                  <Button
+                                    onClick={handleImportGuidelines}
+                                    disabled={isImporting || (!guidelinesUrl && !websiteUrl)}
+                                    data-testid="button-confirm-import-empty"
+                                  >
+                                    {isImporting ? (
+                                      <>
+                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                        Importing...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Globe className="w-4 h-4 mr-2" />
+                                        Import Guidelines
+                                      </>
+                                    )}
+                                  </Button>
+                                </DialogFooter>
+                              </DialogContent>
+                            </Dialog>
+                          </div>
                         </div>
                       )}
                     </TabsContent>

@@ -370,6 +370,47 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Client not found" });
       }
 
+      // URL validation helper - only allow safe external URLs
+      const isValidExternalUrl = (url: string): boolean => {
+        try {
+          const parsed = new URL(url);
+          // Only allow HTTPS
+          if (parsed.protocol !== 'https:') return false;
+          // Block internal/private IPs and hostnames
+          const hostname = parsed.hostname.toLowerCase();
+          if (hostname === 'localhost' || 
+              hostname === '127.0.0.1' ||
+              hostname.startsWith('192.168.') ||
+              hostname.startsWith('10.') ||
+              hostname.startsWith('172.') ||
+              hostname.endsWith('.local') ||
+              hostname.endsWith('.internal')) {
+            return false;
+          }
+          // Allowlist of trusted domains
+          const allowedDomains = [
+            'github.com', 'raw.githubusercontent.com', 
+            'gitlab.com', 'bitbucket.org',
+            'notion.so', 'figma.com',
+            'shield.finance', 'www.shield.finance'
+          ];
+          const isDomainAllowed = allowedDomains.some(domain => 
+            hostname === domain || hostname.endsWith('.' + domain)
+          );
+          return isDomainAllowed;
+        } catch {
+          return false;
+        }
+      };
+
+      // Validate URLs before fetching
+      if (guidelinesUrl && !isValidExternalUrl(guidelinesUrl)) {
+        return res.status(400).json({ error: "Invalid or untrusted guidelines URL" });
+      }
+      if (websiteUrl && !isValidExternalUrl(websiteUrl)) {
+        return res.status(400).json({ error: "Invalid or untrusted website URL" });
+      }
+
       // Fetch and parse external content
       let guidelinesContent = '';
       let websiteContent = '';
@@ -383,7 +424,7 @@ export async function registerRoutes(
               .replace('github.com', 'raw.githubusercontent.com')
               .replace('/blob/', '/');
           }
-          const response = await fetch(rawUrl);
+          const response = await fetch(rawUrl, { signal: AbortSignal.timeout(10000) });
           if (response.ok) {
             guidelinesContent = await response.text();
           }
@@ -394,7 +435,7 @@ export async function registerRoutes(
 
       if (websiteUrl) {
         try {
-          const response = await fetch(websiteUrl);
+          const response = await fetch(websiteUrl, { signal: AbortSignal.timeout(10000) });
           if (response.ok) {
             const html = await response.text();
             // Extract text content from HTML
@@ -409,6 +450,11 @@ export async function registerRoutes(
         } catch (err: any) {
           console.warn('Failed to fetch website:', err.message);
         }
+      }
+
+      // Require at least some content before proceeding
+      if (!guidelinesContent && !websiteContent) {
+        return res.status(400).json({ error: "Could not fetch content from provided URLs" });
       }
 
       // Use Claude to parse and structure the brand guidelines
