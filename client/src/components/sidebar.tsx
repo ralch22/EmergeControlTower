@@ -21,6 +21,7 @@ import {
   FilmIcon,
   Cog,
   BarChart3,
+  Zap,
 } from "lucide-react";
 
 interface NavItem {
@@ -73,6 +74,7 @@ const navCategories: NavCategory[] = [
     items: [
       { path: "/control-tower", label: "Control Tower", icon: Shield },
       { path: "/provider-health", label: "Provider Health", icon: Activity },
+      { path: "/self-healing", label: "Self-Healing", icon: Zap },
       { path: "/settings", label: "Settings", icon: Settings },
     ],
   },
