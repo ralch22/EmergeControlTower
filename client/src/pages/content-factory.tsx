@@ -35,6 +35,8 @@ import {
   Instagram,
   Facebook,
   PenTool,
+  Filter,
+  X,
 } from "lucide-react";
 
 type Client = {
@@ -185,6 +187,8 @@ export default function ContentFactoryPage() {
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [contentView, setContentView] = useState<"grid" | "list">("grid");
   const [contentTab, setContentTab] = useState<string>("all");
+  const [selectedContentType, setSelectedContentType] = useState<string>("all");
+  const [selectedStatus, setSelectedStatus] = useState<string>("all");
 
   const { data: clients = [], isLoading: isLoadingClients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
@@ -308,12 +312,37 @@ export default function ContentFactoryPage() {
   const approvedContent = generatedContent.filter((c) => c.status === "approved").length;
 
   const filteredContent = generatedContent.filter((content) => {
-    if (contentTab === "all") return true;
-    if (contentTab === "pending") return content.status === "pending_review";
-    if (contentTab === "approved") return content.status === "approved";
-    if (contentTab === "rejected") return content.status === "rejected";
+    // Filter by status (using dropdown or tabs)
+    const statusToCheck = selectedStatus !== "all" ? selectedStatus : contentTab;
+    if (statusToCheck !== "all") {
+      if (statusToCheck === "pending" && content.status !== "pending_review") return false;
+      if (statusToCheck === "pending_review" && content.status !== "pending_review") return false;
+      if (statusToCheck === "approved" && content.status !== "approved") return false;
+      if (statusToCheck === "rejected" && content.status !== "rejected") return false;
+      if (statusToCheck === "draft" && content.status !== "draft") return false;
+    }
+    
+    // Filter by content type
+    if (selectedContentType !== "all" && content.type !== selectedContentType) return false;
+    
+    // Filter by client (content library specific filter)
+    if (selectedClientId && selectedClientId !== "all" && content.clientId.toString() !== selectedClientId) return false;
+    
     return true;
   });
+
+  const activeFilterCount = [
+    selectedContentType !== "all",
+    selectedStatus !== "all",
+    selectedClientId !== "" && selectedClientId !== "all",
+  ].filter(Boolean).length;
+
+  const clearAllFilters = () => {
+    setSelectedContentType("all");
+    setSelectedStatus("all");
+    setSelectedClientId("all");
+    setContentTab("all");
+  };
 
   const getClientName = (clientId: number) => {
     const client = clients.find((c) => c.id === clientId);
@@ -581,38 +610,172 @@ export default function ContentFactoryPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <Tabs value={contentTab} onValueChange={setContentTab} className="mb-4">
-                <TabsList className="bg-zinc-800 border border-zinc-700">
-                  <TabsTrigger
-                    value="all"
-                    className="data-[state=active]:bg-cyan-600"
-                    data-testid="tab-all"
-                  >
-                    All ({generatedContent.length})
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="pending"
-                    className="data-[state=active]:bg-orange-600"
-                    data-testid="tab-pending"
-                  >
-                    Pending ({generatedContent.filter((c) => c.status === "pending_review").length})
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="approved"
-                    className="data-[state=active]:bg-green-600"
-                    data-testid="tab-approved"
-                  >
-                    Approved ({generatedContent.filter((c) => c.status === "approved").length})
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="rejected"
-                    className="data-[state=active]:bg-red-600"
-                    data-testid="tab-rejected"
-                  >
-                    Rejected ({generatedContent.filter((c) => c.status === "rejected").length})
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
+              <div className="mb-4 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 text-sm text-zinc-400">
+                    <Filter className="w-4 h-4" />
+                    <span>Filters:</span>
+                  </div>
+                  
+                  <Select value={selectedContentType} onValueChange={setSelectedContentType}>
+                    <SelectTrigger 
+                      className="w-[140px] h-8 bg-zinc-800 border-zinc-700 text-sm"
+                      data-testid="filter-content-type"
+                    >
+                      <SelectValue placeholder="Content Type" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="all">All Types</SelectItem>
+                      <SelectItem value="blog">
+                        <span className="flex items-center gap-2">
+                          <FileText className="w-3 h-3 text-purple-400" />
+                          Blog
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="linkedin">
+                        <span className="flex items-center gap-2">
+                          <Linkedin className="w-3 h-3 text-blue-400" />
+                          LinkedIn
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="twitter">
+                        <span className="flex items-center gap-2">
+                          <Twitter className="w-3 h-3 text-sky-400" />
+                          Twitter
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="instagram">
+                        <span className="flex items-center gap-2">
+                          <Instagram className="w-3 h-3 text-pink-400" />
+                          Instagram
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="facebook_ad">
+                        <span className="flex items-center gap-2">
+                          <Facebook className="w-3 h-3 text-indigo-400" />
+                          Facebook Ad
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="video_script">
+                        <span className="flex items-center gap-2">
+                          <Video className="w-3 h-3 text-red-400" />
+                          Video Script
+                        </span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={selectedClientId} onValueChange={setSelectedClientId}>
+                    <SelectTrigger 
+                      className="w-[160px] h-8 bg-zinc-800 border-zinc-700 text-sm"
+                      data-testid="filter-client"
+                    >
+                      <SelectValue placeholder="All Clients" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="all">All Clients</SelectItem>
+                      {clients.map((client) => (
+                        <SelectItem key={client.id} value={client.id.toString()}>
+                          {client.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={selectedStatus} onValueChange={(value) => {
+                    setSelectedStatus(value);
+                    if (value !== "all") setContentTab("all");
+                  }}>
+                    <SelectTrigger 
+                      className="w-[150px] h-8 bg-zinc-800 border-zinc-700 text-sm"
+                      data-testid="filter-status"
+                    >
+                      <SelectValue placeholder="All Statuses" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="all">All Statuses</SelectItem>
+                      <SelectItem value="pending_review">
+                        <span className="flex items-center gap-2">
+                          <Eye className="w-3 h-3 text-orange-400" />
+                          Pending Review
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="approved">
+                        <span className="flex items-center gap-2">
+                          <CheckCircle2 className="w-3 h-3 text-green-400" />
+                          Approved
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="rejected">
+                        <span className="flex items-center gap-2">
+                          <XCircle className="w-3 h-3 text-red-400" />
+                          Rejected
+                        </span>
+                      </SelectItem>
+                      <SelectItem value="draft">
+                        <span className="flex items-center gap-2">
+                          <PenTool className="w-3 h-3 text-zinc-400" />
+                          Draft
+                        </span>
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  {activeFilterCount > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearAllFilters}
+                      className="h-8 px-2 text-zinc-400 hover:text-white"
+                      data-testid="button-clear-filters"
+                    >
+                      <X className="w-3 h-3 mr-1" />
+                      Clear ({activeFilterCount})
+                    </Button>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <Tabs value={contentTab} onValueChange={(value) => {
+                    setContentTab(value);
+                    if (value !== "all") setSelectedStatus("all");
+                  }}>
+                    <TabsList className="bg-zinc-800 border border-zinc-700">
+                      <TabsTrigger
+                        value="all"
+                        className="data-[state=active]:bg-cyan-600 text-xs"
+                        data-testid="tab-all"
+                      >
+                        All ({generatedContent.length})
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="pending"
+                        className="data-[state=active]:bg-orange-600 text-xs"
+                        data-testid="tab-pending"
+                      >
+                        Pending ({generatedContent.filter((c) => c.status === "pending_review").length})
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="approved"
+                        className="data-[state=active]:bg-green-600 text-xs"
+                        data-testid="tab-approved"
+                      >
+                        Approved ({approvedContent})
+                      </TabsTrigger>
+                      <TabsTrigger
+                        value="rejected"
+                        className="data-[state=active]:bg-red-600 text-xs"
+                        data-testid="tab-rejected"
+                      >
+                        Rejected ({generatedContent.filter((c) => c.status === "rejected").length})
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                  <span className="text-xs text-zinc-500">
+                    Showing {filteredContent.length} of {generatedContent.length}
+                  </span>
+                </div>
+              </div>
 
               {isLoadingContent ? (
                 <div className="flex items-center justify-center py-12">
