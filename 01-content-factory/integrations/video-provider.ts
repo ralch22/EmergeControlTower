@@ -15,6 +15,7 @@ import {
   isFalConfigured, 
   testFalConnection 
 } from './fal-ai';
+import { healthMonitor, PROVIDER_CONFIG } from '../services/provider-health-monitor';
 
 export interface VideoProviderResult {
   success: boolean;
@@ -357,7 +358,8 @@ export interface EnabledProvider {
 export async function generateVideoWithFallback(
   prompt: string,
   enabledProviders: EnabledProvider[],
-  options: VideoGenerationOptions = {}
+  options: VideoGenerationOptions = {},
+  context?: { projectId?: string; sceneId?: string }
 ): Promise<VideoProviderResult> {
   const sortedProviders = enabledProviders
     .filter(p => p.isEnabled)
@@ -389,11 +391,40 @@ export async function generateVideoWithFallback(
       continue;
     }
 
+    const providerConfig = PROVIDER_CONFIG[enabledProvider.name as keyof typeof PROVIDER_CONFIG];
+    if (providerConfig && enabledProvider.name === 'runway' && options.duration) {
+      const allowedDurations = (providerConfig as { constraints: { allowedDurations?: number[] } }).constraints.allowedDurations;
+      if (allowedDurations && !allowedDurations.includes(options.duration)) {
+        console.log(`[VideoProvider] Skipping ${config.displayName}: duration ${options.duration}s not allowed (only ${allowedDurations.join(', ')}s)`);
+        continue;
+      }
+    }
+
     attempts++;
     console.log(`[VideoProvider] Attempting with ${config.displayName}...`);
 
+    const startTime = Date.now();
+    const requestId = `video_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
     try {
       const result = await config.generate(prompt, options);
+      const latencyMs = Date.now() - startTime;
+      
+      await healthMonitor.recordRequest(
+        enabledProvider.name,
+        'video',
+        requestId,
+        {
+          success: result.success,
+          latencyMs,
+          errorCode: result.success ? undefined : '500',
+          errorMessage: result.error,
+          costIncurred: providerConfig?.costPerRequest || 0,
+        },
+        context?.projectId,
+        context?.sceneId,
+        { duration: options.duration, promptLength: prompt.length }
+      ).catch(err => console.error('[VideoProvider] Failed to record metrics:', err));
       
       if (result.success) {
         console.log(`[VideoProvider] ${config.displayName} started task: ${result.taskId}`);
@@ -412,8 +443,24 @@ export async function generateVideoWithFallback(
       }
       
     } catch (error: any) {
+      const latencyMs = Date.now() - startTime;
       console.error(`[VideoProvider] ${config.displayName} error:`, error);
       lastError = error.message || 'Provider error';
+      
+      await healthMonitor.recordRequest(
+        enabledProvider.name,
+        'video',
+        requestId,
+        {
+          success: false,
+          latencyMs,
+          errorCode: error.code || '500',
+          errorMessage: lastError,
+        },
+        context?.projectId,
+        context?.sceneId,
+        { duration: options.duration, promptLength: prompt.length }
+      ).catch(err => console.error('[VideoProvider] Failed to record metrics:', err));
     }
   }
 
@@ -470,20 +517,44 @@ export function getConfiguredProviders(): ProviderConfig[] {
   return Object.values(providerConfigs).filter(p => p.isConfigured());
 }
 
-export async function generateUniqueSceneImage(prompt: string): Promise<{
+export async function generateUniqueSceneImage(
+  prompt: string, 
+  context?: { projectId?: string; sceneId?: string }
+): Promise<{
   success: boolean;
   imageBase64?: string;
   imageUrl?: string;
   error?: string;
+  provider?: string;
 }> {
   const geminiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
   
   if (geminiKey) {
     console.log('[VideoProvider] Generating unique scene image with Nano Banana Pro (Gemini)...');
+    const startTime = Date.now();
+    const requestId = `image_gemini_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    
     const result = await generateImageWithNanoBananaPro(prompt, {
       resolution: '2K',
       style: 'cinematic, professional, high quality video frame',
     });
+    
+    const latencyMs = Date.now() - startTime;
+    
+    await healthMonitor.recordRequest(
+      'gemini_image',
+      'image',
+      requestId,
+      {
+        success: result.success,
+        latencyMs,
+        errorMessage: result.error,
+        costIncurred: 0,
+      },
+      context?.projectId,
+      context?.sceneId,
+      { promptLength: prompt.length }
+    ).catch(err => console.error('[VideoProvider] Failed to record image metrics:', err));
     
     if (result.success && result.imageDataUrl) {
       console.log('[VideoProvider] Nano Banana Pro generated unique scene image');
@@ -492,6 +563,7 @@ export async function generateUniqueSceneImage(prompt: string): Promise<{
         success: true,
         imageBase64: base64Data,
         imageUrl: result.imageUrl,
+        provider: 'gemini_image',
       };
     }
     
@@ -500,17 +572,38 @@ export async function generateUniqueSceneImage(prompt: string): Promise<{
   
   if (isFalConfigured()) {
     console.log('[VideoProvider] Trying Fal AI Flux Pro for image generation...');
+    const startTime = Date.now();
+    const requestId = `image_fal_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    
     const falResult = await generateImageWithFalFluxPro(prompt, {
       width: 1280,
       height: 720,
       style: 'cinematic',
     });
     
+    const latencyMs = Date.now() - startTime;
+    
+    await healthMonitor.recordRequest(
+      'fal_ai',
+      'image',
+      requestId,
+      {
+        success: falResult.success,
+        latencyMs,
+        errorMessage: falResult.error,
+        costIncurred: 0.01,
+      },
+      context?.projectId,
+      context?.sceneId,
+      { promptLength: prompt.length }
+    ).catch(err => console.error('[VideoProvider] Failed to record image metrics:', err));
+    
     if (falResult.success && falResult.imageUrl) {
       console.log('[VideoProvider] Fal AI Flux Pro generated unique scene image');
       return {
         success: true,
         imageUrl: falResult.imageUrl,
+        provider: 'fal_ai',
       };
     }
     
@@ -519,7 +612,27 @@ export async function generateUniqueSceneImage(prompt: string): Promise<{
   
   if (isAlibabaImageConfigured()) {
     console.log('[VideoProvider] Falling back to Alibaba Wanx for image generation...');
+    const startTime = Date.now();
+    const requestId = `image_alibaba_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    
     const result = await generateSceneImageWithAlibaba(prompt, '16:9');
+    
+    const latencyMs = Date.now() - startTime;
+    
+    await healthMonitor.recordRequest(
+      'dashscope',
+      'image',
+      requestId,
+      {
+        success: result.success,
+        latencyMs,
+        errorMessage: result.error,
+        costIncurred: 0.008,
+      },
+      context?.projectId,
+      context?.sceneId,
+      { promptLength: prompt.length }
+    ).catch(err => console.error('[VideoProvider] Failed to record image metrics:', err));
     
     if (result.success) {
       console.log('[VideoProvider] Alibaba Wanx generated unique scene image');
@@ -527,6 +640,7 @@ export async function generateUniqueSceneImage(prompt: string): Promise<{
         success: true,
         imageUrl: result.imageUrl,
         imageBase64: result.imageBase64,
+        provider: 'dashscope',
       };
     }
     

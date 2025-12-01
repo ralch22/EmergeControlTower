@@ -3860,6 +3860,128 @@ export function registerVideoIngredientsRoutes(app: Express) {
     }
   });
 
+  // Provider Health Monitoring - ML Self-Healing System
+  app.get("/api/providers/health", async (req, res) => {
+    try {
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      
+      const allStatus = await healthMonitor.getAllProviderStatus();
+      const healingActions = await healthMonitor.getRecentHealingActions(10);
+      
+      const byType: Record<string, typeof allStatus> = {};
+      for (const provider of allStatus) {
+        if (!byType[provider.serviceType]) {
+          byType[provider.serviceType] = [];
+        }
+        byType[provider.serviceType].push(provider);
+      }
+      
+      const healthyCount = allStatus.filter(p => p.isHealthy).length;
+      const unhealthyCount = allStatus.filter(p => !p.isHealthy).length;
+      const rateLimitedCount = allStatus.filter(p => p.rateLimitActive).length;
+      const freeProviderCount = allStatus.filter(p => p.isFreeProvider && p.isHealthy).length;
+      
+      res.json({
+        providers: allStatus,
+        byServiceType: byType,
+        summary: {
+          total: allStatus.length,
+          healthy: healthyCount,
+          unhealthy: unhealthyCount,
+          rateLimited: rateLimitedCount,
+          freeProvidersAvailable: freeProviderCount,
+          avgHealthScore: allStatus.reduce((acc, p) => acc + p.healthScore, 0) / allStatus.length,
+        },
+        recentHealingActions: healingActions,
+        selfHealingStatus: {
+          isActive: true,
+          lastCheck: new Date().toISOString(),
+          freeProvidersFallback: freeProviderCount > 0,
+        },
+      });
+    } catch (error: any) {
+      console.error("[ProviderHealth] Error fetching health status:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get smart provider order for a service type
+  app.get("/api/providers/smart-order/:serviceType", async (req, res) => {
+    try {
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      const { serviceType } = req.params;
+      const { freeOnly, duration } = req.query;
+      
+      const order = await healthMonitor.getSmartProviderOrder(serviceType, {
+        freeOnly: freeOnly === 'true',
+        requestParams: duration ? { duration: parseInt(duration as string) } : undefined,
+      });
+      
+      res.json({
+        serviceType,
+        providers: order,
+        options: {
+          freeOnly: freeOnly === 'true',
+          duration: duration ? parseInt(duration as string) : undefined,
+        },
+      });
+    } catch (error: any) {
+      console.error("[ProviderHealth] Error getting smart order:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Initialize provider metrics
+  app.post("/api/providers/initialize", async (req, res) => {
+    try {
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      
+      await healthMonitor.initializeProviders();
+      
+      res.json({
+        success: true,
+        message: "Provider metrics initialized",
+      });
+    } catch (error: any) {
+      console.error("[ProviderHealth] Error initializing providers:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Reset rate limits
+  app.post("/api/providers/reset-rate-limits", async (req, res) => {
+    try {
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      
+      await healthMonitor.resetRateLimits();
+      
+      res.json({
+        success: true,
+        message: "Rate limits reset for all providers",
+      });
+    } catch (error: any) {
+      console.error("[ProviderHealth] Error resetting rate limits:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Recalculate all provider priorities
+  app.post("/api/providers/recalculate-priorities", async (req, res) => {
+    try {
+      const { healthMonitor } = await import("../01-content-factory/services/provider-health-monitor");
+      
+      await healthMonitor.recalculateAllPriorities();
+      
+      res.json({
+        success: true,
+        message: "Provider priorities recalculated",
+      });
+    } catch (error: any) {
+      console.error("[ProviderHealth] Error recalculating priorities:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Clear all content library items
   app.delete("/api/content/clear-all", async (req, res) => {
     try {

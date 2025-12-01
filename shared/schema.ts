@@ -474,3 +474,106 @@ export const activityLogs = pgTable("activity_logs", {
 export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({ id: true, createdAt: true });
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
 export type ActivityLog = typeof activityLogs.$inferSelect;
+
+// Provider Health Metrics - Real-time tracking of AI provider status
+export const providerMetrics = pgTable("provider_metrics", {
+  id: serial("id").primaryKey(),
+  providerName: text("provider_name").notNull(), // veo31, runway, elevenlabs, gemini_image, fal_ai, anthropic, openai, dashscope
+  serviceType: text("service_type").notNull(), // video, image, audio, text
+  successCount: integer("success_count").notNull().default(0),
+  failureCount: integer("failure_count").notNull().default(0),
+  totalRequests: integer("total_requests").notNull().default(0),
+  avgLatencyMs: decimal("avg_latency_ms", { precision: 10, scale: 2 }),
+  lastSuccessAt: timestamp("last_success_at"),
+  lastFailureAt: timestamp("last_failure_at"),
+  lastErrorMessage: text("last_error_message"),
+  rateLimitHits: integer("rate_limit_hits").notNull().default(0),
+  rateLimitResetAt: timestamp("rate_limit_reset_at"),
+  isHealthy: boolean("is_healthy").notNull().default(true),
+  healthScore: decimal("health_score", { precision: 5, scale: 2 }).notNull().default("100"), // 0-100
+  costPerRequest: decimal("cost_per_request", { precision: 10, scale: 6 }),
+  totalCost: decimal("total_cost", { precision: 12, scale: 4 }).notNull().default("0"),
+  isFreeProvider: boolean("is_free_provider").notNull().default(false),
+  priority: integer("priority").notNull().default(50), // Dynamic priority 0-100, higher = preferred
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProviderMetricSchema = createInsertSchema(providerMetrics).omit({ id: true, updatedAt: true });
+export type InsertProviderMetric = z.infer<typeof insertProviderMetricSchema>;
+export type ProviderMetric = typeof providerMetrics.$inferSelect;
+
+// Provider Request Logs - Detailed tracking of each API call for ML learning
+export const providerRequests = pgTable("provider_requests", {
+  id: serial("id").primaryKey(),
+  providerName: text("provider_name").notNull(),
+  serviceType: text("service_type").notNull(),
+  requestId: text("request_id").notNull(),
+  status: text("status").notNull(), // pending, success, failed, rate_limited, timeout
+  latencyMs: integer("latency_ms"),
+  errorCode: text("error_code"),
+  errorMessage: text("error_message"),
+  requestParams: text("request_params"), // JSON with sanitized request params (duration, prompt length, etc.)
+  responseMetadata: text("response_metadata"), // JSON with response info
+  costIncurred: decimal("cost_incurred", { precision: 10, scale: 6 }),
+  projectId: text("project_id"),
+  sceneId: text("scene_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertProviderRequestSchema = createInsertSchema(providerRequests).omit({ id: true, createdAt: true });
+export type InsertProviderRequest = z.infer<typeof insertProviderRequestSchema>;
+export type ProviderRequest = typeof providerRequests.$inferSelect;
+
+// Provider Error Patterns - ML-learned patterns for preemptive failure avoidance
+export const providerErrorPatterns = pgTable("provider_error_patterns", {
+  id: serial("id").primaryKey(),
+  providerName: text("provider_name").notNull(),
+  patternType: text("pattern_type").notNull(), // duration_constraint, prompt_length, rate_limit, api_version, content_filter
+  patternKey: text("pattern_key").notNull(), // e.g., "duration:6" for 6-second duration failures
+  errorCode: text("error_code"),
+  errorMessagePattern: text("error_message_pattern"),
+  occurrenceCount: integer("occurrence_count").notNull().default(1),
+  lastOccurrence: timestamp("last_occurrence").defaultNow().notNull(),
+  suggestedFix: text("suggested_fix"), // e.g., "Use 5 or 10 second duration for Runway"
+  isActive: boolean("is_active").notNull().default(true),
+  confidenceScore: decimal("confidence_score", { precision: 5, scale: 4 }).notNull().default("0.5"), // How confident we are this pattern applies
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertProviderErrorPatternSchema = createInsertSchema(providerErrorPatterns).omit({ id: true, createdAt: true, lastOccurrence: true });
+export type InsertProviderErrorPattern = z.infer<typeof insertProviderErrorPatternSchema>;
+export type ProviderErrorPattern = typeof providerErrorPatterns.$inferSelect;
+
+// Provider Fallback Chain - Smart routing configuration
+export const providerFallbackChains = pgTable("provider_fallback_chains", {
+  id: serial("id").primaryKey(),
+  serviceType: text("service_type").notNull(), // video, image, audio, text
+  chainName: text("chain_name").notNull(), // e.g., "video_default", "video_free_only", "image_fast"
+  providerOrder: text("provider_order").notNull(), // JSON array of provider names in priority order
+  isDefault: boolean("is_default").notNull().default(false),
+  conditions: text("conditions"), // JSON conditions for when to use this chain (e.g., {"freeOnly": true})
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProviderFallbackChainSchema = createInsertSchema(providerFallbackChains).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertProviderFallbackChain = z.infer<typeof insertProviderFallbackChainSchema>;
+export type ProviderFallbackChain = typeof providerFallbackChains.$inferSelect;
+
+// Healing Actions Log - Track automated self-healing decisions
+export const healingActionsLog = pgTable("healing_actions_log", {
+  id: serial("id").primaryKey(),
+  providerName: text("provider_name").notNull(),
+  actionType: text("action_type").notNull(), // priority_adjusted, disabled, rate_limit_cooldown, fallback_triggered, error_pattern_learned
+  previousState: text("previous_state"), // JSON with previous state
+  newState: text("new_state"), // JSON with new state
+  reason: text("reason").notNull(),
+  triggeredBy: text("triggered_by").notNull(), // system_auto, ml_prediction, threshold_breach, manual
+  metadata: text("metadata"), // JSON with additional context
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertHealingActionLogSchema = createInsertSchema(healingActionsLog).omit({ id: true, createdAt: true });
+export type InsertHealingActionLog = z.infer<typeof insertHealingActionLogSchema>;
+export type HealingActionLog = typeof healingActionsLog.$inferSelect;
