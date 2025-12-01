@@ -15,6 +15,7 @@ import type {
   ContentType,
   QAResult,
 } from "../types";
+import type { InsertActivityLog } from "@shared/schema";
 
 export interface PipelineState {
   runId: string;
@@ -36,17 +37,20 @@ export interface PipelineState {
 
 type ProgressCallback = (state: PipelineState) => void;
 type CounterCallback = (increment: number) => Promise<void>;
+type ActivityLogCallback = (log: InsertActivityLog) => Promise<void>;
 
 export class ContentPipeline {
   private state: PipelineState;
   private onProgress?: ProgressCallback;
   private onContentCreated?: CounterCallback;
+  private onActivityLog?: ActivityLogCallback;
 
   constructor(
     config: ContentRunConfig,
     options: {
       onProgress?: ProgressCallback;
       onContentCreated?: CounterCallback;
+      onActivityLog?: ActivityLogCallback;
     } = {}
   ) {
     this.state = {
@@ -67,6 +71,7 @@ export class ContentPipeline {
     };
     this.onProgress = options.onProgress;
     this.onContentCreated = options.onContentCreated;
+    this.onActivityLog = options.onActivityLog;
   }
 
   private updateState(updates: Partial<PipelineState>) {
@@ -80,9 +85,38 @@ export class ContentPipeline {
     }
   }
 
+  private async emitActivityLog(
+    eventType: string,
+    level: string,
+    message: string,
+    metadata?: Record<string, unknown>
+  ) {
+    if (this.onActivityLog) {
+      try {
+        await this.onActivityLog({
+          runId: this.state.runId,
+          eventType,
+          level,
+          message,
+          metadata: metadata ? JSON.stringify(metadata) : undefined,
+        });
+      } catch (err) {
+        console.error(`[Pipeline] Failed to emit activity log:`, err);
+      }
+    }
+  }
+
   async run(): Promise<ContentRunResult> {
     this.updateState({ status: "running" });
-    console.log(`[Pipeline] Starting run for client: ${this.state.config.clientBrief.clientName}`);
+    const clientName = this.state.config.clientBrief.clientName;
+    console.log(`[Pipeline] Starting run for client: ${clientName}`);
+
+    await this.emitActivityLog(
+      "run_started",
+      "info",
+      `Started content run for ${clientName}`,
+      { clientId: this.state.config.clientId, runType: this.state.config.runType }
+    );
 
     try {
       // Step 1: Generate Topics
@@ -101,6 +135,13 @@ export class ContentPipeline {
       this.updateState({ topics: topicsResult.data });
       console.log(`[Pipeline] Step 1 complete: Generated ${topicsResult.data.length} topics`);
       topicsResult.data.forEach((t, i) => console.log(`  - Topic ${i+1}: ${t.title}`));
+
+      await this.emitActivityLog(
+        "topic_generated",
+        "success",
+        `Generated ${topicsResult.data.length} topics for ${this.state.config.runType === 'weekly' ? 'weekly' : 'single'} content`,
+        { topicCount: topicsResult.data.length, topics: topicsResult.data.map(t => t.title) }
+      );
 
       // Step 2: Run parallel content generation pipelines for each topic
       console.log(`[Pipeline] Step 2: Generating content for ${this.state.topics.length} topics...`);
@@ -135,6 +176,19 @@ export class ContentPipeline {
       });
       console.log(`[Pipeline] Run completed successfully!`);
 
+      await this.emitActivityLog(
+        "run_completed",
+        "success",
+        `Run completed: ${this.state.stats.totalGenerated} pieces generated, ${this.state.stats.totalPassed} approved, ${this.state.stats.totalFailed} failed`,
+        { 
+          totalGenerated: this.state.stats.totalGenerated,
+          totalPassed: this.state.stats.totalPassed,
+          totalFailed: this.state.stats.totalFailed,
+          byType: this.state.stats.byType,
+          durationMs: Date.now() - this.state.startedAt.getTime()
+        }
+      );
+
       return this.getResult();
     } catch (error: any) {
       console.error(`[Pipeline] FATAL ERROR: ${error.message}`);
@@ -144,6 +198,14 @@ export class ContentPipeline {
         errors: [...this.state.errors, error.message],
         completedAt: new Date(),
       });
+
+      await this.emitActivityLog(
+        "run_failed",
+        "error",
+        `Run failed: ${error.message}`,
+        { error: error.message, stack: error.stack?.substring(0, 500) }
+      );
+
       throw error;
     }
   }
@@ -153,6 +215,9 @@ export class ContentPipeline {
     const { contentTypes, clientBrief } = this.state.config;
     console.log(`[Pipeline] Generating content for topic: "${topic.title}"`);
 
+    const truncateTitle = (title: string, maxLen = 50) => 
+      title.length > maxLen ? title.substring(0, maxLen) + '...' : title;
+
     // Run content generation in parallel based on content types
     const promises: Promise<void>[] = [];
 
@@ -160,6 +225,12 @@ export class ContentPipeline {
     if (contentTypes.includes("blog") && topic.contentTypes.includes("blog")) {
       promises.push(
         (async () => {
+          await this.emitActivityLog(
+            "content_started",
+            "info",
+            `Generating blog post: ${topic.title}`,
+            { contentType: "blog", topicTitle: topic.title }
+          );
           try {
             console.log(`[Pipeline]   -> Generating blog for: ${topic.title}`);
             const result = await generateBlogPost(topic, clientBrief);
@@ -168,11 +239,29 @@ export class ContentPipeline {
               await this.incrementCounter(1);
               this.updateStats("blog");
               console.log(`[Pipeline]   <- Blog generated successfully`);
+              await this.emitActivityLog(
+                "content_completed",
+                "success",
+                `Completed blog post: ${truncateTitle(result.data.title)}`,
+                { contentType: "blog", contentId: result.data.id, title: result.data.title }
+              );
             } else {
               console.error(`[Pipeline]   <- Blog generation failed: ${result.error}`);
+              await this.emitActivityLog(
+                "content_failed",
+                "error",
+                `Failed to generate blog post for topic: ${truncateTitle(topic.title)}`,
+                { contentType: "blog", topicTitle: topic.title, error: result.error }
+              );
             }
           } catch (err: any) {
             console.error(`[Pipeline]   <- Blog generation error: ${err.message}`);
+            await this.emitActivityLog(
+              "content_failed",
+              "error",
+              `Blog generation error: ${err.message}`,
+              { contentType: "blog", topicTitle: topic.title, error: err.message }
+            );
           }
         })()
       );
@@ -188,6 +277,12 @@ export class ContentPipeline {
     if (socialPlatforms.length > 0) {
       promises.push(
         (async () => {
+          await this.emitActivityLog(
+            "content_started",
+            "info",
+            `Generating social posts (${socialPlatforms.join(', ')}) for: ${truncateTitle(topic.title)}`,
+            { contentType: "social", platforms: socialPlatforms, topicTitle: topic.title }
+          );
           try {
             console.log(`[Pipeline]   -> Generating social posts (${socialPlatforms.join(', ')}) for: ${topic.title}`);
             const result = await generateAllSocialPosts(topic, clientBrief, socialPlatforms);
@@ -196,13 +291,31 @@ export class ContentPipeline {
               await this.incrementCounter(result.data.length);
               for (const content of result.data) {
                 this.updateStats(content.type);
+                await this.emitActivityLog(
+                  "content_completed",
+                  "success",
+                  `Completed ${content.type} post for topic: ${truncateTitle(topic.title)}`,
+                  { contentType: content.type, contentId: content.id, title: content.title }
+                );
               }
               console.log(`[Pipeline]   <- Social posts generated: ${result.data.length} pieces`);
             } else {
               console.error(`[Pipeline]   <- Social posts generation failed: ${result.error}`);
+              await this.emitActivityLog(
+                "content_failed",
+                "error",
+                `Failed to generate social posts for topic: ${truncateTitle(topic.title)}`,
+                { contentType: "social", platforms: socialPlatforms, topicTitle: topic.title, error: result.error }
+              );
             }
           } catch (err: any) {
             console.error(`[Pipeline]   <- Social posts generation error: ${err.message}`);
+            await this.emitActivityLog(
+              "content_failed",
+              "error",
+              `Social posts generation error: ${err.message}`,
+              { contentType: "social", platforms: socialPlatforms, topicTitle: topic.title, error: err.message }
+            );
           }
         })()
       );
@@ -215,6 +328,12 @@ export class ContentPipeline {
     ) {
       promises.push(
         (async () => {
+          await this.emitActivityLog(
+            "content_started",
+            "info",
+            `Generating ad copy for: ${truncateTitle(topic.title)}`,
+            { contentType: "ad_copy", topicTitle: topic.title }
+          );
           try {
             console.log(`[Pipeline]   -> Generating ad copy for: ${topic.title}`);
             const result = await generateAllAdCopy(topic, clientBrief);
@@ -223,13 +342,31 @@ export class ContentPipeline {
               await this.incrementCounter(result.data.length);
               for (const content of result.data) {
                 this.updateStats(content.type);
+                await this.emitActivityLog(
+                  "content_completed",
+                  "success",
+                  `Completed ${content.type} for topic: ${truncateTitle(topic.title)}`,
+                  { contentType: content.type, contentId: content.id, title: content.title }
+                );
               }
               console.log(`[Pipeline]   <- Ad copy generated: ${result.data.length} pieces`);
             } else {
               console.error(`[Pipeline]   <- Ad copy generation failed: ${result.error}`);
+              await this.emitActivityLog(
+                "content_failed",
+                "error",
+                `Failed to generate ad copy for topic: ${truncateTitle(topic.title)}`,
+                { contentType: "ad_copy", topicTitle: topic.title, error: result.error }
+              );
             }
           } catch (err: any) {
             console.error(`[Pipeline]   <- Ad copy generation error: ${err.message}`);
+            await this.emitActivityLog(
+              "content_failed",
+              "error",
+              `Ad copy generation error: ${err.message}`,
+              { contentType: "ad_copy", topicTitle: topic.title, error: err.message }
+            );
           }
         })()
       );
@@ -242,6 +379,12 @@ export class ContentPipeline {
     ) {
       promises.push(
         (async () => {
+          await this.emitActivityLog(
+            "content_started",
+            "info",
+            `Generating video script: ${truncateTitle(topic.title)}`,
+            { contentType: "video_script", topicTitle: topic.title }
+          );
           try {
             console.log(`[Pipeline]   -> Generating video script for: ${topic.title}`);
             const result = await generateVideoScript(topic, clientBrief);
@@ -250,11 +393,29 @@ export class ContentPipeline {
               await this.incrementCounter(1);
               this.updateStats("video_script");
               console.log(`[Pipeline]   <- Video script generated successfully`);
+              await this.emitActivityLog(
+                "content_completed",
+                "success",
+                `Completed video script: ${truncateTitle(result.data.title)}`,
+                { contentType: "video_script", contentId: result.data.id, title: result.data.title }
+              );
             } else {
               console.error(`[Pipeline]   <- Video script generation failed: ${result.error}`);
+              await this.emitActivityLog(
+                "content_failed",
+                "error",
+                `Failed to generate video script for topic: ${truncateTitle(topic.title)}`,
+                { contentType: "video_script", topicTitle: topic.title, error: result.error }
+              );
             }
           } catch (err: any) {
             console.error(`[Pipeline]   <- Video script generation error: ${err.message}`);
+            await this.emitActivityLog(
+              "content_failed",
+              "error",
+              `Video script generation error: ${err.message}`,
+              { contentType: "video_script", topicTitle: topic.title, error: err.message }
+            );
           }
         })()
       );
@@ -312,6 +473,7 @@ export async function runContentPipeline(
   options: {
     onProgress?: ProgressCallback;
     onContentCreated?: CounterCallback;
+    onActivityLog?: ActivityLogCallback;
   } = {}
 ): Promise<ContentRunResult> {
   const pipeline = new ContentPipeline(config, options);

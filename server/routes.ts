@@ -278,6 +278,9 @@ export async function registerRoutes(
           onContentCreated: async (count) => {
             await storage.incrementAiOutput(count);
           },
+          onActivityLog: async (log) => {
+            await storage.createActivityLog(log);
+          },
           onProgress: async (state) => {
             await storage.updateContentRun(runId, {
               status: state.status,
@@ -375,6 +378,9 @@ export async function registerRoutes(
         {
           onContentCreated: async (count) => {
             await storage.incrementAiOutput(count);
+          },
+          onActivityLog: async (log) => {
+            await storage.createActivityLog(log);
           },
           onProgress: async (state) => {
             await storage.updateContentRun(runId, {
@@ -2803,6 +2809,66 @@ export function registerVideoIngredientsRoutes(app: Express) {
       });
     } catch (error: any) {
       console.error("[Clear] Error clearing approval queue:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Activity Logs - Get recent activity
+  app.get("/api/activity-logs", async (req, res) => {
+    try {
+      const { runId, limit } = req.query;
+      const logs = await storage.getActivityLogs({
+        runId: runId as string | undefined,
+        limit: limit ? parseInt(limit as string) : 50,
+      });
+      res.json(logs);
+    } catch (error: any) {
+      console.error("[Activity] Error fetching logs:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Activity Logs - Get pipeline status with active runs
+  app.get("/api/pipeline-status", async (req, res) => {
+    try {
+      const runs = await storage.getContentRuns();
+      const activeRuns = runs.filter(r => r.status === 'running');
+      const recentLogs = await storage.getRecentActivityLogs(20);
+      
+      res.json({
+        isActive: activeRuns.length > 0,
+        activeRuns: activeRuns.map(run => ({
+          runId: run.runId,
+          clientId: run.clientId,
+          status: run.status,
+          totalPieces: run.totalPieces,
+          successfulPieces: run.successfulPieces,
+          failedPieces: run.failedPieces,
+          progress: run.totalPieces > 0 
+            ? Math.round(((run.successfulPieces + run.failedPieces) / run.totalPieces) * 100)
+            : 0,
+          startedAt: run.startedAt,
+        })),
+        recentActivity: recentLogs,
+      });
+    } catch (error: any) {
+      console.error("[Pipeline] Error fetching status:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Clear activity logs
+  app.delete("/api/activity-logs/clear", async (req, res) => {
+    try {
+      const { runId } = req.query;
+      const result = await storage.clearActivityLogs(runId as string | undefined);
+      res.json({ 
+        success: true, 
+        message: runId ? `Cleared logs for run ${runId}` : 'Cleared all activity logs',
+        deletedCount: result.deletedCount 
+      });
+    } catch (error: any) {
+      console.error("[Activity] Error clearing logs:", error);
       res.status(500).json({ error: error.message });
     }
   });
