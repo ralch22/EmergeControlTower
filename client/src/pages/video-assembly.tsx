@@ -50,6 +50,18 @@ interface AssemblyStatus {
   scenes: SceneStatus[];
 }
 
+interface VideoProjectResponse {
+  project: {
+    projectId: string;
+    title: string;
+    status: string;
+    outputUrl: string | null;
+  };
+  scenes: any[];
+  clips: any[];
+  audioTracks: any[];
+}
+
 interface VideoProject {
   projectId: string;
   title: string;
@@ -243,6 +255,17 @@ export default function VideoAssemblyPage() {
   
   const { data: projects = [], isLoading: projectsLoading } = useQuery<VideoProject[]>({
     queryKey: ['/api/video-projects'],
+    queryFn: async () => {
+      const res = await fetch('/api/video-projects');
+      if (!res.ok) throw new Error('Failed to fetch projects');
+      const data: VideoProjectResponse[] = await res.json();
+      return data.map(item => ({
+        projectId: item.project.projectId,
+        title: item.project.title,
+        status: item.project.status,
+        outputUrl: item.project.outputUrl,
+      }));
+    },
     refetchInterval: 10000,
   });
   
