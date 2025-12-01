@@ -2322,6 +2322,235 @@ export async function registerRoutes(
   });
 
   // ==========================================
+  // Shotstack Studio SDK Integration Routes
+  // ==========================================
+
+  // Get timeline JSON for Studio SDK editor
+  app.get("/api/video-projects/:projectId/studio-timeline", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      
+      const fullProject = await storage.getFullVideoProject(projectId);
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // If we have a saved timeline draft, return it
+      if (fullProject.project.timelineDraft) {
+        return res.json({
+          projectId,
+          timeline: fullProject.project.timelineDraft,
+          version: fullProject.project.timelineVersion || 1,
+          lastEditedAt: fullProject.project.lastEditedAt,
+          source: 'saved_draft',
+        });
+      }
+
+      // Otherwise, generate a timeline from the project's clips and audio
+      const readyClips = fullProject.clips.filter((c: any) => 
+        c.status === 'ready' && (c.permanentVideoUrl || c.videoUrl)
+      );
+      const readyAudio = fullProject.audioTracks.filter(a => a.status === 'ready' && a.audioUrl);
+
+      if (readyClips.length === 0) {
+        return res.status(400).json({ 
+          error: "No ready clips available",
+          message: "At least one video clip must be ready before opening the editor",
+        });
+      }
+
+      // Build Shotstack Edit timeline JSON
+      const tracks: any[] = [];
+      
+      // Video track
+      const videoClips: any[] = [];
+      let currentTime = 0;
+      
+      for (const scene of fullProject.scenes.sort((a, b) => a.sceneNumber - b.sceneNumber)) {
+        const clip = readyClips.find((c: any) => c.sceneId === scene.sceneId);
+        if (!clip) continue;
+        
+        const videoUrl = (clip as any).permanentVideoUrl || clip.videoUrl;
+        const duration = scene.duration || 5;
+        
+        videoClips.push({
+          asset: {
+            type: "video",
+            src: videoUrl,
+            volume: 0.3, // Lower video volume if there's voiceover
+          },
+          start: currentTime,
+          length: duration,
+          fit: "cover",
+        });
+        
+        currentTime += duration;
+      }
+      
+      if (videoClips.length > 0) {
+        tracks.push({ clips: videoClips });
+      }
+
+      // Audio track (voiceovers)
+      const audioClips: any[] = [];
+      currentTime = 0;
+      
+      for (const scene of fullProject.scenes.sort((a, b) => a.sceneNumber - b.sceneNumber)) {
+        const audio = readyAudio.find(a => a.sceneId === scene.sceneId);
+        const duration = scene.duration || 5;
+        
+        if (audio?.audioUrl) {
+          audioClips.push({
+            asset: {
+              type: "audio",
+              src: audio.audioUrl,
+              volume: 1,
+            },
+            start: currentTime,
+            length: duration,
+          });
+        }
+        
+        currentTime += duration;
+      }
+      
+      if (audioClips.length > 0) {
+        tracks.push({ clips: audioClips });
+      }
+
+      // Build complete Shotstack Edit JSON
+      const timeline = {
+        timeline: {
+          tracks,
+          background: "#000000",
+        },
+        output: {
+          format: "mp4",
+          size: {
+            width: 1920,
+            height: 1080,
+          },
+          fps: 30,
+        },
+      };
+
+      res.json({
+        projectId,
+        timeline,
+        version: fullProject.project.timelineVersion || 1,
+        lastEditedAt: fullProject.project.lastEditedAt,
+        source: 'generated',
+        sceneCount: videoClips.length,
+        totalDuration: currentTime,
+      });
+    } catch (error: any) {
+      console.error('Failed to get studio timeline:', error);
+      res.status(500).json({ error: error.message || "Failed to get studio timeline" });
+    }
+  });
+
+  // Save timeline from Studio SDK editor
+  app.put("/api/video-projects/:projectId/studio-timeline", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { timeline } = req.body;
+      
+      if (!timeline) {
+        return res.status(400).json({ error: "Timeline data is required" });
+      }
+
+      const fullProject = await storage.getFullVideoProject(projectId);
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Get current version and increment
+      const currentVersion = fullProject.project.timelineVersion || 1;
+      const newVersion = currentVersion + 1;
+
+      // Save the timeline draft
+      await storage.updateVideoProject(projectId, {
+        timelineDraft: timeline,
+        timelineVersion: newVersion,
+        lastEditedAt: new Date(),
+      });
+
+      console.log(`[StudioSDK] Timeline saved for project ${projectId}, version ${newVersion}`);
+
+      res.json({
+        success: true,
+        projectId,
+        version: newVersion,
+        savedAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      console.error('Failed to save studio timeline:', error);
+      res.status(500).json({ error: error.message || "Failed to save timeline" });
+    }
+  });
+
+  // Render video from Studio SDK edited timeline
+  app.post("/api/video-projects/:projectId/render-from-timeline", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { timeline: customTimeline } = req.body;
+      
+      const fullProject = await storage.getFullVideoProject(projectId);
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Use provided timeline or saved draft
+      const timeline = customTimeline || fullProject.project.timelineDraft;
+      
+      if (!timeline) {
+        return res.status(400).json({ 
+          error: "No timeline available",
+          message: "Either save a timeline in the editor or provide one in the request",
+        });
+      }
+
+      // Update status
+      await storage.updateVideoProject(projectId, { status: 'rendering' });
+
+      // Import Shotstack render function
+      const { renderVideo, waitForRender } = await import("../01-content-factory/integrations/shotstack");
+
+      // Render the edited timeline
+      const renderResult = await renderVideo(timeline);
+
+      if (!renderResult.success || !renderResult.renderId) {
+        await storage.updateVideoProject(projectId, { status: 'failed' });
+        return res.status(500).json({ error: renderResult.error || "Failed to start render" });
+      }
+
+      // Wait for render in background
+      waitForRender(renderResult.renderId, 600).then(async (result) => {
+        if (result.success && result.videoUrl) {
+          await storage.updateVideoProject(projectId, {
+            status: 'completed',
+            outputUrl: result.videoUrl,
+          });
+          console.log(`[StudioSDK] Render complete for ${projectId}: ${result.videoUrl}`);
+        } else {
+          await storage.updateVideoProject(projectId, { status: 'failed' });
+          console.error(`[StudioSDK] Render failed for ${projectId}: ${result.error}`);
+        }
+      });
+
+      res.json({
+        success: true,
+        message: "Render started from edited timeline",
+        renderId: renderResult.renderId,
+        projectId,
+      });
+    } catch (error: any) {
+      console.error('Failed to render from timeline:', error);
+      res.status(500).json({ error: error.message || "Failed to render from timeline" });
+    }
+  });
+
+  // ==========================================
   // AI Providers API Routes
   // ==========================================
 
