@@ -277,6 +277,12 @@ export const videoProjects = pgTable("video_projects", {
   isQualityApproved: boolean("is_quality_approved"), // User approved quality?
   qualityReviewedAt: timestamp("quality_reviewed_at"),
   
+  // Shotstack Studio SDK integration
+  timelineDraft: jsonb("timeline_draft"), // Stored timeline JSON for Studio SDK editor
+  editorSessionId: text("editor_session_id"), // Session ID for Studio SDK editing
+  timelineVersion: integer("timeline_version").default(1), // Version tracking for edits
+  lastEditedAt: timestamp("last_edited_at"), // When was timeline last modified in editor
+  
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
