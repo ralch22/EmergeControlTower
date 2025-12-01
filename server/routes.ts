@@ -3737,6 +3737,78 @@ export function registerVideoIngredientsRoutes(app: Express) {
     }
   });
 
+  // Test Adobe Firefly connection
+  app.get("/api/adobe-firefly/test", async (req, res) => {
+    try {
+      const { adobeFirefly } = await import("../01-content-factory/integrations/adobe-firefly");
+      const result = await adobeFirefly.testConnection();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // List Adobe Firefly custom models
+  app.get("/api/adobe-firefly/models", async (req, res) => {
+    try {
+      const { adobeFirefly } = await import("../01-content-factory/integrations/adobe-firefly");
+      const models = await adobeFirefly.listCustomModels();
+      res.json({ models });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate image with Adobe Firefly
+  app.post("/api/adobe-firefly/generate", async (req, res) => {
+    try {
+      const { adobeFirefly } = await import("../01-content-factory/integrations/adobe-firefly");
+      const { prompt, negativePrompt, width, height, numImages, contentClass, style } = req.body;
+      
+      if (!prompt) {
+        return res.status(400).json({ error: "prompt is required" });
+      }
+
+      const result = await adobeFirefly.generateImage({
+        prompt,
+        negativePrompt,
+        width: width || 1024,
+        height: height || 1024,
+        numImages: numImages || 1,
+        contentClass: contentClass || 'art',
+        style,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate with Firefly custom model
+  app.post("/api/adobe-firefly/generate-custom", async (req, res) => {
+    try {
+      const { adobeFirefly } = await import("../01-content-factory/integrations/adobe-firefly");
+      const { modelId, prompt, numImages, width, height } = req.body;
+      
+      if (!modelId || !prompt) {
+        return res.status(400).json({ error: "modelId and prompt are required" });
+      }
+
+      const result = await adobeFirefly.generateWithCustomModel({
+        modelId,
+        prompt,
+        numImages: numImages || 1,
+        width: width || 1024,
+        height: height || 1024,
+      });
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Comprehensive provider status endpoint
   app.get("/api/providers/status", async (req, res) => {
     try {
@@ -3819,6 +3891,20 @@ export function registerVideoIngredientsRoutes(app: Express) {
           : 'FAL_API_KEY not set',
         remediation: falKey ? undefined :
           'Get API key from https://fal.ai/dashboard',
+      };
+
+      // Check Adobe Firefly (Image)
+      const adobeClientId = process.env.ADOBE_CLIENT_ID;
+      const adobeClientSecret = process.env.ADOBE_CLIENT_SECRET;
+      const adobeConfigured = !!(adobeClientId && adobeClientSecret);
+      providerStatus['adobe_firefly'] = {
+        configured: adobeConfigured,
+        status: adobeConfigured ? 'working' : 'not_configured',
+        message: adobeConfigured 
+          ? 'Adobe Firefly configured (Image Generation, Expand, Fill, Custom Models)'
+          : 'ADOBE_CLIENT_ID or ADOBE_CLIENT_SECRET not set',
+        remediation: adobeConfigured ? undefined :
+          'Get credentials from https://developer.adobe.com/console - Create project with Firefly API',
       };
 
       // Check Anthropic (Content Generation)

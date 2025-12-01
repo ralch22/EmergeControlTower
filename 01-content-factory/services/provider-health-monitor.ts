@@ -35,6 +35,13 @@ export const PROVIDER_CONFIG = {
     basePriority: 90,
     constraints: {}
   },
+  adobe_firefly: { 
+    serviceType: 'image', 
+    isFree: false, 
+    costPerRequest: 0.04,
+    basePriority: 85,
+    constraints: { maxWidth: 2048, maxHeight: 2048 }
+  },
   fal_ai: { 
     serviceType: 'image', 
     isFree: false, 
@@ -158,8 +165,14 @@ class ProviderHealthMonitor {
       { 
         serviceType: 'image', 
         chainName: 'image_default', 
-        providerOrder: JSON.stringify(['gemini_image', 'fal_ai', 'dashscope']),
+        providerOrder: JSON.stringify(['gemini_image', 'adobe_firefly', 'fal_ai', 'dashscope']),
         isDefault: true 
+      },
+      { 
+        serviceType: 'image', 
+        chainName: 'image_premium', 
+        providerOrder: JSON.stringify(['adobe_firefly', 'fal_ai', 'dashscope', 'gemini_image']),
+        conditions: JSON.stringify({ premiumFirst: true })
       },
       { 
         serviceType: 'image', 

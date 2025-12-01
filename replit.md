@@ -77,10 +77,19 @@ Preferred communication style: Simple, everyday language.
 ### AI & Content Generation
 - **Replit AI Integrations (Anthropic)**: Claude Sonnet 4.5.
 - **Google AI**: Gemini 1.5 Flash, `gemini-2.0-flash-exp-image-generation` model.
+- **Adobe Firefly**: Professional image generation with custom models support (v3 API).
 - **ElevenLabs**: Text-to-speech.
 - **Runway**: AI video generation.
 - **Midjourney (via Replicate)**: Image generation.
 - **Alibaba Dashscope**: Image generation (`wan2.5-t2i-preview`, `qwen-image-plus`).
+
+### ML Self-Healing Provider System
+- **Provider Health Monitor**: Tracks real-time provider status, success rates, latency, and cost per request.
+- **Smart Router**: ML-based provider ordering based on health metrics, historical patterns, and cost optimization.
+- **Rate Limit Detection**: Automatically detects 429 errors and quota limits, temporarily disables providers with cooldown.
+- **Error Pattern Learning**: Learns from failures (e.g., Runway duration constraints) to pre-filter incompatible requests.
+- **Free Tier Fallbacks**: Prioritizes free providers (Gemini, Veo 3.1) before paid alternatives.
+- **Provider Health Dashboard**: Visual UI at `/provider-health` showing provider status, smart routing, and healing actions.
 
 ### Integrations
 - **Shotstack**: Video assembly and audio hosting.
