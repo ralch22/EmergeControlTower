@@ -54,6 +54,22 @@ interface GenerationResult {
   processingTime?: number;
 }
 
+interface BrandAssetFile {
+  id: number;
+  clientId: number;
+  category: string;
+  subcategory?: string;
+  fileName: string;
+  originalName: string;
+  filePath: string;
+  fileType: string;
+  mimeType?: string;
+  fileSize: number;
+  purpose?: string;
+  metadata?: Record<string, unknown>;
+  uploadedAt: string;
+}
+
 export default function BrandControlPage() {
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [generatingAssets, setGeneratingAssets] = useState<Record<string, boolean>>({});
@@ -67,6 +83,17 @@ export default function BrandControlPage() {
 
   const { data: selectedClient, isLoading: clientLoading } = useQuery<Client>({
     queryKey: ["/api/clients", selectedClientId],
+    enabled: !!selectedClientId,
+  });
+
+  const { data: brandAssetFiles = [], isLoading: assetsLoading, refetch: refetchAssets } = useQuery<BrandAssetFile[]>({
+    queryKey: ["/api/brand-asset-files", selectedClientId],
+    queryFn: async () => {
+      if (!selectedClientId) return [];
+      const res = await fetch(`/api/brand-asset-files/${selectedClientId}`);
+      if (!res.ok) return [];
+      return res.json();
+    },
     enabled: !!selectedClientId,
   });
 
@@ -88,6 +115,7 @@ export default function BrandControlPage() {
         ...prev,
         [variables.assetType]: data,
       }));
+      queryClient.invalidateQueries({ queryKey: ["/api/brand-asset-files", selectedClientId] });
       toast({
         title: "Asset Generated",
         description: `Successfully generated ${variables.assetType}`,
@@ -442,13 +470,70 @@ export default function BrandControlPage() {
                     </TabsContent>
 
                     <TabsContent value="assets" className="space-y-4 mt-4">
-                      {Object.entries(generatedResults).length > 0 ? (
+                      {assetsLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <Loader2 className="w-6 h-6 animate-spin" />
+                        </div>
+                      ) : brandAssetFiles.length > 0 || Object.entries(generatedResults).length > 0 ? (
                         <div className="space-y-4">
+                          {brandAssetFiles.length > 0 && (
+                            <Card>
+                              <CardHeader className="pb-2">
+                                <CardTitle className="text-base flex items-center gap-2">
+                                  <Image className="w-4 h-4" />
+                                  Saved Brand Assets ({brandAssetFiles.length})
+                                </CardTitle>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-4">
+                                  {brandAssetFiles.map((file) => (
+                                    <div key={file.id} className="relative group" data-testid={`asset-file-${file.id}`}>
+                                      {file.mimeType?.startsWith('image/') ? (
+                                        <img 
+                                          src={`/api/brand-asset-files/download/${file.id}`}
+                                          alt={file.originalName}
+                                          className="w-full aspect-square object-cover rounded-lg border"
+                                          onError={(e) => {
+                                            (e.target as HTMLImageElement).style.display = 'none';
+                                            (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+                                          }}
+                                        />
+                                      ) : null}
+                                      <div className={`w-full aspect-square bg-muted rounded-lg flex flex-col items-center justify-center ${file.mimeType?.startsWith('image/') ? 'hidden' : ''}`}>
+                                        <FileText className="w-8 h-8 text-muted-foreground mb-2" />
+                                        <span className="text-xs text-muted-foreground">{file.fileType}</span>
+                                      </div>
+                                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex flex-col items-center justify-center p-2">
+                                        <span className="text-white text-xs text-center mb-2 line-clamp-2">{file.originalName}</span>
+                                        {file.subcategory && (
+                                          <Badge variant="secondary" className="text-xs mb-2">{file.subcategory}</Badge>
+                                        )}
+                                        <a 
+                                          href={`/api/brand-asset-files/download/${file.id}`} 
+                                          download
+                                          className="inline-flex items-center"
+                                        >
+                                          <Button size="sm" variant="secondary">
+                                            <Download className="w-3 h-3 mr-1" />
+                                            Download
+                                          </Button>
+                                        </a>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )}
+
                           {Object.entries(generatedResults).map(([type, result]) => (
                             result.success && result.assets && result.assets.length > 0 && (
                               <Card key={type}>
                                 <CardHeader className="pb-2">
-                                  <CardTitle className="text-base capitalize">{type.replace("-", " ")}</CardTitle>
+                                  <CardTitle className="text-base capitalize flex items-center gap-2">
+                                    <Sparkles className="w-4 h-4 text-yellow-500" />
+                                    {type.replace("-", " ")} (just generated)
+                                  </CardTitle>
                                 </CardHeader>
                                 <CardContent>
                                   <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-4">
@@ -471,13 +556,6 @@ export default function BrandControlPage() {
                                             <FileText className="w-8 h-8 text-muted-foreground" />
                                           </div>
                                         )}
-                                        <Button 
-                                          size="sm" 
-                                          variant="secondary"
-                                          className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        >
-                                          <Download className="w-3 h-3" />
-                                        </Button>
                                       </div>
                                     ))}
                                   </div>
@@ -489,7 +567,7 @@ export default function BrandControlPage() {
                       ) : (
                         <div className="text-center py-8">
                           <p className="text-muted-foreground">
-                            No generated assets yet. Use the Generate tab to create brand assets.
+                            No brand assets yet. Use the Generate tab to create brand assets.
                           </p>
                         </div>
                       )}
