@@ -26,6 +26,14 @@ export interface TextualBrandBrief {
   brandValues: Array<{ name: string; description: string }>;
 }
 
+export interface ReferenceAsset {
+  id: string;
+  type: 'logo' | 'icon' | 'moodboard' | 'reference_image';
+  url: string;
+  description?: string;
+  isPrimary?: boolean;
+}
+
 export interface VisualBrandBrief {
   visualStyle: string;
   aesthetic: string[];
@@ -47,7 +55,8 @@ export interface VisualBrandBrief {
   usageDos: string[];
   usageDonts: string[];
   logoUrl?: string;
-  referenceAssets: Array<{ id: string; type: string; url: string }>;
+  primaryLogoReference?: ReferenceAsset;
+  referenceAssets: ReferenceAsset[];
 }
 
 export interface EnrichedClientBrief {
@@ -119,6 +128,13 @@ export function composeBrandBrief(
     usageDos: [],
     usageDonts: [],
     logoUrl: client.primaryLogoUrl || undefined,
+    primaryLogoReference: client.primaryLogoUrl ? {
+      id: 'primary-logo',
+      type: 'logo' as const,
+      url: client.primaryLogoUrl,
+      description: `Primary brand logo for ${client.name}`,
+      isPrimary: true,
+    } : undefined,
     referenceAssets: [],
   };
 
@@ -206,10 +222,36 @@ export function composeBrandBrief(
     usageDos: v.usageRules?.dos || [],
     usageDonts: v.usageRules?.donts || [],
     logoUrl: client.primaryLogoUrl || bp.referenceAssets?.logos?.find(l => l.isPrimary)?.url,
+    primaryLogoReference: client.primaryLogoUrl ? {
+      id: 'primary-logo',
+      type: 'logo' as const,
+      url: client.primaryLogoUrl,
+      description: `Primary brand logo for ${client.name}`,
+      isPrimary: true,
+    } : bp.referenceAssets?.logos?.find(l => l.isPrimary) ? {
+      id: bp.referenceAssets.logos.find(l => l.isPrimary)!.id || 'profile-logo',
+      type: 'logo' as const,
+      url: bp.referenceAssets.logos.find(l => l.isPrimary)!.url,
+      description: `Primary brand logo for ${client.name}`,
+      isPrimary: true,
+    } : undefined,
     referenceAssets: [
-      ...(bp.referenceAssets?.logos || []),
-      ...(bp.referenceAssets?.icons || []),
-      ...(bp.referenceAssets?.moodBoards || []),
+      ...(bp.referenceAssets?.logos || []).map(l => ({
+        id: l.id || `logo-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'logo' as const,
+        url: l.url,
+        isPrimary: l.isPrimary,
+      })),
+      ...(bp.referenceAssets?.icons || []).map(i => ({
+        id: i.id || `icon-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'icon' as const,
+        url: i.url,
+      })),
+      ...(bp.referenceAssets?.moodBoards || []).map(m => ({
+        id: m.id || `moodboard-${Math.random().toString(36).substr(2, 9)}`,
+        type: 'moodboard' as const,
+        url: m.url,
+      })),
     ],
   };
 
@@ -324,27 +366,202 @@ export function buildImagePromptEnrichment(brief: EnrichedClientBrief, basePromp
   const styleContext = `Style: ${v.aesthetic.join(', ')}. Mood: ${v.moodKeywords.join(', ')}.`;
   const motifContext = v.motifs.length ? `Include brand motifs: ${v.motifs.join(', ')}.` : '';
   
+  const referenceDirective = v.primaryLogoReference ? `
+=== CRITICAL: BRAND REFERENCE IMAGE ===
+REFERENCE IMAGE URL: ${v.primaryLogoReference.url}
+
+You MUST analyze this brand logo/reference image and ensure ALL generated visuals:
+1. Match the exact color palette visible in the reference
+2. Maintain consistent visual style and aesthetic
+3. Use similar design elements, shapes, and motifs
+4. Preserve the brand's visual DNA - no creative deviations
+5. If the reference shows specific iconography (shields, geometric shapes, etc.), incorporate these elements
+
+DO NOT deviate from the reference style. The generated image must look like it belongs to the same brand.
+` : '';
+  
   return `${basePrompt}
 
+${referenceDirective}
 Brand Visual Guidelines:
 ${colorContext}
 ${styleContext}
 ${motifContext}
-${v.logoUrl ? `Brand logo available at: ${v.logoUrl} - reference this style.` : ''}`.trim();
+${v.patterns.length ? `Patterns to incorporate: ${v.patterns.join(', ')}.` : ''}
+${v.usageDos.length ? `Design DOs: ${v.usageDos.join('; ')}` : ''}
+${v.usageDonts.length ? `Design DON'Ts: ${v.usageDonts.join('; ')}` : ''}`.trim();
+}
+
+export function buildReferenceConstrainedImagePrompt(
+  brief: EnrichedClientBrief, 
+  basePrompt: string,
+  options?: {
+    strictMode?: boolean;
+    includeLogoInImage?: boolean;
+    imageType?: 'hero' | 'social' | 'ad' | 'blog' | 'thumbnail';
+  }
+): { prompt: string; referenceImageUrl?: string } {
+  const v = brief.visual;
+  const opts = options || {};
+  const strictMode = opts.strictMode ?? true;
+  
+  const referenceImageUrl = v.primaryLogoReference?.url || v.logoUrl;
+  
+  let referenceBlock = '';
+  if (referenceImageUrl) {
+    referenceBlock = strictMode ? `
+=== MANDATORY BRAND REFERENCE ===
+REFERENCE IMAGE: ${referenceImageUrl}
+
+STRICT VISUAL CONSISTENCY REQUIREMENTS:
+- Extract the exact hex colors from the reference and use ONLY those colors
+- Match the visual style (minimalist, futuristic, organic, etc.) exactly
+- Replicate design elements: shapes, iconography, patterns
+- Maintain the same level of detail and complexity
+- Use consistent lighting style and shadow treatment
+- The output must be instantly recognizable as part of this brand
+
+PROHIBITED DEVIATIONS:
+- Do NOT introduce new colors not present in the reference
+- Do NOT change the visual style or aesthetic
+- Do NOT ignore brand motifs or patterns
+- Do NOT use conflicting design elements
+` : `
+=== BRAND REFERENCE ===
+Reference Image: ${referenceImageUrl}
+Use this reference to guide your visual style, colors, and design approach.
+`;
+  }
+  
+  const imageTypeGuidance = opts.imageType ? {
+    hero: 'Create a prominent, attention-grabbing hero image suitable for landing pages.',
+    social: 'Create a social media optimized image with clear visual hierarchy.',
+    ad: 'Create a compelling advertisement visual with strong brand presence.',
+    blog: 'Create a blog header image that complements written content.',
+    thumbnail: 'Create a compact, recognizable thumbnail image.',
+  }[opts.imageType] : '';
+  
+  const prompt = `${basePrompt}
+
+${referenceBlock}
+${imageTypeGuidance ? `\nImage Purpose: ${imageTypeGuidance}\n` : ''}
+BRAND COLOR PALETTE:
+- Primary Accent: ${v.primaryColor.name} (${v.primaryColor.hex}) - ${v.primaryColor.usage}
+- Background: ${v.backgroundColor.name} (${v.backgroundColor.hex}) - ${v.backgroundColor.usage}
+- Text/Contrast: ${v.textColor.name} (${v.textColor.hex})
+${v.accentColors.length ? `- Additional Accents: ${v.accentColors.map(c => `${c.name} ${c.hex}`).join(', ')}` : ''}
+
+VISUAL STYLE:
+- Aesthetic: ${v.aesthetic.join(', ')}
+- Mood: ${v.moodKeywords.join(', ')}
+${v.patterns.length ? `- Patterns: ${v.patterns.join(', ')}` : ''}
+${v.motifs.length ? `- Motifs to include: ${v.motifs.join(', ')}` : ''}
+
+${opts.includeLogoInImage && referenceImageUrl ? `Include the brand logo from the reference in an appropriate position.` : ''}
+
+${v.usageDos.length ? `BRAND DOs: ${v.usageDos.join('; ')}` : ''}
+${v.usageDonts.length ? `BRAND DON'Ts: ${v.usageDonts.join('; ')}` : ''}`.trim();
+  
+  return { prompt, referenceImageUrl };
 }
 
 export function buildVideoSceneEnrichment(brief: EnrichedClientBrief, sceneDescription: string): string {
   const v = brief.visual;
   
+  const referenceDirective = v.primaryLogoReference ? `
+=== BRAND REFERENCE FOR VIDEO ===
+Reference Asset: ${v.primaryLogoReference.url}
+Ensure video maintains visual consistency with this brand reference.
+Extract and match: color palette, visual motifs, design style.
+` : '';
+  
   return `${sceneDescription}
-
+${referenceDirective}
 Cinematic Style:
 - Aspect Ratio: ${v.cinematicAspectRatio}
+- Resolution: ${v.cinematicResolution}
 - Pacing: ${v.cinematicPacing}
 - Motion: ${v.cinematicMotionStyle}
-- Colors: ${v.primaryColor.hex} accents on ${v.backgroundColor.hex} backgrounds
+- Color Palette: ${v.primaryColor.hex} accents on ${v.backgroundColor.hex} backgrounds
 - Mood: ${v.moodKeywords.join(', ')}
-${v.cinematicColorGrading ? `- Color Grading: ${v.cinematicColorGrading}` : ''}`;
+${v.cinematicColorGrading ? `- Color Grading: ${v.cinematicColorGrading}` : ''}
+${v.cinematicTransitions ? `- Transitions: ${v.cinematicTransitions}` : ''}
+${v.motifs.length ? `- Brand Motifs: ${v.motifs.join(', ')}` : ''}
+${v.patterns.length ? `- Brand Patterns: ${v.patterns.join(', ')}` : ''}`;
+}
+
+export function buildReferenceConstrainedVideoPrompt(
+  brief: EnrichedClientBrief,
+  sceneDescription: string,
+  options?: {
+    sceneIndex?: number;
+    totalScenes?: number;
+    includeLogoOverlay?: boolean;
+  }
+): { prompt: string; referenceImageUrl?: string } {
+  const v = brief.visual;
+  const opts = options || {};
+  
+  const referenceImageUrl = v.primaryLogoReference?.url || v.logoUrl;
+  
+  let referenceBlock = '';
+  if (referenceImageUrl) {
+    referenceBlock = `
+=== MANDATORY BRAND REFERENCE FOR VIDEO ===
+REFERENCE IMAGE: ${referenceImageUrl}
+
+VIDEO VISUAL CONSISTENCY REQUIREMENTS:
+- Color palette MUST match the reference exactly (${v.primaryColor.hex}, ${v.backgroundColor.hex})
+- Visual style and aesthetic must align with reference
+- Include brand motifs and design elements throughout
+- Motion graphics should complement the brand style
+- Maintain consistent lighting and mood
+
+PROHIBITED:
+- Colors not in the brand palette
+- Conflicting visual styles
+- Generic stock footage aesthetic
+`;
+  }
+  
+  const sceneContext = opts.sceneIndex !== undefined && opts.totalScenes !== undefined 
+    ? `Scene ${opts.sceneIndex + 1} of ${opts.totalScenes}.` 
+    : '';
+  
+  const prompt = `${sceneDescription}
+
+${sceneContext}
+${referenceBlock}
+CINEMATIC SPECIFICATIONS:
+- Aspect Ratio: ${v.cinematicAspectRatio}
+- Resolution: ${v.cinematicResolution}
+- Pacing: ${v.cinematicPacing}
+- Motion Style: ${v.cinematicMotionStyle}
+${v.cinematicColorGrading ? `- Color Grading: ${v.cinematicColorGrading}` : ''}
+${v.cinematicTransitions ? `- Transitions: ${v.cinematicTransitions}` : ''}
+
+BRAND VISUAL ELEMENTS:
+- Primary Color: ${v.primaryColor.hex} (${v.primaryColor.name})
+- Background: ${v.backgroundColor.hex}
+- Accent Colors: ${v.accentColors.map(c => c.hex).join(', ') || 'N/A'}
+- Mood: ${v.moodKeywords.join(', ')}
+${v.motifs.length ? `- Motifs: ${v.motifs.join(', ')}` : ''}
+${v.patterns.length ? `- Patterns: ${v.patterns.join(', ')}` : ''}
+
+${opts.includeLogoOverlay ? `Include subtle brand logo watermark in corner.` : ''}
+
+${v.usageDos.length ? `VIDEO DOs: ${v.usageDos.join('; ')}` : ''}
+${v.usageDonts.length ? `VIDEO DON'Ts: ${v.usageDonts.join('; ')}` : ''}`.trim();
+  
+  return { prompt, referenceImageUrl };
+}
+
+export function getReferenceAssetUrl(brief: EnrichedClientBrief): string | undefined {
+  return brief.visual.primaryLogoReference?.url || brief.visual.logoUrl;
+}
+
+export function hasReferenceAsset(brief: EnrichedClientBrief): boolean {
+  return !!(brief.visual.primaryLogoReference?.url || brief.visual.logoUrl);
 }
 
 export function buildQAValidationCriteria(brief: EnrichedClientBrief): string {

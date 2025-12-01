@@ -32,6 +32,23 @@ export type {
   EnrichedClientBrief,
   TextualBrandBrief,
   VisualBrandBrief,
+  ReferenceAsset,
+} from "../services/brand-brief";
+
+export { 
+  composeBrandBrief,
+  formatTextualBriefForPrompt,
+  formatVisualBriefForPrompt,
+  formatFullBriefForPrompt,
+  buildSystemPromptSuffix,
+  buildImagePromptEnrichment,
+  buildReferenceConstrainedImagePrompt,
+  buildVideoSceneEnrichment,
+  buildReferenceConstrainedVideoPrompt,
+  buildQAValidationCriteria,
+  getEffectiveCTA,
+  getReferenceAssetUrl,
+  hasReferenceAsset,
 } from "../services/brand-brief";
 
 export interface ContentTopic {
