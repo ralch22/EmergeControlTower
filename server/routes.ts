@@ -2259,16 +2259,35 @@ async function generateVideoProjectAsync(
                 break; // Success - exit the provider loop
               } else if (clipResult?.status === 'failed' || (clipResult?.error && !clipResult?.status?.includes('processing'))) {
                 console.log(`[VideoProject] Provider ${usedProvider} failed: ${clipResult?.error}, trying next provider...`);
-                // Continue to next provider
+                await storage.createActivityLog({
+                  runId: `video_proj_${projectId}`,
+                  eventType: 'video_provider_failed',
+                  level: 'warning',
+                  message: `Scene ${scene.sceneNumber}: ${usedProvider} failed - ${clipResult?.error}`,
+                  metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, provider: usedProvider }),
+                });
                 continue;
               } else {
                 // Still processing after timeout - mark as failed and try next
                 console.log(`[VideoProject] Provider ${usedProvider} timed out, trying next provider...`);
+                await storage.createActivityLog({
+                  runId: `video_proj_${projectId}`,
+                  eventType: 'video_provider_timeout',
+                  level: 'warning',
+                  message: `Scene ${scene.sceneNumber}: ${usedProvider} timed out, retrying...`,
+                  metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, provider: usedProvider }),
+                });
                 continue;
               }
             } else {
               console.log(`[VideoProject] Provider ${providerConfig.name} failed to start: ${taskResult.error}`);
-              // Continue to next provider
+              await storage.createActivityLog({
+                runId: `video_proj_${projectId}`,
+                eventType: 'video_provider_error',
+                level: 'warning',
+                message: `Scene ${scene.sceneNumber}: ${providerConfig.name} startup failed`,
+                metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, provider: providerConfig.name, error: taskResult.error }),
+              });
               continue;
             }
           }
@@ -2280,6 +2299,13 @@ async function generateVideoProjectAsync(
               status: 'ready',
             });
             await storage.updateVideoScene(scene.sceneId, { status: 'ready' });
+            await storage.createActivityLog({
+              runId: `video_proj_${projectId}`,
+              eventType: 'video_scene_ready',
+              level: 'success',
+              message: `Scene ${scene.sceneNumber} video ready via ${successfulProvider}`,
+              metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, provider: successfulProvider }),
+            });
             console.log(`[VideoProject] Scene ${scene.sceneNumber} clip ready (via ${successfulProvider})`);
           } else {
             await storage.updateVideoClip(clipId, {
@@ -2287,6 +2313,13 @@ async function generateVideoProjectAsync(
               errorMessage: clipResult?.error || 'All providers failed',
             });
             await storage.updateVideoScene(scene.sceneId, { status: 'failed' });
+            await storage.createActivityLog({
+              runId: `video_proj_${projectId}`,
+              eventType: 'video_scene_failed',
+              level: 'error',
+              message: `Scene ${scene.sceneNumber} video generation failed: ${clipResult?.error || 'All providers failed'}`,
+              metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, error: clipResult?.error }),
+            });
             console.error(`[VideoProject] All providers failed for scene ${scene.sceneNumber}`);
           }
         } else {
@@ -2333,6 +2366,32 @@ async function generateVideoProjectAsync(
                 provider: audioResult.provider || 'elevenlabs',
               });
               console.log(`[VideoProject] Scene ${scene.sceneNumber} audio ready (via ${audioResult.provider})`);
+            } else {
+              const errorMsg = audioResult.error || 'Unknown error';
+              await storage.updateAudioTrack(trackId, {
+                status: 'failed',
+                errorMessage: errorMsg,
+              });
+              await storage.createActivityLog({
+                runId: `video_proj_${projectId}`,
+                eventType: 'audio_generation_failed',
+                level: 'error',
+                message: `Scene ${scene.sceneNumber} audio generation failed: ${errorMsg}`,
+                metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, error: errorMsg }),
+              });
+            } else if (audioResult.success) {
+              await storage.createActivityLog({
+                runId: `video_proj_${projectId}`,
+                eventType: 'audio_ready',
+                level: 'success',
+                message: `Scene ${scene.sceneNumber} audio ready via ${audioResult.provider}`,
+                metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, provider: audioResult.provider }),
+              });
+            }
+          } else {
+            // Old code continues here but was malformed - fixing
+            if (audioResult.success && audioResult.audioUrl) {
+              // Already handled above
             } else {
               await storage.updateAudioTrack(trackId, {
                 status: 'failed',
