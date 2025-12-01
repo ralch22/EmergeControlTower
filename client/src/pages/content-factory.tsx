@@ -20,6 +20,9 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Factory,
   Play,
@@ -49,6 +52,9 @@ import {
   Mic,
   Type,
   ImageIcon,
+  Sparkles,
+  Mail,
+  Megaphone,
 } from "lucide-react";
 
 type Client = {
@@ -165,7 +171,28 @@ const contentTypeConfig: Record<string, { color: string; icon: React.ReactNode; 
     icon: <Video className="w-3 h-3" />,
     label: "Video Script",
   },
+  email: {
+    color: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    icon: <Mail className="w-3 h-3" />,
+    label: "Email",
+  },
+  ad_copy: {
+    color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+    icon: <Megaphone className="w-3 h-3" />,
+    label: "Ad Copy",
+  },
 };
+
+const quickCreateContentTypes = [
+  { value: "blog", label: "Blog Post", icon: <FileText className="w-4 h-4" /> },
+  { value: "linkedin", label: "LinkedIn", icon: <Linkedin className="w-4 h-4" /> },
+  { value: "twitter", label: "Twitter/X", icon: <Twitter className="w-4 h-4" /> },
+  { value: "instagram", label: "Instagram", icon: <Instagram className="w-4 h-4" /> },
+  { value: "facebook_ad", label: "Facebook Ad", icon: <Facebook className="w-4 h-4" /> },
+  { value: "video_script", label: "Video Script", icon: <Video className="w-4 h-4" /> },
+  { value: "email", label: "Email", icon: <Mail className="w-4 h-4" /> },
+  { value: "ad_copy", label: "Ad Copy", icon: <Megaphone className="w-4 h-4" /> },
+];
 
 function formatDate(dateString: string | null) {
   if (!dateString) return "";
@@ -335,6 +362,13 @@ export default function ContentFactoryPage() {
   const [selectedContentType, setSelectedContentType] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [viewingContent, setViewingContent] = useState<GeneratedContent | null>(null);
+  
+  // Quick Create state
+  const [quickCreateClientId, setQuickCreateClientId] = useState<string>("");
+  const [quickCreateType, setQuickCreateType] = useState<string>("");
+  const [quickCreateTopic, setQuickCreateTopic] = useState<string>("");
+  const [quickCreateBrief, setQuickCreateBrief] = useState<string>("");
+  const [quickCreateLength, setQuickCreateLength] = useState<"short" | "medium" | "long">("medium");
 
   const { data: clients = [], isLoading: isLoadingClients } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
@@ -482,6 +516,64 @@ export default function ContentFactoryPage() {
       });
     },
   });
+
+  const quickCreateMutation = useMutation({
+    mutationFn: async (data: {
+      clientId: number;
+      contentType: string;
+      topic: string;
+      brief?: string;
+      targetLength?: "short" | "medium" | "long";
+    }) => {
+      const res = await fetch("/api/content/generate-single", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to generate content");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/content-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/kpis"] });
+      toast({
+        title: "Content Generated",
+        description: `${contentTypeConfig[data.content?.type]?.label || "Content"} created successfully using ${data.content?.provider || "AI"}`,
+      });
+      setQuickCreateTopic("");
+      setQuickCreateBrief("");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Generation Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleQuickCreate = () => {
+    if (!quickCreateClientId || !quickCreateType || !quickCreateTopic.trim()) {
+      toast({
+        title: "Missing Information",
+        description: "Please select a client, content type, and enter a topic",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    quickCreateMutation.mutate({
+      clientId: parseInt(quickCreateClientId),
+      contentType: quickCreateType,
+      topic: quickCreateTopic.trim(),
+      brief: quickCreateBrief.trim() || undefined,
+      targetLength: quickCreateLength,
+    });
+  };
 
   const selectedClient = clients.find((c) => c.id.toString() === selectedClientId);
   const runningRuns = contentRuns.filter((r) => r.status === "running").length;
@@ -683,6 +775,139 @@ export default function ContentFactoryPage() {
                   )}
                   Run Week
                 </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Quick Create Single Content */}
+        <Card className="bg-zinc-900 border-zinc-700 mb-8" data-testid="card-quick-create">
+          <CardHeader>
+            <CardTitle className="text-purple-400 flex items-center gap-2">
+              <Sparkles className="w-5 h-5" />
+              Quick Create
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <Label className="text-zinc-400 text-sm mb-2 block">Client</Label>
+                <Select
+                  value={quickCreateClientId}
+                  onValueChange={setQuickCreateClientId}
+                  disabled={isLoadingClients}
+                >
+                  <SelectTrigger
+                    className="w-full bg-zinc-800 border-zinc-700"
+                    data-testid="select-quick-create-client"
+                  >
+                    <SelectValue placeholder="Select client..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                    {clients.map((client) => (
+                      <SelectItem
+                        key={client.id}
+                        value={client.id.toString()}
+                        data-testid={`select-quick-client-option-${client.id}`}
+                      >
+                        {client.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="text-zinc-400 text-sm mb-2 block">Content Type</Label>
+                <Select
+                  value={quickCreateType}
+                  onValueChange={setQuickCreateType}
+                >
+                  <SelectTrigger
+                    className="w-full bg-zinc-800 border-zinc-700"
+                    data-testid="select-quick-create-type"
+                  >
+                    <SelectValue placeholder="Select type..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                    {quickCreateContentTypes.map((type) => (
+                      <SelectItem
+                        key={type.value}
+                        value={type.value}
+                        data-testid={`select-quick-type-option-${type.value}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          {type.icon}
+                          <span>{type.label}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label className="text-zinc-400 text-sm mb-2 block">Length</Label>
+                <Select
+                  value={quickCreateLength}
+                  onValueChange={(v) => setQuickCreateLength(v as "short" | "medium" | "long")}
+                >
+                  <SelectTrigger
+                    className="w-full bg-zinc-800 border-zinc-700"
+                    data-testid="select-quick-create-length"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectItem value="short">Short</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="long">Long</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-end">
+                <Button
+                  className="w-full bg-purple-600 hover:bg-purple-500"
+                  disabled={!quickCreateClientId || !quickCreateType || !quickCreateTopic.trim() || quickCreateMutation.isPending}
+                  onClick={handleQuickCreate}
+                  data-testid="button-quick-create"
+                >
+                  {quickCreateMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4 mr-2" />
+                      Generate
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <Label className="text-zinc-400 text-sm mb-2 block">Topic / Title *</Label>
+                <Input
+                  placeholder="e.g., Benefits of AI in healthcare..."
+                  value={quickCreateTopic}
+                  onChange={(e) => setQuickCreateTopic(e.target.value)}
+                  className="bg-zinc-800 border-zinc-700"
+                  data-testid="input-quick-create-topic"
+                />
+              </div>
+              <div>
+                <Label className="text-zinc-400 text-sm mb-2 block">Brief / Additional Context (optional)</Label>
+                <Input
+                  placeholder="Any specific requirements or details..."
+                  value={quickCreateBrief}
+                  onChange={(e) => setQuickCreateBrief(e.target.value)}
+                  className="bg-zinc-800 border-zinc-700"
+                  data-testid="input-quick-create-brief"
+                />
               </div>
             </div>
           </CardContent>

@@ -1580,7 +1580,7 @@ ${callToAction ? `- Include CTA: ${callToAction}` : ''}`
 
       if (!result.success || !result.content) {
         // Update run as failed
-        await storage.updateContentRunStatus(runId, "failed", { failedPieces: 1 });
+        await storage.updateContentRun(runId, { status: "failed", failedPieces: 1 });
         
         return res.status(500).json({ 
           error: "Content generation failed",
@@ -1614,9 +1614,9 @@ ${callToAction ? `- Include CTA: ${callToAction}` : ''}`
       const savedContent = await storage.createGeneratedContent(generatedContentData);
 
       // Update run as completed
-      await storage.updateContentRunStatus(runId, "completed", { 
+      await storage.updateContentRun(runId, { 
+        status: "completed",
         successfulPieces: 1,
-        completedAt: new Date(),
       });
 
       // Increment AI output counter
