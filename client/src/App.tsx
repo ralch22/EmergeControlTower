@@ -20,6 +20,7 @@ import ProviderHealth from "@/pages/provider-health";
 import QualityReview from "@/pages/quality-review";
 import BrandControl from "@/pages/brand-control";
 import SelfHealing from "@/pages/self-healing";
+import TestRunner from "@/pages/test-runner";
 
 function Router() {
   return (
@@ -40,6 +41,7 @@ function Router() {
         <Route path="/quality-review" component={QualityReview} />
         <Route path="/brand-control" component={BrandControl} />
         <Route path="/self-healing" component={SelfHealing} />
+        <Route path="/test-runner" component={TestRunner} />
         <Route component={NotFound} />
       </Switch>
     </SidebarLayout>

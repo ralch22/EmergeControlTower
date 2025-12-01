@@ -102,6 +102,10 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
+  // Register test runner routes
+  const { registerTestRoutes } = await import('./test-runner');
+  registerTestRoutes(app);
+  
   // Get latest KPIs
   app.get("/api/kpis", async (req, res) => {
     try {

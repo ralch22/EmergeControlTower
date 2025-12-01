@@ -75,6 +75,7 @@ const navCategories: NavCategory[] = [
       { path: "/control-tower", label: "Control Tower", icon: Shield },
       { path: "/provider-health", label: "Provider Health", icon: Activity },
       { path: "/self-healing", label: "Self-Healing", icon: Zap },
+      { path: "/test-runner", label: "Test Runner", icon: BarChart3 },
       { path: "/settings", label: "Settings", icon: Settings },
     ],
   },
