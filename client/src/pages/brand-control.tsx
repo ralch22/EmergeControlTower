@@ -24,7 +24,8 @@ import {
   Sparkles,
   Wand2,
   Link,
-  Globe
+  Globe,
+  Trash2
 } from "lucide-react";
 import {
   Dialog,
@@ -179,6 +180,20 @@ export default function BrandControlPage() {
     },
     onSettled: (_, __, variables) => {
       setGeneratingAssets(prev => ({ ...prev, [variables.assetType]: false }));
+    },
+  });
+
+  const deleteAssetMutation = useMutation({
+    mutationFn: async (fileId: number) => {
+      const res = await fetch(`/api/brand-asset-files/file/${fileId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/brand-asset-files", selectedClientId] });
+      toast({ title: "Asset deleted", description: "The brand asset has been removed" });
+    },
+    onError: () => {
+      toast({ title: "Delete failed", description: "Could not remove the asset", variant: "destructive" });
     },
   });
 
@@ -747,16 +762,28 @@ export default function BrandControlPage() {
                                         {file.subcategory && (
                                           <Badge variant="secondary" className="text-xs mb-2">{file.subcategory}</Badge>
                                         )}
-                                        <a 
-                                          href={`/api/brand-asset-files/download/${file.id}`} 
-                                          download
-                                          className="inline-flex items-center"
-                                        >
-                                          <Button size="sm" variant="secondary">
-                                            <Download className="w-3 h-3 mr-1" />
-                                            Download
+                                        <div className="flex gap-2">
+                                          <a 
+                                            href={`/api/brand-asset-files/download/${file.id}`} 
+                                            download
+                                            className="inline-flex items-center"
+                                          >
+                                            <Button size="sm" variant="secondary" data-testid={`btn-download-asset-${file.id}`}>
+                                              <Download className="w-3 h-3 mr-1" />
+                                              Download
+                                            </Button>
+                                          </a>
+                                          <Button 
+                                            size="sm" 
+                                            variant="destructive"
+                                            onClick={() => deleteAssetMutation.mutate(file.id)}
+                                            disabled={deleteAssetMutation.isPending}
+                                            data-testid={`btn-delete-asset-${file.id}`}
+                                          >
+                                            <Trash2 className="w-3 h-3 mr-1" />
+                                            Delete
                                           </Button>
-                                        </a>
+                                        </div>
                                       </div>
                                     </div>
                                   ))}
