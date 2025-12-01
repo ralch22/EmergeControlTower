@@ -13,6 +13,7 @@ import {
   Menu,
   ChevronLeft,
   ChevronRight,
+  Palette,
 } from "lucide-react";
 
 const navItems = [
@@ -20,6 +21,7 @@ const navItems = [
   { path: "/content-factory", label: "Content Factory", icon: Factory },
   { path: "/video-projects", label: "Video Projects", icon: Video },
   { path: "/clients", label: "Clients", icon: Users },
+  { path: "/brand-assets", label: "Brand Assets", icon: Palette },
   { path: "/control-tower", label: "Control Tower", icon: Shield },
   { path: "/settings", label: "Settings", icon: Settings },
 ];
