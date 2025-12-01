@@ -199,6 +199,14 @@ export const videoProjects = pgTable("video_projects", {
   status: text("status").notNull().default("draft"), // draft, generating, ready, exported, failed
   outputUrl: text("output_url"), // final merged video URL
   outputFormat: text("output_format").default("mp4"),
+  
+  // Quality tier settings
+  qualityTier: text("quality_tier").default("production"), // draft, production, cinematic_4k
+  targetResolution: text("target_resolution").default("1080p"), // 720p, 1080p, 4k
+  qualityScore: decimal("quality_score", { precision: 5, scale: 2 }), // Composite quality 0-100
+  isQualityApproved: boolean("is_quality_approved"), // User approved quality?
+  qualityReviewedAt: timestamp("quality_reviewed_at"),
+  
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -577,3 +585,198 @@ export const healingActionsLog = pgTable("healing_actions_log", {
 export const insertHealingActionLogSchema = createInsertSchema(healingActionsLog).omit({ id: true, createdAt: true });
 export type InsertHealingActionLog = z.infer<typeof insertHealingActionLogSchema>;
 export type HealingActionLog = typeof healingActionsLog.$inferSelect;
+
+// ============================================================================
+// QUALITY METRICS & OPTIMIZATION SYSTEM
+// ============================================================================
+
+// Quality Tiers - Execution profiles for different quality levels
+export const qualityTierEnum = z.enum(["draft", "production", "cinematic_4k"]);
+export type QualityTier = z.infer<typeof qualityTierEnum>;
+
+// Content Quality Reviews - User feedback on generated content
+export const contentQualityReviews = pgTable("content_quality_reviews", {
+  id: serial("id").primaryKey(),
+  reviewId: text("review_id").notNull().unique(),
+  
+  // Content reference
+  contentType: text("content_type").notNull(), // video_project, video_scene, video_clip, generated_content
+  contentId: text("content_id").notNull(), // projectId, sceneId, clipId, or contentId
+  
+  // User feedback
+  overallRating: integer("overall_rating"), // 1-5 stars
+  isAccepted: boolean("is_accepted"), // true = high quality, false = not acceptable
+  rejectionReason: text("rejection_reason"), // Why it was rejected
+  
+  // Quality dimension ratings (1-5)
+  visualQuality: integer("visual_quality"),
+  audioQuality: integer("audio_quality"),
+  brandAlignment: integer("brand_alignment"),
+  scriptCoherence: integer("script_coherence"),
+  cinematicAppeal: integer("cinematic_appeal"),
+  
+  // Tags for quick categorization
+  qualityTags: text("quality_tags").array(), // ['too_fast', 'low_resolution', 'off_brand', 'excellent_color', etc.]
+  
+  // Reviewer info
+  reviewedBy: text("reviewed_by"), // user identifier
+  reviewerNotes: text("reviewer_notes"),
+  
+  // Provider tracking for ML feedback
+  providerUsed: text("provider_used"),
+  generationParams: text("generation_params"), // JSON of params used
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertContentQualityReviewSchema = createInsertSchema(contentQualityReviews).omit({ id: true, createdAt: true });
+export type InsertContentQualityReview = z.infer<typeof insertContentQualityReviewSchema>;
+export type ContentQualityReview = typeof contentQualityReviews.$inferSelect;
+
+// Content Quality Metrics - Objective/automated quality measurements
+export const contentQualityMetrics = pgTable("content_quality_metrics", {
+  id: serial("id").primaryKey(),
+  metricId: text("metric_id").notNull().unique(),
+  
+  // Content reference
+  contentType: text("content_type").notNull(),
+  contentId: text("content_id").notNull(),
+  
+  // Video/Image metrics
+  resolution: text("resolution"), // 720p, 1080p, 4k
+  actualWidth: integer("actual_width"),
+  actualHeight: integer("actual_height"),
+  bitrate: integer("bitrate"), // kbps
+  frameRate: integer("frame_rate"), // fps
+  colorDepth: integer("color_depth"), // bits
+  
+  // Audio metrics
+  audioLoudness: decimal("audio_loudness", { precision: 6, scale: 2 }), // LUFS
+  audioClarity: decimal("audio_clarity", { precision: 5, scale: 2 }), // 0-100
+  audioSync: boolean("audio_sync"), // Is audio synced with video?
+  
+  // Content analysis (AI-generated scores 0-100)
+  coherenceScore: decimal("coherence_score", { precision: 5, scale: 2 }), // Script-to-video alignment
+  motionSmoothness: decimal("motion_smoothness", { precision: 5, scale: 2 }), // Movement quality
+  artifactScore: decimal("artifact_score", { precision: 5, scale: 2 }), // Lower = more artifacts
+  brandComplianceScore: decimal("brand_compliance_score", { precision: 5, scale: 2 }), // Brand guideline adherence
+  aestheticScore: decimal("aesthetic_score", { precision: 5, scale: 2 }), // Overall visual appeal
+  
+  // Composite scores
+  overallQualityScore: decimal("overall_quality_score", { precision: 5, scale: 2 }), // Weighted composite 0-100
+  qualityTierAchieved: text("quality_tier_achieved"), // draft, production, cinematic_4k
+  
+  // Provider info
+  providerUsed: text("provider_used"),
+  modelVersion: text("model_version"),
+  generationTime: integer("generation_time"), // seconds
+  
+  analyzedAt: timestamp("analyzed_at").defaultNow().notNull(),
+});
+
+export const insertContentQualityMetricSchema = createInsertSchema(contentQualityMetrics).omit({ id: true, analyzedAt: true });
+export type InsertContentQualityMetric = z.infer<typeof insertContentQualityMetricSchema>;
+export type ContentQualityMetric = typeof contentQualityMetrics.$inferSelect;
+
+// Provider Quality Scores - Rolling quality aggregates per provider
+export const providerQualityScores = pgTable("provider_quality_scores", {
+  id: serial("id").primaryKey(),
+  providerName: text("provider_name").notNull(),
+  serviceType: text("service_type").notNull(),
+  
+  // Quality metrics (rolling averages)
+  avgQualityScore: decimal("avg_quality_score", { precision: 5, scale: 2 }).notNull().default("50"),
+  avgUserRating: decimal("avg_user_rating", { precision: 3, scale: 2 }), // 1-5
+  acceptanceRate: decimal("acceptance_rate", { precision: 5, scale: 2 }).notNull().default("100"), // % accepted
+  
+  // Dimension scores (0-100)
+  avgVisualQuality: decimal("avg_visual_quality", { precision: 5, scale: 2 }),
+  avgBrandAlignment: decimal("avg_brand_alignment", { precision: 5, scale: 2 }),
+  avgCoherence: decimal("avg_coherence", { precision: 5, scale: 2 }),
+  avgAestheticScore: decimal("avg_aesthetic_score", { precision: 5, scale: 2 }),
+  
+  // Stats
+  totalReviews: integer("total_reviews").notNull().default(0),
+  totalAccepted: integer("total_accepted").notNull().default(0),
+  totalRejected: integer("total_rejected").notNull().default(0),
+  
+  // Quality tier success rates
+  draftSuccessRate: decimal("draft_success_rate", { precision: 5, scale: 2 }),
+  productionSuccessRate: decimal("production_success_rate", { precision: 5, scale: 2 }),
+  cinematicSuccessRate: decimal("cinematic_success_rate", { precision: 5, scale: 2 }),
+  
+  // Combined scoring
+  qualityHealthScore: decimal("quality_health_score", { precision: 5, scale: 2 }).notNull().default("50"), // Combined operational + quality
+  qualityWeight: decimal("quality_weight", { precision: 3, scale: 2 }).notNull().default("0.5"), // How much quality affects routing (0-1)
+  
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProviderQualityScoreSchema = createInsertSchema(providerQualityScores).omit({ id: true, updatedAt: true });
+export type InsertProviderQualityScore = z.infer<typeof insertProviderQualityScoreSchema>;
+export type ProviderQualityScore = typeof providerQualityScores.$inferSelect;
+
+// Quality Tier Configurations - Settings for each quality tier
+export const qualityTierConfigs = pgTable("quality_tier_configs", {
+  id: serial("id").primaryKey(),
+  tierName: text("tier_name").notNull().unique(), // draft, production, cinematic_4k
+  displayName: text("display_name").notNull(),
+  description: text("description"),
+  
+  // Target specifications
+  targetResolution: text("target_resolution").notNull().default("1080p"),
+  minBitrate: integer("min_bitrate"), // kbps
+  minFrameRate: integer("min_frame_rate"), // fps
+  
+  // Quality thresholds (0-100)
+  minQualityScore: integer("min_quality_score").notNull().default(50),
+  minCoherenceScore: integer("min_coherence_score"),
+  minAestheticScore: integer("min_aesthetic_score"),
+  
+  // Provider preferences
+  preferredProviders: text("preferred_providers").array(), // JSON array of provider names
+  excludedProviders: text("excluded_providers").array(),
+  qualityWeightOverride: decimal("quality_weight_override", { precision: 3, scale: 2 }), // Override default quality vs operational weight
+  
+  // Retry settings
+  maxRetries: integer("max_retries").notNull().default(3),
+  autoUpgradeOnFailure: boolean("auto_upgrade_on_failure").notNull().default(false), // Upgrade tier if lower fails
+  
+  // Cost settings
+  maxCostPerPiece: decimal("max_cost_per_piece", { precision: 10, scale: 4 }),
+  prioritizeFree: boolean("prioritize_free").notNull().default(false),
+  
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertQualityTierConfigSchema = createInsertSchema(qualityTierConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertQualityTierConfig = z.infer<typeof insertQualityTierConfigSchema>;
+export type QualityTierConfig = typeof qualityTierConfigs.$inferSelect;
+
+// Quality Feedback Loop - Tracks how quality feedback improves the system
+export const qualityFeedbackLoop = pgTable("quality_feedback_loop", {
+  id: serial("id").primaryKey(),
+  feedbackId: text("feedback_id").notNull().unique(),
+  
+  // Trigger info
+  reviewId: text("review_id").notNull(), // Reference to content_quality_reviews
+  providerName: text("provider_name").notNull(),
+  serviceType: text("service_type").notNull(),
+  
+  // Action taken
+  actionType: text("action_type").notNull(), // priority_boost, priority_penalty, chain_reorder, tier_adjustment, pattern_learned
+  actionDetails: text("action_details"), // JSON with specific changes
+  
+  // Impact tracking
+  previousScore: decimal("previous_score", { precision: 5, scale: 2 }),
+  newScore: decimal("new_score", { precision: 5, scale: 2 }),
+  impactMagnitude: decimal("impact_magnitude", { precision: 5, scale: 2 }), // How much the action changed things
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertQualityFeedbackLoopSchema = createInsertSchema(qualityFeedbackLoop).omit({ id: true, createdAt: true });
+export type InsertQualityFeedbackLoop = z.infer<typeof insertQualityFeedbackLoopSchema>;
+export type QualityFeedbackLoop = typeof qualityFeedbackLoop.$inferSelect;
