@@ -4,8 +4,9 @@ import type { ClientBrief, ContentTopic, GeneratedContent, ContentType, AgentRes
 import { 
   formatTextualBriefForPrompt, 
   buildSystemPromptSuffix,
-  buildImagePromptEnrichment,
-  getEffectiveCTA 
+  buildReferenceConstrainedImagePrompt,
+  getEffectiveCTA,
+  hasReferenceAsset
 } from "../services/brand-brief";
 
 const AD_CONFIGS = {
@@ -130,9 +131,23 @@ Format output as JSON:
           ? 'eye-catching, scroll-stopping, vibrant colors, clear focal point, marketing focused'
           : 'clean, professional, minimal, high contrast, conversion-optimized';
         
-        const imagePrompt = isEnriched 
-          ? buildImagePromptEnrichment(enrichedBrief, basePrompt)
-          : basePrompt;
+        let imagePrompt: string;
+        if (isEnriched && hasReferenceAsset(enrichedBrief)) {
+          const { prompt } = buildReferenceConstrainedImagePrompt(enrichedBrief, basePrompt, {
+            strictMode: true,
+            imageType: 'ad',
+          });
+          imagePrompt = prompt;
+          console.log(`[AdCopyAgent] Using reference-constrained prompt with brand logo`);
+        } else if (isEnriched) {
+          const { prompt } = buildReferenceConstrainedImagePrompt(enrichedBrief, basePrompt, {
+            strictMode: false,
+            imageType: 'ad',
+          });
+          imagePrompt = prompt;
+        } else {
+          imagePrompt = basePrompt;
+        }
         
         const imageResult = await generateImageWithNanoBananaPro(
           imagePrompt,

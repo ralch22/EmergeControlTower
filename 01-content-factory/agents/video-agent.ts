@@ -7,8 +7,10 @@ import {
   formatTextualBriefForPrompt, 
   formatVisualBriefForPrompt,
   buildSystemPromptSuffix,
-  buildVideoSceneEnrichment,
-  getEffectiveCTA 
+  buildReferenceConstrainedVideoPrompt,
+  getEffectiveCTA,
+  hasReferenceAsset,
+  getReferenceAssetUrl
 } from "../services/brand-brief";
 
 const BASE_SYSTEM_PROMPT = `You are a video content strategist and scriptwriter. You create engaging video scripts optimized for:
@@ -56,15 +58,30 @@ ${brief.visual.motifs.length ? `- Motifs to include: ${brief.visual.motifs.join(
 async function generateSceneThumbnail(
   visualDescription: string, 
   sceneNumber: number,
-  brief?: EnrichedClientBrief
+  brief?: EnrichedClientBrief,
+  totalScenes?: number
 ): Promise<string | undefined> {
   const shortPrompt = visualDescription.length > 200 
     ? visualDescription.substring(0, 200) + '...'
     : visualDescription;
   
-  const enrichedPrompt = brief 
-    ? buildVideoSceneEnrichment(brief, shortPrompt)
-    : shortPrompt;
+  let enrichedPrompt: string;
+  if (brief && hasReferenceAsset(brief)) {
+    const { prompt } = buildReferenceConstrainedVideoPrompt(brief, shortPrompt, {
+      sceneIndex: sceneNumber - 1,
+      totalScenes,
+    });
+    enrichedPrompt = prompt;
+    console.log(`[VideoAgent] Using reference-constrained prompt with brand logo for scene ${sceneNumber}`);
+  } else if (brief) {
+    const { prompt } = buildReferenceConstrainedVideoPrompt(brief, shortPrompt, {
+      sceneIndex: sceneNumber - 1,
+      totalScenes,
+    });
+    enrichedPrompt = prompt;
+  } else {
+    enrichedPrompt = shortPrompt;
+  }
   
   console.log(`[VideoAgent] Generating thumbnail for scene ${sceneNumber}...`);
   
@@ -244,11 +261,13 @@ Output as JSON:
     const sceneThumbnails: Record<number, string> = {};
     const maxThumbnails = Math.min(scriptData.scenes?.length || 0, 5);
     
+    const totalScenes = scriptData.scenes?.length || 0;
     const thumbnailPromises = scriptData.scenes?.slice(0, maxThumbnails).map(async (scene) => {
       const thumbnailUrl = await generateSceneThumbnail(
         scene.visualDescription, 
         scene.sceneNumber,
-        isEnriched ? enrichedBrief : undefined
+        isEnriched ? enrichedBrief : undefined,
+        totalScenes
       );
       if (thumbnailUrl) {
         sceneThumbnails[scene.sceneNumber] = thumbnailUrl;
@@ -270,9 +289,19 @@ Output as JSON:
           .slice(0, 2)
           .join('. ');
         
-        const enrichedVideoPrompt = isEnriched 
-          ? buildVideoSceneEnrichment(enrichedBrief, videoPrompt)
-          : videoPrompt;
+        let enrichedVideoPrompt: string;
+        if (isEnriched && hasReferenceAsset(enrichedBrief)) {
+          const { prompt } = buildReferenceConstrainedVideoPrompt(enrichedBrief, videoPrompt, {
+            includeLogoOverlay: true,
+          });
+          enrichedVideoPrompt = prompt;
+          console.log(`[VideoAgent] Using reference-constrained video prompt with brand logo`);
+        } else if (isEnriched) {
+          const { prompt } = buildReferenceConstrainedVideoPrompt(enrichedBrief, videoPrompt);
+          enrichedVideoPrompt = prompt;
+        } else {
+          enrichedVideoPrompt = videoPrompt;
+        }
         
         const videoResult = await generateVideoFromText(
           enrichedVideoPrompt,

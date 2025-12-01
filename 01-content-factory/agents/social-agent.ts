@@ -4,8 +4,9 @@ import type { ClientBrief, ContentTopic, GeneratedContent, ContentType, AgentRes
 import { 
   formatTextualBriefForPrompt, 
   buildSystemPromptSuffix,
-  buildImagePromptEnrichment,
-  getEffectiveCTA 
+  buildReferenceConstrainedImagePrompt,
+  getEffectiveCTA,
+  hasReferenceAsset
 } from "../services/brand-brief";
 
 const PLATFORM_CONFIGS = {
@@ -105,8 +106,26 @@ Output ONLY the post content, ready to publish.`;
           ? `${enrichedBrief.visual.aesthetic.join(', ')}, ${enrichedBrief.visual.moodKeywords.join(', ')}`
           : brief.brandVoice;
         
+        let imagePrompt: string;
+        if (isEnriched && hasReferenceAsset(enrichedBrief)) {
+          const { prompt } = buildReferenceConstrainedImagePrompt(enrichedBrief, basePrompt, {
+            strictMode: true,
+            imageType: 'social',
+          });
+          imagePrompt = prompt;
+          console.log(`[SocialAgent] Using reference-constrained prompt with brand logo`);
+        } else if (isEnriched) {
+          const { prompt } = buildReferenceConstrainedImagePrompt(enrichedBrief, basePrompt, {
+            strictMode: false,
+            imageType: 'social',
+          });
+          imagePrompt = prompt;
+        } else {
+          imagePrompt = topic.title;
+        }
+        
         const imageResult = await generateSocialMediaGraphic(
-          isEnriched ? buildImagePromptEnrichment(enrichedBrief, basePrompt) : topic.title,
+          imagePrompt,
           platform,
           brandVoice
         );

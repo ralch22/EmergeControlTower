@@ -4,8 +4,9 @@ import type { ClientBrief, ContentTopic, GeneratedContent, AgentResponse, Enrich
 import { 
   formatTextualBriefForPrompt, 
   buildSystemPromptSuffix,
-  buildImagePromptEnrichment,
-  getEffectiveCTA 
+  buildReferenceConstrainedImagePrompt,
+  getEffectiveCTA,
+  hasReferenceAsset
 } from "../services/brand-brief";
 
 function buildBlogSystemPrompt(brief: EnrichedClientBrief): string {
@@ -81,9 +82,24 @@ Maintain the ${isEnriched ? enrichedBrief.textual.archetype : 'professional'} br
         console.log(`[BlogAgent] Generating hero image with Nano Banana Pro...`);
         
         const basePrompt = `Professional blog header image for article: "${title}". Industry: ${brief.industry || 'business'}.`;
-        const imagePrompt = isEnriched 
-          ? buildImagePromptEnrichment(enrichedBrief, basePrompt)
-          : `${basePrompt} Clean, modern, editorial style.`;
+        
+        let imagePrompt: string;
+        if (isEnriched && hasReferenceAsset(enrichedBrief)) {
+          const { prompt } = buildReferenceConstrainedImagePrompt(enrichedBrief, basePrompt, {
+            strictMode: true,
+            imageType: 'blog',
+          });
+          imagePrompt = prompt;
+          console.log(`[BlogAgent] Using reference-constrained prompt with brand logo`);
+        } else if (isEnriched) {
+          const { prompt } = buildReferenceConstrainedImagePrompt(enrichedBrief, basePrompt, {
+            strictMode: false,
+            imageType: 'blog',
+          });
+          imagePrompt = prompt;
+        } else {
+          imagePrompt = `${basePrompt} Clean, modern, editorial style.`;
+        }
         
         const imageResult = await generateImageWithNanoBananaPro(imagePrompt, {
           resolution: '2K',
