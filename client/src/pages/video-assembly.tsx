@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -11,8 +11,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { 
   Film, Play, Pause, RefreshCw, CheckCircle, XCircle, Clock, 
   AlertTriangle, Download, ChevronLeft, Video, Mic, Image,
-  Zap, SkipForward, Loader2, ExternalLink
+  Zap, SkipForward, Loader2, ExternalLink, Wand2
 } from "lucide-react";
+
+const ShotstackStudio = lazy(() => import("@/components/ShotstackStudio"));
 
 interface SceneStatus {
   sceneNumber: number;
@@ -359,6 +361,28 @@ export default function VideoAssemblyPage() {
           </div>
         ) : (
           <div className="space-y-6">
+            <Tabs defaultValue="status" className="space-y-4">
+              <TabsList className="bg-zinc-800/50">
+                <TabsTrigger value="status" data-testid="tab-assembly-status">
+                  <Film className="w-4 h-4 mr-2" />
+                  Assembly Status
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="editor" 
+                  disabled={!assemblyStatus?.canForceAssemble}
+                  data-testid="tab-video-editor"
+                >
+                  <Wand2 className="w-4 h-4 mr-2" />
+                  Fine-tune Edit
+                  {!assemblyStatus?.canForceAssemble && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      Clips pending
+                    </Badge>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="status">
             {statusLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
@@ -524,6 +548,33 @@ export default function VideoAssemblyPage() {
                 </CardContent>
               </Card>
             )}
+              </TabsContent>
+
+              <TabsContent value="editor">
+                {assemblyStatus?.canForceAssemble ? (
+                  <Suspense fallback={
+                    <Card className="bg-zinc-900/50 border-zinc-700">
+                      <CardContent className="py-12 text-center">
+                        <Loader2 className="w-8 h-8 mx-auto animate-spin text-cyan-400 mb-4" />
+                        <p className="text-zinc-400">Loading video editor...</p>
+                      </CardContent>
+                    </Card>
+                  }>
+                    <ShotstackStudio projectId={selectedProjectId} />
+                  </Suspense>
+                ) : (
+                  <Card className="bg-zinc-900/50 border-zinc-700">
+                    <CardContent className="py-12 text-center">
+                      <AlertTriangle className="w-12 h-12 mx-auto text-yellow-500 mb-4" />
+                      <p className="text-zinc-400 mb-2">Video clips are still being generated</p>
+                      <p className="text-sm text-zinc-500">
+                        The editor will be available once at least one clip is ready.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+            </Tabs>
           </div>
         )}
       </div>
