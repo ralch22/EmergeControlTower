@@ -376,7 +376,7 @@ export default function ContentFactoryPage() {
         body: JSON.stringify({
           clientId,
           topicCount: 5,
-          contentTypes: ["blog", "linkedin", "twitter"],
+          contentTypes: ["blog", "linkedin", "twitter", "video_script"],
         }),
       });
       if (!res.ok) throw new Error((await res.json()).error || "Failed to start pipeline");
