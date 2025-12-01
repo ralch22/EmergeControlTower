@@ -711,6 +711,75 @@ export async function registerRoutes(
 
   // ========== VIDEO PROJECTS ==========
 
+  // Proxy endpoint to serve Gemini-hosted videos with authentication
+  app.get("/api/video-proxy", async (req, res) => {
+    try {
+      const { url } = req.query;
+      
+      if (!url || typeof url !== 'string') {
+        return res.status(400).json({ error: "URL parameter is required" });
+      }
+
+      // Only proxy Gemini API URLs for security
+      if (!url.includes('generativelanguage.googleapis.com')) {
+        return res.status(400).json({ error: "Only Gemini API URLs are allowed" });
+      }
+
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "Gemini API key not configured" });
+      }
+
+      // Add API key to the URL
+      const separator = url.includes('?') ? '&' : '?';
+      const authenticatedUrl = `${url}${separator}key=${apiKey}`;
+
+      // Fetch the video from Gemini
+      const response = await fetch(authenticatedUrl);
+      
+      if (!response.ok) {
+        console.error(`[VideoProxy] Failed to fetch video: ${response.status} ${response.statusText}`);
+        return res.status(response.status).json({ error: "Failed to fetch video" });
+      }
+
+      // Get content type and set appropriate headers
+      const contentType = response.headers.get('content-type') || 'video/mp4';
+      const contentLength = response.headers.get('content-length');
+      
+      res.setHeader('Content-Type', contentType);
+      if (contentLength) {
+        res.setHeader('Content-Length', contentLength);
+      }
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+
+      // Stream the video to the client
+      if (response.body) {
+        const reader = response.body.getReader();
+        const stream = new ReadableStream({
+          async start(controller) {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              controller.enqueue(value);
+            }
+            controller.close();
+          }
+        });
+        
+        // Convert to Node.js stream and pipe to response
+        const nodeStream = require('stream').Readable.fromWeb(stream);
+        nodeStream.pipe(res);
+      } else {
+        const buffer = await response.arrayBuffer();
+        res.send(Buffer.from(buffer));
+      }
+    } catch (error: any) {
+      console.error('[VideoProxy] Error:', error);
+      res.status(500).json({ error: error.message || "Failed to proxy video" });
+    }
+  });
+
   // Get all video projects with full data
   app.get("/api/video-projects", async (req, res) => {
     try {

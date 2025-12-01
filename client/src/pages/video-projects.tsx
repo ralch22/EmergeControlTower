@@ -164,6 +164,14 @@ const voiceStyles = [
   { value: "calm", label: "Calm" },
 ];
 
+function getProxiedUrl(url: string | undefined | null): string {
+  if (!url) return '';
+  if (url.includes('generativelanguage.googleapis.com')) {
+    return `/api/video-proxy?url=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
 export default function VideoProjectsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -1321,7 +1329,7 @@ export default function VideoProjectsPage() {
                                           sceneId: scene.sceneId,
                                           title: `${scene.title} - Video`,
                                           type: 'video',
-                                          url: clip.videoUrl!
+                                          url: getProxiedUrl(clip.videoUrl)
                                         });
                                       }}
                                       data-testid={`button-play-video-${scene.sceneId}`}
@@ -1346,7 +1354,7 @@ export default function VideoProjectsPage() {
                                           sceneId: scene.sceneId,
                                           title: `${scene.title} - Audio`,
                                           type: 'audio',
-                                          url: audio.audioUrl!
+                                          url: getProxiedUrl(audio.audioUrl)
                                         });
                                       }}
                                       data-testid={`button-play-audio-${scene.sceneId}`}
