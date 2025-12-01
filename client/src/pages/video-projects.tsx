@@ -1252,7 +1252,7 @@ export default function VideoProjectsPage() {
         )}
 
         <Dialog open={!!selectedProject} onOpenChange={() => setSelectedProject(null)}>
-          <DialogContent className="bg-zinc-900 border-zinc-700 max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogContent className="bg-zinc-900 border-zinc-700 max-w-4xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="text-cyan-400">{selectedProject?.title}</DialogTitle>
             </DialogHeader>
@@ -1368,26 +1368,45 @@ export default function VideoProjectsPage() {
                           </CollapsibleTrigger>
                           <CollapsibleContent asChild>
                             <div className="p-3 bg-zinc-900 border-l-2 border-cyan-400/30 ml-2 mt-1 rounded-lg space-y-3">
-                              {scene.imageUrl && (
-                                <div>
-                                  <p className="text-xs font-medium text-zinc-400 uppercase mb-2">Reference Image</p>
-                                  <img
-                                    src={scene.imageUrl}
-                                    alt={`Reference for ${scene.title}`}
-                                    className="w-full h-32 object-cover rounded-lg border border-cyan-400/20 cursor-pointer hover:border-cyan-400/50 transition-colors"
-                                    onClick={() => setSelectedPreviewScene({
-                                      sceneId: scene.sceneId,
-                                      title: `${scene.title} - Reference Image`,
-                                      type: 'video',
-                                      url: scene.imageUrl!
-                                    })}
-                                    data-testid={`img-reference-${scene.sceneId}`}
-                                  />
+                              <div className={clip?.status === 'ready' && clip?.videoUrl ? 'grid grid-cols-2 gap-4' : ''}>
+                                <div className="space-y-3">
+                                  {scene.imageUrl && (
+                                    <div>
+                                      <p className="text-xs font-medium text-zinc-400 uppercase mb-2">Reference Image</p>
+                                      <img
+                                        src={scene.imageUrl}
+                                        alt={`Reference for ${scene.title}`}
+                                        className="w-full h-32 object-cover rounded-lg border border-cyan-400/20 cursor-pointer hover:border-cyan-400/50 transition-colors"
+                                        onClick={() => setSelectedPreviewScene({
+                                          sceneId: scene.sceneId,
+                                          title: `${scene.title} - Reference Image`,
+                                          type: 'video',
+                                          url: scene.imageUrl!
+                                        })}
+                                        data-testid={`img-reference-${scene.sceneId}`}
+                                      />
+                                    </div>
+                                  )}
+                                  <div>
+                                    <p className="text-xs font-medium text-zinc-400 uppercase mb-1">Visual Prompt</p>
+                                    <p className="text-sm text-zinc-200 break-words">{scene.visualPrompt || 'No visual prompt specified'}</p>
+                                  </div>
                                 </div>
-                              )}
-                              <div>
-                                <p className="text-xs font-medium text-zinc-400 uppercase mb-1">Visual Prompt</p>
-                                <p className="text-sm text-zinc-200 break-words">{scene.visualPrompt || 'No visual prompt specified'}</p>
+                                {clip?.status === 'ready' && clip?.videoUrl && (
+                                  <div>
+                                    <p className="text-xs font-medium text-zinc-400 uppercase mb-2">Video Preview</p>
+                                    <video
+                                      key={clip.videoUrl}
+                                      controls
+                                      playsInline
+                                      className="w-full rounded-lg bg-black border border-green-400/30"
+                                      data-testid={`video-inline-${scene.sceneId}`}
+                                    >
+                                      <source src={getProxiedUrl(clip.videoUrl)} type="video/mp4" />
+                                      Your browser does not support the video tag.
+                                    </video>
+                                  </div>
+                                )}
                               </div>
                               {scene.voiceoverText && (
                                 <div>
