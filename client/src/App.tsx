@@ -14,6 +14,7 @@ import ControlTower from "@/pages/control-tower";
 import ContentFactory from "@/pages/content-factory";
 import Clients from "@/pages/clients";
 import BrandAssets from "@/pages/brand-assets";
+import BrandFiles from "@/pages/brand-files";
 
 function Router() {
   return (
@@ -23,6 +24,7 @@ function Router() {
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/clients" component={Clients} />
         <Route path="/brand-assets" component={BrandAssets} />
+        <Route path="/brand-files" component={BrandFiles} />
         <Route path="/content-factory" component={ContentFactory} />
         <Route path="/video-projects" component={VideoProjects} />
         <Route path="/settings" component={Settings} />
