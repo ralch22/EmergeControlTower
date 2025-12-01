@@ -42,36 +42,95 @@ interface TestRunResult {
 }
 
 const PAGES_TO_TEST = [
+  // Core Pages
   { name: 'Control Tower', path: '/', category: 'core' },
+  { name: 'Dashboard', path: '/dashboard', category: 'core' },
+  
+  // Content Production Pages
   { name: 'Content Factory', path: '/content-factory', category: 'content' },
   { name: 'Video Projects', path: '/video-projects', category: 'video' },
   { name: 'Video Assembly', path: '/video-assembly', category: 'video' },
+  
+  // Quality & Review Pages
   { name: 'Quality Review', path: '/quality-review', category: 'quality' },
   { name: 'Approval Queue', path: '/approval-queue', category: 'quality' },
+  
+  // Brand Management Pages
   { name: 'Clients', path: '/clients', category: 'brand' },
-  { name: 'Brand Guidelines', path: '/brand-guidelines', category: 'brand' },
+  { name: 'Brand Guidelines', path: '/brand-assets', category: 'brand' },
   { name: 'Brand Files', path: '/brand-files', category: 'brand' },
   { name: 'Brand Control', path: '/brand-control', category: 'brand' },
+  
+  // System Pages
+  { name: 'Control Tower', path: '/control-tower', category: 'system' },
   { name: 'Provider Health', path: '/provider-health', category: 'system' },
   { name: 'Self-Healing', path: '/self-healing', category: 'system' },
+  { name: 'Test Runner', path: '/test-runner', category: 'testing' },
   { name: 'Settings', path: '/settings', category: 'system' },
 ];
 
 const API_ENDPOINTS_TO_TEST = [
+  // Core APIs
   { name: 'KPIs', path: '/api/kpis', category: 'core', method: 'GET' },
   { name: 'Pods', path: '/api/pods', category: 'core', method: 'GET' },
+  { name: 'Phase Changes', path: '/api/phase-changes', category: 'core', method: 'GET' },
+  { name: 'Alerts', path: '/api/alerts', category: 'core', method: 'GET' },
+  { name: 'Approvals', path: '/api/approvals', category: 'core', method: 'GET' },
+  
+  // Content Pipeline APIs
+  { name: 'Content Runs', path: '/api/content-runs', category: 'content', method: 'GET' },
+  { name: 'Content', path: '/api/content', category: 'content', method: 'GET' },
+  { name: 'Activity Logs', path: '/api/activity-logs', category: 'content', method: 'GET' },
+  { name: 'Pipeline Status', path: '/api/pipeline-status', category: 'content', method: 'GET' },
+  
+  // Video Pipeline APIs
   { name: 'Video Projects', path: '/api/video-projects', category: 'video', method: 'GET' },
+  { name: 'Video Ingredients', path: '/api/video-ingredients', category: 'video', method: 'GET' },
+  { name: 'Video Scenes', path: '/api/video-scenes', category: 'video', method: 'GET' },
+  
+  // Runway APIs
   { name: 'Runway Models', path: '/api/runway/models', category: 'runway', method: 'GET' },
   { name: 'Runway Tier Status', path: '/api/runway/tier-status', category: 'runway', method: 'GET' },
+  { name: 'Runway Can Submit', path: '/api/runway/can-submit/gen4_turbo', category: 'runway', method: 'GET' },
+  
+  // Provider APIs
   { name: 'Provider Status', path: '/api/providers/status', category: 'providers', method: 'GET' },
+  { name: 'Provider Health', path: '/api/providers/health', category: 'providers', method: 'GET' },
+  { name: 'Provider Smart Order Video', path: '/api/providers/smart-order/video', category: 'providers', method: 'GET' },
+  { name: 'Provider Smart Order Image', path: '/api/providers/smart-order/image', category: 'providers', method: 'GET' },
+  { name: 'Provider Smart Order Text', path: '/api/providers/smart-order/text', category: 'providers', method: 'GET' },
+  { name: 'Provider Quarantine', path: '/api/providers/quarantine', category: 'providers', method: 'GET' },
+  { name: 'Provider Healing Actions', path: '/api/providers/healing-actions', category: 'providers', method: 'GET' },
+  
+  // Brand APIs
   { name: 'Clients', path: '/api/clients', category: 'brand', method: 'GET' },
+  { name: 'Brand Assets', path: '/api/brand-assets', category: 'brand', method: 'GET' },
+  { name: 'Brand Asset Files', path: '/api/brand-asset-files/1', category: 'brand', method: 'GET' },
+  
+  // Quality APIs
   { name: 'Approval Queue', path: '/api/approval-queue', category: 'quality', method: 'GET' },
+  { name: 'Quality Dashboard', path: '/api/quality/dashboard', category: 'quality', method: 'GET' },
+  { name: 'Quality Provider Status', path: '/api/quality/provider-status', category: 'quality', method: 'GET' },
+  { name: 'Quality Reviews', path: '/api/quality/reviews', category: 'quality', method: 'GET' },
+  { name: 'Quality Provider Scores', path: '/api/quality/provider-scores', category: 'quality', method: 'GET' },
+  { name: 'Quality Tiers', path: '/api/quality/tiers', category: 'quality', method: 'GET' },
+  { name: 'Quality Feedback', path: '/api/quality/feedback', category: 'quality', method: 'GET' },
+  { name: 'Quality Routing Video', path: '/api/quality/routing/video', category: 'quality', method: 'GET' },
+  
+  // AI Provider APIs
   { name: 'OpenRouter Test', path: '/api/openrouter/test', category: 'ai', method: 'GET' },
   { name: 'OpenRouter Models', path: '/api/openrouter/models', category: 'ai', method: 'GET' },
-  { name: 'Quality Provider Status', path: '/api/quality/provider-status', category: 'quality', method: 'GET' },
+  
+  // Self-Healing APIs
   { name: 'Self-Healing Metrics', path: '/api/self-healing/metrics', category: 'system', method: 'GET' },
   { name: 'Self-Healing Incidents', path: '/api/self-healing/incidents', category: 'system', method: 'GET' },
-  { name: 'Provider Health', path: '/api/provider-health', category: 'system', method: 'GET' },
+  { name: 'Provider Health Dashboard', path: '/api/provider-health', category: 'system', method: 'GET' },
+  
+  // Test Runner APIs
+  { name: 'Test Last Run', path: '/api/tests/last-run', category: 'testing', method: 'GET' },
+  { name: 'Test History', path: '/api/tests/history', category: 'testing', method: 'GET' },
+  { name: 'Test Broken Features', path: '/api/tests/broken-features', category: 'testing', method: 'GET' },
+  { name: 'Test Feature Health', path: '/api/tests/feature-health', category: 'testing', method: 'GET' },
 ];
 
 function suggestFix(error: string, feature: string): string {
