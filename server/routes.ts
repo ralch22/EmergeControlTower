@@ -355,6 +355,155 @@ export async function registerRoutes(
     }
   });
 
+  // Import brand guidelines from external URLs (GitHub, website, etc.)
+  app.post("/api/clients/:id/import-guidelines", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { guidelinesUrl, websiteUrl } = req.body;
+
+      if (!guidelinesUrl && !websiteUrl) {
+        return res.status(400).json({ error: "At least one URL is required" });
+      }
+
+      const client = await storage.getClient(id);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+
+      // Fetch and parse external content
+      let guidelinesContent = '';
+      let websiteContent = '';
+
+      if (guidelinesUrl) {
+        try {
+          // Convert GitHub blob URLs to raw URLs
+          let rawUrl = guidelinesUrl;
+          if (guidelinesUrl.includes('github.com') && guidelinesUrl.includes('/blob/')) {
+            rawUrl = guidelinesUrl
+              .replace('github.com', 'raw.githubusercontent.com')
+              .replace('/blob/', '/');
+          }
+          const response = await fetch(rawUrl);
+          if (response.ok) {
+            guidelinesContent = await response.text();
+          }
+        } catch (err: any) {
+          console.warn('Failed to fetch guidelines:', err.message);
+        }
+      }
+
+      if (websiteUrl) {
+        try {
+          const response = await fetch(websiteUrl);
+          if (response.ok) {
+            const html = await response.text();
+            // Extract text content from HTML
+            websiteContent = html
+              .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+              .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 5000); // Limit to first 5000 chars
+          }
+        } catch (err: any) {
+          console.warn('Failed to fetch website:', err.message);
+        }
+      }
+
+      // Use Claude to parse and structure the brand guidelines
+      const { generateWithClaude } = await import('../01-content-factory/integrations/anthropic');
+      
+      const parsePrompt = `Analyze the following brand design guidelines and website content. Extract and structure the brand information into a comprehensive brand profile JSON.
+
+${guidelinesContent ? `## Design Guidelines (from ${guidelinesUrl}):\n${guidelinesContent}\n` : ''}
+${websiteContent ? `## Website Content (from ${websiteUrl}):\n${websiteContent}\n` : ''}
+
+Generate a JSON object with this exact structure:
+{
+  "version": "2.0",
+  "textual": {
+    "brandName": { "primary": "Brand Name", "token": "TOKEN_SYMBOL" },
+    "tagline": { "primary": "Main tagline", "secondary": ["Alternative 1", "Alternative 2"] },
+    "brandStory": { "short": "1-2 sentence story", "long": "Extended story" },
+    "values": [{ "name": "Value Name", "description": "Description" }],
+    "voiceTone": { "primary": "Professional", "secondary": ["Innovative"], "forbidden": ["Informal"] },
+    "keywords": ["keyword1", "keyword2"],
+    "forbiddenWords": ["word1", "word2"]
+  },
+  "visual": {
+    "colorPalette": {
+      "darkMode": {
+        "primary": { "hex": "#0066FF", "usage": "Primary brand color" },
+        "secondary": { "hex": "#1a1a2e", "usage": "Background" },
+        "accent": { "hex": "#00FF88", "usage": "Success states" }
+      },
+      "lightMode": {
+        "primary": { "hex": "#0066FF", "usage": "Primary brand color" },
+        "secondary": { "hex": "#FFFFFF", "usage": "Background" }
+      }
+    },
+    "typography": {
+      "fonts": [
+        { "family": "Inter", "usage": "Body text and UI", "weights": ["400", "500", "600", "700"] },
+        { "family": "JetBrains Mono", "usage": "Code and technical content", "weights": ["400", "500"] }
+      ],
+      "hierarchy": {
+        "h1": { "size": "48px", "weight": "700", "lineHeight": "1.2" },
+        "body": { "size": "16px", "weight": "400", "lineHeight": "1.6" }
+      }
+    },
+    "visualStyle": {
+      "description": "Description of visual style",
+      "aesthetic": ["Modern", "Tech-forward", "Minimalist"],
+      "mood": ["Professional", "Trustworthy"],
+      "influences": ["Material Design", "DeFi"]
+    },
+    "cinematicGuidelines": {
+      "resolution": "4K",
+      "aspectRatio": "16:9",
+      "colorGrading": "High contrast, vibrant blues",
+      "motionStyle": "Smooth, professional",
+      "transitions": "Fade, slide"
+    }
+  }
+}
+
+Return ONLY the JSON object, no additional text or markdown formatting.`;
+
+      const claudeResponse = await generateWithClaude(parsePrompt);
+      
+      // Parse the JSON from Claude's response
+      let brandProfile;
+      try {
+        const jsonMatch = claudeResponse.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          brandProfile = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error('No valid JSON found in response');
+        }
+      } catch (parseErr: any) {
+        console.error('Failed to parse brand profile JSON:', parseErr);
+        return res.status(500).json({ error: "Failed to parse brand guidelines" });
+      }
+
+      // Update client with the new brand profile
+      const updatedClient = await storage.updateClientBrandProfile(id, brandProfile);
+
+      res.json({
+        success: true,
+        client: updatedClient,
+        sources: {
+          guidelines: guidelinesUrl ? 'parsed' : 'not_provided',
+          website: websiteUrl ? 'parsed' : 'not_provided'
+        }
+      });
+    } catch (error: any) {
+      console.error('Import guidelines error:', error);
+      res.status(500).json({ error: error.message || "Failed to import guidelines" });
+    }
+  });
+
   // Delete a client (soft delete)
   app.delete("/api/clients/:id", async (req, res) => {
     try {
