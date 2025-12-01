@@ -75,6 +75,7 @@ const ASSET_SUBCATEGORIES = [
   { id: "mood-board", label: "Mood Board" },
   { id: "videos", label: "Reference Videos" },
   { id: "infographics", label: "Infographics" },
+  { id: "social", label: "Social Media Images" },
 ];
 
 const TEXTUAL_PURPOSES = [
@@ -227,6 +228,9 @@ export default function BrandFilesPage() {
   };
 
   const getCategoryFiles = (category: string) => {
+    if (category === 'assets') {
+      return files.filter(f => f.category === 'assets' || f.category === 'logos');
+    }
     return files.filter(f => f.category === category);
   };
 

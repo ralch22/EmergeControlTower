@@ -586,9 +586,9 @@ export async function generateLogoVariant(
       const filename = `logo_${variantType}_${uuidv4().slice(0, 8)}.png`;
       const localPath = await saveImageToFile(geminiResult.imageDataUrl, clientId, filename);
       
-      // Persist to database
+      // Persist to database (use 'assets' category with 'logos' subcategory for consistency with Brand Files Manager)
       await persistAssetToDatabase(
-        clientId, localPath, 'logos', variantType, `logo_${variantType}`,
+        clientId, localPath, 'assets', 'logos', `logo_${variantType}`,
         'image/png', { width: 1024, height: 1024 }, { variantType, provider: 'gemini' }
       );
       
