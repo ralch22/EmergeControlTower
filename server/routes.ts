@@ -821,7 +821,7 @@ export async function registerRoutes(
   // Create video project from video script
   app.post("/api/video-projects", async (req, res) => {
     try {
-      const { contentId, clientId, title } = req.body;
+      const { contentId, clientId, title, generateImages = true } = req.body;
       
       // Import scene parser
       const { parseVideoScript, calculateTotalDuration } = await import("../01-content-factory/utils/scene-parser");
@@ -856,8 +856,102 @@ export async function registerRoutes(
         status: 'pending',
       });
 
-      // Create scenes
-      for (const scene of parsedScenes) {
+      // Log activity - project creation started
+      await storage.createActivityLog({
+        runId: `video_proj_${projectId}`,
+        eventType: 'video_project_created',
+        level: 'info',
+        message: `Video project created: ${project.title}`,
+        metadata: JSON.stringify({ projectId, scenesCount: parsedScenes.length, totalDuration }),
+      });
+
+      // Generate reference images for each scene in parallel (if enabled)
+      let scenesWithImages = parsedScenes;
+      if (generateImages) {
+        try {
+          const { generateSceneImageWithAlibaba, isAlibabaImageConfigured } = await import("../01-content-factory/integrations/alibaba-image");
+          const { generateImageWithFalFluxPro } = await import("../01-content-factory/integrations/fal-ai");
+          
+          await storage.createActivityLog({
+            runId: `video_proj_${projectId}`,
+            eventType: 'reference_image_generation_started',
+            level: 'info',
+            message: `Generating reference images for ${parsedScenes.length} scenes...`,
+            metadata: JSON.stringify({ projectId, scenesCount: parsedScenes.length }),
+          });
+
+          const imagePromises = parsedScenes.map(async (scene, index) => {
+            try {
+              let imageUrl: string | undefined;
+              
+              // Try Alibaba first, then Fal AI as fallback
+              if (isAlibabaImageConfigured()) {
+                const result = await generateSceneImageWithAlibaba(scene.visualPrompt, '16:9');
+                if (result.success && result.imageUrl) {
+                  imageUrl = result.imageUrl;
+                }
+              }
+              
+              // Fallback to Fal AI if Alibaba failed or not configured
+              if (!imageUrl) {
+                const falResult = await generateImageWithFalFluxPro(
+                  scene.visualPrompt,
+                  { width: 1280, height: 720 }
+                );
+                if (falResult.success && falResult.imageUrl) {
+                  imageUrl = falResult.imageUrl;
+                }
+              }
+              
+              if (imageUrl) {
+                await storage.createActivityLog({
+                  runId: `video_proj_${projectId}`,
+                  eventType: 'reference_image_generated',
+                  level: 'success',
+                  message: `Reference image generated for scene ${scene.sceneNumber}: ${scene.title || 'Untitled'}`,
+                  metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, imageUrl }),
+                });
+              }
+              
+              return { ...scene, imageUrl };
+            } catch (error: any) {
+              console.error(`[VideoProject] Failed to generate image for scene ${scene.sceneNumber}:`, error);
+              await storage.createActivityLog({
+                runId: `video_proj_${projectId}`,
+                eventType: 'reference_image_failed',
+                level: 'warning',
+                message: `Failed to generate reference image for scene ${scene.sceneNumber}: ${error.message}`,
+                metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, error: error.message }),
+              });
+              return scene; // Return scene without image
+            }
+          });
+
+          scenesWithImages = await Promise.all(imagePromises);
+          
+          const imagesGenerated = scenesWithImages.filter(s => s.imageUrl).length;
+          await storage.createActivityLog({
+            runId: `video_proj_${projectId}`,
+            eventType: 'reference_image_generation_completed',
+            level: imagesGenerated === parsedScenes.length ? 'success' : 'info',
+            message: `Reference image generation completed: ${imagesGenerated}/${parsedScenes.length} images generated`,
+            metadata: JSON.stringify({ projectId, imagesGenerated, totalScenes: parsedScenes.length }),
+          });
+        } catch (error: any) {
+          console.error('[VideoProject] Image generation module error:', error);
+          await storage.createActivityLog({
+            runId: `video_proj_${projectId}`,
+            eventType: 'reference_image_generation_error',
+            level: 'error',
+            message: `Reference image generation error: ${error.message}`,
+            metadata: JSON.stringify({ projectId, error: error.message }),
+          });
+          // Continue without images
+        }
+      }
+
+      // Create scenes with their reference images
+      for (const scene of scenesWithImages) {
         const sceneId = `scene_${projectId}_${scene.sceneNumber}`;
         await storage.createVideoScene({
           sceneId,
@@ -866,20 +960,12 @@ export async function registerRoutes(
           title: scene.title,
           visualPrompt: scene.visualPrompt,
           voiceoverText: scene.voiceoverText,
+          imageUrl: scene.imageUrl,
           duration: scene.duration,
           startTime: scene.startTime,
           status: 'pending',
         });
       }
-
-      // Log activity
-      await storage.createActivityLog({
-        runId: `video_proj_${projectId}`,
-        eventType: 'video_project_created',
-        level: 'info',
-        message: `Video project created: ${project.title}`,
-        metadata: JSON.stringify({ projectId, scenesCount: parsedScenes.length, totalDuration }),
-      });
 
       const fullProject = await storage.getFullVideoProject(projectId);
       res.status(201).json(fullProject);

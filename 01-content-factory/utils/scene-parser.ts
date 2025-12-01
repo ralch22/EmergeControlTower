@@ -5,6 +5,7 @@ export interface ParsedScene {
   voiceoverText: string;
   duration: number;
   startTime: number;
+  imageUrl?: string;
 }
 
 export interface VideoScript {
