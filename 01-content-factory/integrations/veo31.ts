@@ -9,6 +9,13 @@ export interface Veo31Result {
   hasAudio?: boolean;
 }
 
+export interface BrandGuidelines {
+  visualStyle?: string;
+  colorPalette?: string[];
+  cinematicGuidelines?: string;
+  fonts?: string[];
+}
+
 export interface Veo31Options {
   aspectRatio?: '16:9' | '9:16' | '1:1';
   duration?: 4 | 6 | 8;
@@ -18,6 +25,27 @@ export interface Veo31Options {
   useLowerPriority?: boolean;
   imageUrl?: string;
   imageBase64?: string;
+  brandGuidelines?: BrandGuidelines;
+}
+
+function buildBrandEnhancedPrompt(basePrompt: string, guidelines?: BrandGuidelines): string {
+  if (!guidelines) return basePrompt;
+  
+  const parts = [basePrompt];
+  
+  if (guidelines.visualStyle) {
+    parts.push(`Visual style: ${guidelines.visualStyle}`);
+  }
+  
+  if (guidelines.colorPalette?.length) {
+    parts.push(`Color palette: ${guidelines.colorPalette.join(', ')}`);
+  }
+  
+  if (guidelines.cinematicGuidelines) {
+    parts.push(`Cinematic: ${guidelines.cinematicGuidelines}`);
+  }
+  
+  return parts.join('. ');
 }
 
 async function generateWithVertexAI(
@@ -43,7 +71,10 @@ async function generateWithVertexAI(
     generateAudio = true,
     imageBase64,
     imageUrl,
+    brandGuidelines,
   } = options;
+  
+  const enhancedPrompt = buildBrandEnhancedPrompt(prompt, brandGuidelines);
 
   const validAspectRatio = aspectRatio === '9:16' ? '9:16' : '16:9';
   const validDurations = [4, 6, 8] as const;
@@ -53,11 +84,11 @@ async function generateWithVertexAI(
 
   console.log(`[Veo-Vertex] Starting video generation with Vertex AI...`);
   console.log(`[Veo-Vertex] Project: ${projectId}, Location: ${location}`);
-  console.log(`[Veo-Vertex] Prompt: ${prompt.substring(0, 100)}...`);
+  console.log(`[Veo-Vertex] Prompt: ${enhancedPrompt.substring(0, 150)}...`);
 
   const requestBody: any = {
     instances: [{
-      prompt: prompt,
+      prompt: enhancedPrompt,
     }],
     parameters: {
       aspectRatio: validAspectRatio,
@@ -156,7 +187,10 @@ async function generateWithGeminiAPI(
     negativePrompt,
     imageUrl,
     imageBase64,
+    brandGuidelines,
   } = options;
+  
+  const enhancedPrompt = buildBrandEnhancedPrompt(prompt, brandGuidelines);
 
   if (aspectRatio === '1:1') {
     return {
@@ -177,11 +211,11 @@ async function generateWithGeminiAPI(
   const isImageToVideo = !!(imageUrl || imageBase64);
 
   console.log(`[Veo3.1] Starting ${isImageToVideo ? 'image-to-video' : 'text-to-video'} generation...`);
-  console.log(`[Veo3.1] Prompt: ${prompt.substring(0, 100)}...`);
+  console.log(`[Veo3.1] Prompt: ${enhancedPrompt.substring(0, 150)}...`);
 
   const requestBody: any = {
     instances: [{
-      prompt: prompt,
+      prompt: enhancedPrompt,
     }],
     parameters: {
       aspectRatio: validAspectRatio,

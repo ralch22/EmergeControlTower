@@ -19,6 +19,7 @@ from ..providers.claude import ClaudeProvider
 from ..providers.elevenlabs import ElevenLabsProvider
 from ..providers.runway import RunwayProvider
 from ..utils import safe_extract_json
+from ..brand_validator import build_brand_prompt_context, validate_brand_voice
 
 
 class VideoAgent:
@@ -44,6 +45,8 @@ Write conversational, punchy scripts that feel authentic, not corporate."""
 **Brand Voice:** {brand_voice}
 **Target Audience:** {target_audience}
 
+{brand_visual_context}
+
 Create a script with:
 1. HOOK (0-3 seconds): Pattern interrupt that stops the scroll
 2. PROBLEM (3-15 seconds): Identify the pain point
@@ -51,7 +54,7 @@ Create a script with:
 4. CTA (45-60 seconds): What should they do next?
 
 Also provide:
-- Runway/Pika video generation prompt for visuals
+- Runway/Pika video generation prompt for visuals that MUST incorporate the brand visual style, color palette, and cinematic guidelines above
 - Key visual moments to emphasize
 
 Return JSON:
@@ -60,7 +63,7 @@ Return JSON:
   "script": "Full 60-second script with [VISUAL: notes]",
   "duration_seconds": 60,
   "cta": "Call to action text",
-  "video_prompt": "Runway/Pika prompt for video generation: cinematic, professional...",
+  "video_prompt": "Runway/Pika prompt for video generation incorporating brand visual style: cinematic, professional...",
   "visual_notes": ["Key moment 1", "Key moment 2"]
 }}"""
 
@@ -79,11 +82,14 @@ Return JSON:
         
         content = blog_content or f"{topic.title}\n\n{topic.angle}"
         
+        brand_visual_context = self._build_brand_visual_context(brand_voice)
+        
         user = self.SCRIPT_PROMPT.format(
             title=topic.title,
             content=content[:2000],
             brand_voice=brand_voice.tone,
             target_audience=brand_voice.target_audience,
+            brand_visual_context=brand_visual_context,
         )
         
         response = await self.llm.generate_json(self.SYSTEM_PROMPT, user)
@@ -97,6 +103,17 @@ Return JSON:
             duration_seconds=script_data.get("duration_seconds", 60),
             cta=script_data["cta"],
         )
+    
+    def _build_brand_visual_context(self, brand_voice: BrandVoice) -> str:
+        """Build the visual context section for prompts from brand voice data"""
+        brand_dict = brand_voice.model_dump()
+        context = build_brand_prompt_context(brand_dict)
+        
+        if context:
+            return f"""**Brand Visual Guidelines:**
+{context}"""
+        
+        return "**Brand Visual Guidelines:** Use professional, modern, clean visuals with high contrast."
     
     async def generate_voiceover(
         self,
