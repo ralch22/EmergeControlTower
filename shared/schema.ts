@@ -856,3 +856,204 @@ export const qualityFeedbackLoop = pgTable("quality_feedback_loop", {
 export const insertQualityFeedbackLoopSchema = createInsertSchema(qualityFeedbackLoop).omit({ id: true, createdAt: true });
 export type InsertQualityFeedbackLoop = z.infer<typeof insertQualityFeedbackLoopSchema>;
 export type QualityFeedbackLoop = typeof qualityFeedbackLoop.$inferSelect;
+
+// ============================================================================
+// AUTOMATED REMEDIATION SYSTEM
+// ============================================================================
+
+// Remediation Rule Types
+export const remediationActionEnum = z.enum([
+  "restart_provider",
+  "rotate_to_fallback", 
+  "clear_rate_limit",
+  "requeue_failed_content",
+  "quarantine_provider",
+  "scale_cooldown",
+  "notify_admin",
+  "run_diagnostic"
+]);
+export type RemediationAction = z.infer<typeof remediationActionEnum>;
+
+export const remediationTriggerEnum = z.enum([
+  "error_rate_threshold",
+  "consecutive_failures",
+  "rate_limit_detected",
+  "latency_spike",
+  "health_score_drop",
+  "pattern_detected",
+  "anomaly_detected",
+  "manual_trigger"
+]);
+export type RemediationTrigger = z.infer<typeof remediationTriggerEnum>;
+
+export const remediationModeEnum = z.enum(["auto", "manual", "semi_auto"]);
+export type RemediationMode = z.infer<typeof remediationModeEnum>;
+
+// Remediation Rules - Configurable rules for automated healing
+export const remediationRules = pgTable("remediation_rules", {
+  id: serial("id").primaryKey(),
+  ruleId: text("rule_id").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  
+  // Trigger conditions
+  triggerType: text("trigger_type").notNull(), // error_rate_threshold, consecutive_failures, etc.
+  triggerConditions: text("trigger_conditions").notNull(), // JSON: { threshold: 0.5, window_minutes: 15 }
+  
+  // Target
+  serviceType: text("service_type"), // video, image, audio, text, or null for all
+  providerPattern: text("provider_pattern"), // Regex or specific provider name, or null for all
+  
+  // Action
+  actionType: text("action_type").notNull(), // restart_provider, rotate_to_fallback, etc.
+  actionParams: text("action_params"), // JSON with action-specific parameters
+  
+  // Execution mode
+  mode: text("mode").notNull().default("semi_auto"), // auto, manual, semi_auto
+  requiresApproval: boolean("requires_approval").notNull().default(false),
+  cooldownMinutes: integer("cooldown_minutes").notNull().default(15),
+  maxExecutionsPerHour: integer("max_executions_per_hour").default(5),
+  
+  // Priority and scope
+  priority: integer("priority").notNull().default(50), // Higher = more important
+  isActive: boolean("is_active").notNull().default(true),
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertRemediationRuleSchema = createInsertSchema(remediationRules).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertRemediationRule = z.infer<typeof insertRemediationRuleSchema>;
+export type RemediationRule = typeof remediationRules.$inferSelect;
+
+// Remediation Executions - Track every remediation attempt with MTTD/MTTR
+export const remediationExecutions = pgTable("remediation_executions", {
+  id: serial("id").primaryKey(),
+  executionId: text("execution_id").notNull().unique(),
+  ruleId: text("rule_id").notNull(), // Reference to remediation_rules
+  
+  // Incident info
+  incidentId: text("incident_id"), // Links related executions
+  providerName: text("provider_name"),
+  serviceType: text("service_type"),
+  
+  // Detection metrics (for MTTD)
+  failureDetectedAt: timestamp("failure_detected_at").notNull(),
+  alertCreatedAt: timestamp("alert_created_at"),
+  
+  // Remediation metrics (for MTTR)
+  remediationStartedAt: timestamp("remediation_started_at"),
+  remediationCompletedAt: timestamp("remediation_completed_at"),
+  recoveryConfirmedAt: timestamp("recovery_confirmed_at"),
+  
+  // Calculated metrics (in seconds)
+  mttdSeconds: integer("mttd_seconds"), // Time from failure to detection
+  mttrSeconds: integer("mttr_seconds"), // Time from detection to recovery
+  
+  // Execution details
+  triggerDetails: text("trigger_details"), // JSON with what triggered this
+  actionTaken: text("action_taken").notNull(),
+  actionParams: text("action_params"), // JSON with actual params used
+  
+  // Results
+  status: text("status").notNull().default("pending"), // pending, in_progress, success, failed, rolled_back
+  wasSuccessful: boolean("was_successful"),
+  errorMessage: text("error_message"),
+  rollbackPerformed: boolean("rollback_performed").default(false),
+  
+  // Impact tracking
+  affectedRequests: integer("affected_requests").default(0),
+  recoveredRequests: integer("recovered_requests").default(0),
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertRemediationExecutionSchema = createInsertSchema(remediationExecutions).omit({ id: true, createdAt: true });
+export type InsertRemediationExecution = z.infer<typeof insertRemediationExecutionSchema>;
+export type RemediationExecution = typeof remediationExecutions.$inferSelect;
+
+// Failure Simulations - Controlled failure injection for testing
+export const failureSimulations = pgTable("failure_simulations", {
+  id: serial("id").primaryKey(),
+  simulationId: text("simulation_id").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  
+  // Simulation target
+  targetProvider: text("target_provider"), // Specific provider or null for system-wide
+  targetServiceType: text("target_service_type"),
+  
+  // Failure type
+  failureType: text("failure_type").notNull(), // network_timeout, api_error, rate_limit, data_corruption, provider_outage
+  failureParams: text("failure_params"), // JSON: { error_code: 429, error_rate: 0.8, duration_minutes: 10 }
+  
+  // Simulation control
+  status: text("status").notNull().default("pending"), // pending, running, completed, cancelled
+  startedAt: timestamp("started_at"),
+  completedAt: timestamp("completed_at"),
+  scheduledDurationMinutes: integer("scheduled_duration_minutes").notNull().default(5),
+  
+  // Results
+  detectionTimeSeconds: integer("detection_time_seconds"), // How long until system detected the failure
+  remediationTimeSeconds: integer("remediation_time_seconds"), // How long until system remediated
+  totalAffectedRequests: integer("total_affected_requests").default(0),
+  correctlyHandledRequests: integer("correctly_handled_requests").default(0),
+  falsePositives: integer("false_positives").default(0),
+  
+  // Evaluation
+  passedDetection: boolean("passed_detection"),
+  passedRemediation: boolean("passed_remediation"),
+  overallScore: decimal("overall_score", { precision: 5, scale: 2 }),
+  notes: text("notes"),
+  
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertFailureSimulationSchema = createInsertSchema(failureSimulations).omit({ id: true, createdAt: true });
+export type InsertFailureSimulation = z.infer<typeof insertFailureSimulationSchema>;
+export type FailureSimulation = typeof failureSimulations.$inferSelect;
+
+// Healing Metrics - Time-series tracking of MTTD, MTTR, failure rates
+export const healingMetrics = pgTable("healing_metrics", {
+  id: serial("id").primaryKey(),
+  
+  // Time bucket
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  granularity: text("granularity").notNull().default("hour"), // hour, day, week
+  
+  // Scope
+  providerName: text("provider_name"), // null = system-wide
+  serviceType: text("service_type"), // null = all services
+  
+  // Core metrics
+  totalFailures: integer("total_failures").notNull().default(0),
+  totalRecoveries: integer("total_recoveries").notNull().default(0),
+  totalRemediations: integer("total_remediations").notNull().default(0),
+  successfulRemediations: integer("successful_remediations").notNull().default(0),
+  
+  // Time metrics (in seconds)
+  avgMttdSeconds: decimal("avg_mttd_seconds", { precision: 10, scale: 2 }),
+  avgMttrSeconds: decimal("avg_mttr_seconds", { precision: 10, scale: 2 }),
+  p50MttdSeconds: decimal("p50_mttd_seconds", { precision: 10, scale: 2 }),
+  p50MttrSeconds: decimal("p50_mttr_seconds", { precision: 10, scale: 2 }),
+  p95MttdSeconds: decimal("p95_mttd_seconds", { precision: 10, scale: 2 }),
+  p95MttrSeconds: decimal("p95_mttr_seconds", { precision: 10, scale: 2 }),
+  
+  // Rate metrics
+  failureRate: decimal("failure_rate", { precision: 5, scale: 4 }), // failures / total requests
+  remediationSuccessRate: decimal("remediation_success_rate", { precision: 5, scale: 4 }),
+  falsePositiveRate: decimal("false_positive_rate", { precision: 5, scale: 4 }),
+  
+  // Improvement tracking
+  failureRateChange: decimal("failure_rate_change", { precision: 5, scale: 4 }), // vs previous period
+  mttdChange: decimal("mttd_change", { precision: 5, scale: 4 }), // vs previous period
+  mttrChange: decimal("mttr_change", { precision: 5, scale: 4 }), // vs previous period
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertHealingMetricSchema = createInsertSchema(healingMetrics).omit({ id: true, createdAt: true });
+export type InsertHealingMetric = z.infer<typeof insertHealingMetricSchema>;
+export type HealingMetric = typeof healingMetrics.$inferSelect;

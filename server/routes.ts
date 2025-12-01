@@ -3323,6 +3323,191 @@ export async function registerRoutes(
     }
   });
 
+  // ========== AUTOMATED REMEDIATION ROUTES ==========
+
+  // Import the remediation engine
+  const { autoRemediationEngine } = await import("../01-content-factory/services/auto-remediation-engine");
+  
+  // Initialize the remediation engine
+  await autoRemediationEngine.initialize();
+
+  // Get all remediation rules
+  app.get("/api/remediation/rules", async (req, res) => {
+    try {
+      const rules = await autoRemediationEngine.getRules();
+      res.json(rules);
+    } catch (error: any) {
+      console.error('Failed to fetch remediation rules:', error);
+      res.status(500).json({ error: "Failed to fetch remediation rules" });
+    }
+  });
+
+  // Update a remediation rule
+  app.patch("/api/remediation/rules/:ruleId", async (req, res) => {
+    try {
+      const { ruleId } = req.params;
+      await autoRemediationEngine.updateRule(ruleId, req.body);
+      const rules = await autoRemediationEngine.getRules();
+      const updated = rules.find(r => r.ruleId === ruleId);
+      res.json(updated);
+    } catch (error: any) {
+      console.error('Failed to update remediation rule:', error);
+      res.status(500).json({ error: "Failed to update remediation rule" });
+    }
+  });
+
+  // Get pending remediations (require approval)
+  app.get("/api/remediation/pending", async (req, res) => {
+    try {
+      const pending = await autoRemediationEngine.getPendingRemediations();
+      res.json(pending);
+    } catch (error: any) {
+      console.error('Failed to fetch pending remediations:', error);
+      res.status(500).json({ error: "Failed to fetch pending remediations" });
+    }
+  });
+
+  // Approve a pending remediation
+  app.post("/api/remediation/pending/:executionId/approve", async (req, res) => {
+    try {
+      const { executionId } = req.params;
+      const result = await autoRemediationEngine.approvePendingRemediation(executionId);
+      res.json(result);
+    } catch (error: any) {
+      console.error('Failed to approve remediation:', error);
+      res.status(500).json({ error: "Failed to approve remediation" });
+    }
+  });
+
+  // Reject a pending remediation
+  app.post("/api/remediation/pending/:executionId/reject", async (req, res) => {
+    try {
+      const { executionId } = req.params;
+      const { reason } = req.body;
+      await autoRemediationEngine.rejectPendingRemediation(executionId, reason);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('Failed to reject remediation:', error);
+      res.status(500).json({ error: "Failed to reject remediation" });
+    }
+  });
+
+  // Get recent remediation executions
+  app.get("/api/remediation/executions", async (req, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const executions = await autoRemediationEngine.getRecentExecutions(limit);
+      res.json(executions);
+    } catch (error: any) {
+      console.error('Failed to fetch remediation executions:', error);
+      res.status(500).json({ error: "Failed to fetch remediation executions" });
+    }
+  });
+
+  // Get healing metrics (MTTD, MTTR, etc.)
+  app.get("/api/remediation/metrics", async (req, res) => {
+    try {
+      const hours = parseInt(req.query.hours as string) || 24;
+      const providerName = req.query.provider as string;
+      const serviceType = req.query.serviceType as string;
+      
+      const metrics = await autoRemediationEngine.getHealingMetrics({
+        hours,
+        providerName,
+        serviceType,
+      });
+      res.json(metrics);
+    } catch (error: any) {
+      console.error('Failed to fetch healing metrics:', error);
+      res.status(500).json({ error: "Failed to fetch healing metrics" });
+    }
+  });
+
+  // Start/stop monitoring
+  app.post("/api/remediation/monitoring/start", async (req, res) => {
+    try {
+      const intervalMs = parseInt(req.body.intervalMs) || 30000;
+      autoRemediationEngine.startMonitoring(intervalMs);
+      res.json({ success: true, message: "Monitoring started" });
+    } catch (error: any) {
+      console.error('Failed to start monitoring:', error);
+      res.status(500).json({ error: "Failed to start monitoring" });
+    }
+  });
+
+  app.post("/api/remediation/monitoring/stop", async (req, res) => {
+    try {
+      autoRemediationEngine.stopMonitoring();
+      res.json({ success: true, message: "Monitoring stopped" });
+    } catch (error: any) {
+      console.error('Failed to stop monitoring:', error);
+      res.status(500).json({ error: "Failed to stop monitoring" });
+    }
+  });
+
+  // ========== FAILURE SIMULATION ROUTES ==========
+
+  // Get all simulations
+  app.get("/api/remediation/simulations", async (req, res) => {
+    try {
+      const simulations = await autoRemediationEngine.getSimulations();
+      res.json(simulations);
+    } catch (error: any) {
+      console.error('Failed to fetch simulations:', error);
+      res.status(500).json({ error: "Failed to fetch simulations" });
+    }
+  });
+
+  // Start a failure simulation
+  app.post("/api/remediation/simulations/start", async (req, res) => {
+    try {
+      const { name, description, targetProvider, targetServiceType, failureType, failureParams, durationMinutes } = req.body;
+      
+      if (!name || !failureType || !durationMinutes) {
+        return res.status(400).json({ error: "Missing required fields: name, failureType, durationMinutes" });
+      }
+      
+      const simulation = await autoRemediationEngine.startFailureSimulation({
+        name,
+        description,
+        targetProvider,
+        targetServiceType,
+        failureType,
+        failureParams: failureParams || {},
+        durationMinutes,
+      });
+      
+      res.json(simulation);
+    } catch (error: any) {
+      console.error('Failed to start simulation:', error);
+      res.status(500).json({ error: "Failed to start simulation" });
+    }
+  });
+
+  // Stop a running simulation
+  app.post("/api/remediation/simulations/:simulationId/stop", async (req, res) => {
+    try {
+      const { simulationId } = req.params;
+      await autoRemediationEngine.stopFailureSimulation(simulationId);
+      res.json({ success: true, message: "Simulation stopped" });
+    } catch (error: any) {
+      console.error('Failed to stop simulation:', error);
+      res.status(500).json({ error: "Failed to stop simulation" });
+    }
+  });
+
+  // Get active simulation status
+  app.get("/api/remediation/simulations/active", async (req, res) => {
+    try {
+      const providerName = req.query.provider as string;
+      const activeSimulation = autoRemediationEngine.isSimulationActive(providerName);
+      res.json({ active: !!activeSimulation, simulation: activeSimulation });
+    } catch (error: any) {
+      console.error('Failed to check active simulation:', error);
+      res.status(500).json({ error: "Failed to check active simulation" });
+    }
+  });
+
   // ========== ANOMALY MODELS ROUTES ==========
 
   // Get all anomaly detection models
