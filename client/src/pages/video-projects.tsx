@@ -204,6 +204,11 @@ export default function VideoProjectsPage() {
   const { data: approvedContent = [] } = useQuery<GeneratedContent[]>({
     queryKey: ["/api/content", selectedClientId],
     enabled: !!selectedClientId,
+    queryFn: async () => {
+      const res = await fetch(`/api/content?clientId=${selectedClientId}`);
+      if (!res.ok) throw new Error("Failed to fetch content");
+      return res.json();
+    },
     select: (data) => data.filter(c => c.status === "approved"),
   });
 
