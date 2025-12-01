@@ -461,6 +461,7 @@ export default function BrandAssetsPage() {
                           size="sm"
                           onClick={() => setFormData(prev => ({ ...prev, visualStyle: style }))}
                           className="text-xs border-slate-700 text-slate-400 hover:bg-slate-800 hover:text-white"
+                          data-testid={`btn-preset-style-${idx}`}
                         >
                           {style.substring(0, 30)}...
                         </Button>

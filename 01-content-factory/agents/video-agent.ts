@@ -27,6 +27,49 @@ export interface VideoScene {
   textOverlay?: string;
 }
 
+function buildBrandVisualContext(brief: ClientBrief): string {
+  const config = brief.brandVoiceConfig;
+  if (!config) {
+    return "**Brand Visual Guidelines:** Use professional, modern, clean visuals with high contrast.";
+  }
+  
+  const parts: string[] = [];
+  
+  if (config.visualStyle && config.visualStyle.trim()) {
+    parts.push(`- Visual Style: ${config.visualStyle.trim()}`);
+  }
+  
+  const validColors = config.colorPalette?.filter(c => c && c.trim()) || [];
+  if (validColors.length > 0) {
+    parts.push(`- Color Palette: ${validColors.join(', ')}`);
+  }
+  
+  const validFonts = config.fonts?.filter(f => f && f.trim()) || [];
+  if (validFonts.length > 0) {
+    parts.push(`- Fonts: ${validFonts.join(', ')}`);
+  }
+  
+  if (config.referenceAssets && Object.keys(config.referenceAssets).length > 0) {
+    const assetsList = Object.entries(config.referenceAssets)
+      .filter(([_, path]) => path && path.trim())
+      .map(([name, path]) => `${name}: ${path}`)
+      .join(', ');
+    if (assetsList) {
+      parts.push(`- Reference Assets: ${assetsList}`);
+    }
+  }
+  
+  if (config.cinematicGuidelines && config.cinematicGuidelines.trim()) {
+    parts.push(`- Cinematic Guidelines: ${config.cinematicGuidelines.trim()}`);
+  }
+  
+  if (parts.length === 0) {
+    return "**Brand Visual Guidelines:** Use professional, modern, clean visuals with high contrast.";
+  }
+  
+  return `**Brand Visual Guidelines:**\n${parts.join('\n')}`;
+}
+
 export async function generateVideoScript(
   topic: ContentTopic,
   brief: ClientBrief,
@@ -39,6 +82,8 @@ export async function generateVideoScript(
   try {
     const { duration = 60, format = 'short', style = 'mixed' } = options;
     
+    const brandVisualContext = buildBrandVisualContext(brief);
+    
     const userPrompt = `Create a video script for ${brief.clientName}.
 
 **Topic:** ${topic.title}
@@ -46,17 +91,21 @@ export async function generateVideoScript(
 **Target Audience:** ${brief.targetAudience}
 **Brand Voice:** ${brief.brandVoice}
 
+${brandVisualContext}
+
 **Video Requirements:**
 - Duration: ${duration} seconds
 - Format: ${format} (${format === 'short' ? '15-60s' : format === 'medium' ? '1-3 min' : '3-10 min'})
 - Style: ${style}
 
+IMPORTANT: All visual descriptions MUST incorporate the brand visual style, color palette, and cinematic guidelines above.
+
 Create a complete video script with:
 1. Hook (first 3 seconds to stop scrolling)
 2. Scene-by-scene breakdown
-3. Visual descriptions for each scene
+3. Visual descriptions for each scene (following brand visual style)
 4. Voiceover/dialogue script
-5. Text overlays suggestions
+5. Text overlays suggestions (using brand fonts if specified)
 6. Call-to-action
 
 Output as JSON:
@@ -66,7 +115,7 @@ Output as JSON:
     {
       "sceneNumber": 1,
       "duration": 3,
-      "visualDescription": "What appears on screen",
+      "visualDescription": "What appears on screen incorporating brand visual style",
       "voiceover": "What is said",
       "textOverlay": "Optional text on screen"
     }
