@@ -280,9 +280,13 @@ export const singleContentRequestSchema = z.object({
   targetLength: z.enum(["short", "medium", "long"]).optional(),
   keywords: z.array(z.string()).optional(),
   callToAction: z.string().optional(),
+  includeImage: z.boolean().optional().default(true),
 });
 
 export type SingleContentRequest = z.infer<typeof singleContentRequestSchema>;
+
+export const socialContentTypes = ["twitter", "linkedin", "instagram", "facebook_ad"] as const;
+export type SocialContentType = typeof socialContentTypes[number];
 
 // Video Projects - for multi-scene video production
 export const videoProjects = pgTable("video_projects", {

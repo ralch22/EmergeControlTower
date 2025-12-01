@@ -1421,7 +1421,7 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
         });
       }
 
-      const { clientId, contentType, topic, brief, tone, targetLength, keywords, callToAction } = validation.data;
+      const { clientId, contentType, topic, brief, tone, targetLength, keywords, callToAction, includeImage } = validation.data;
 
       // Fetch client data for brand context
       const client = await storage.getClient(clientId);
@@ -1588,6 +1588,48 @@ ${callToAction ? `- Include CTA: ${callToAction}` : ''}`
         });
       }
 
+      // Generate image for social media content types
+      const socialTypes = ["twitter", "linkedin", "instagram", "facebook_ad"];
+      let imageDataUrl: string | null = null;
+      let imageProvider: string | null = null;
+      
+      if (includeImage !== false && socialTypes.includes(contentType)) {
+        console.log(`[QuickCreate] Generating image for ${contentType} content...`);
+        try {
+          // Check if client has a brand profile
+          if (client.brandProfile) {
+            const { generateSocialPostImage } = await import("../01-content-factory/services/brand-asset-generator");
+            
+            // Map contentType to platform for image generation
+            const platformMap: Record<string, 'linkedin' | 'twitter' | 'instagram' | 'facebook'> = {
+              twitter: 'twitter',
+              linkedin: 'linkedin',
+              instagram: 'instagram',
+              facebook_ad: 'facebook',
+            };
+            
+            const imageResult = await generateSocialPostImage(
+              client.brandProfile as any,
+              clientId,
+              platformMap[contentType],
+              topic
+            );
+            
+            if (imageResult.success && imageResult.assets[0]?.base64) {
+              imageDataUrl = imageResult.assets[0].base64;
+              imageProvider = imageResult.provider || 'gemini';
+              console.log(`[QuickCreate] Image generated successfully using ${imageProvider}`);
+            } else {
+              console.log('[QuickCreate] Image generation failed, continuing without image');
+            }
+          } else {
+            console.log('[QuickCreate] No brand profile available for image generation');
+          }
+        } catch (imageError: any) {
+          console.error('[QuickCreate] Image generation error:', imageError.message);
+        }
+      }
+
       // Create the generated content record
       const generatedContentData = {
         contentId,
@@ -1606,6 +1648,8 @@ ${callToAction ? `- Include CTA: ${callToAction}` : ''}`
           keywords,
           callToAction,
           usage: result.usage,
+          imageDataUrl,
+          imageProvider,
         }),
         status: "draft",
         qaScore: null,
@@ -1627,6 +1671,8 @@ ${callToAction ? `- Include CTA: ${callToAction}` : ''}`
         content: {
           ...savedContent,
           provider: result.provider,
+          imageDataUrl,
+          imageProvider,
         },
         runId,
       });
