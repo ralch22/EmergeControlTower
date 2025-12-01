@@ -759,6 +759,15 @@ export async function registerRoutes(
         status: 'pending',
       });
 
+      // Log activity
+      await storage.createActivityLog({
+        runId: `video_proj_${projectId}`,
+        eventType: 'video_project_created',
+        level: 'info',
+        message: `Test video project created: ${project.title}`,
+        metadata: JSON.stringify({ projectId, scenesCount: 3, totalDuration: 15, isTest: true }),
+      });
+
       // Scene 1: AI concept intro
       const scene1Id = `scene_${projectId}_1`;
       await storage.createVideoScene({
@@ -863,6 +872,15 @@ export async function registerRoutes(
         });
       }
 
+      // Log activity
+      await storage.createActivityLog({
+        runId: `video_proj_${projectId}`,
+        eventType: 'video_project_created',
+        level: 'info',
+        message: `Video project created: ${project.title}`,
+        metadata: JSON.stringify({ projectId, scenesCount: parsedScenes.length, totalDuration }),
+      });
+
       const fullProject = await storage.getFullVideoProject(projectId);
       res.status(201).json(fullProject);
     } catch (error: any) {
@@ -884,6 +902,15 @@ export async function registerRoutes(
 
       // Update project status
       await storage.updateVideoProject(projectId, { status: 'generating' });
+
+      // Log activity
+      await storage.createActivityLog({
+        runId: `video_proj_${projectId}`,
+        eventType: 'video_generation_started',
+        level: 'info',
+        message: `Video generation started for: ${fullProject.project.title}`,
+        metadata: JSON.stringify({ projectId, scenesCount: fullProject.scenes.length, provider: provider || 'auto' }),
+      });
 
       // Start background generation process with fallback system
       generateVideoProjectAsync(projectId, provider, storage);
@@ -981,6 +1008,16 @@ export async function registerRoutes(
       // Allow draft -> pending transition
       if (fullProject.project.status === "draft" && status === "pending") {
         await storage.updateVideoProject(projectId, { status: "pending" });
+        
+        // Log activity
+        await storage.createActivityLog({
+          runId: `video_proj_${projectId}`,
+          eventType: 'video_project_ready',
+          level: 'info',
+          message: `Video project ready for generation: ${fullProject.project.title}`,
+          metadata: JSON.stringify({ projectId, scenesCount: fullProject.scenes.length }),
+        });
+        
         const updated = await storage.getFullVideoProject(projectId);
         res.json({ success: true, message: "Project transitioned to pending", project: updated });
       } else {
