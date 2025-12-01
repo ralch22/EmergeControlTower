@@ -257,6 +257,33 @@ export const insertGeneratedContentSchema = createInsertSchema(generatedContent)
 export type InsertGeneratedContent = z.infer<typeof insertGeneratedContentSchema>;
 export type GeneratedContentRecord = typeof generatedContent.$inferSelect;
 
+// Single Content Generation Request Schema
+export const contentTypeEnum = z.enum([
+  "blog",
+  "linkedin", 
+  "twitter",
+  "instagram",
+  "facebook_ad",
+  "video_script",
+  "email",
+  "ad_copy"
+]);
+
+export type ContentType = z.infer<typeof contentTypeEnum>;
+
+export const singleContentRequestSchema = z.object({
+  clientId: z.number(),
+  contentType: contentTypeEnum,
+  topic: z.string().min(1, "Topic is required"),
+  brief: z.string().optional(),
+  tone: z.string().optional(),
+  targetLength: z.enum(["short", "medium", "long"]).optional(),
+  keywords: z.array(z.string()).optional(),
+  callToAction: z.string().optional(),
+});
+
+export type SingleContentRequest = z.infer<typeof singleContentRequestSchema>;
+
 // Video Projects - for multi-scene video production
 export const videoProjects = pgTable("video_projects", {
   id: serial("id").primaryKey(),
