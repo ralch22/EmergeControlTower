@@ -28,6 +28,12 @@ export interface ClientBrief {
   brandVoiceConfig?: BrandVoiceConfig;
 }
 
+export type { 
+  EnrichedClientBrief,
+  TextualBrandBrief,
+  VisualBrandBrief,
+} from "../services/brand-brief";
+
 export interface ContentTopic {
   id: string;
   title: string;
@@ -95,4 +101,11 @@ export interface QAResult {
   score: number;
   issues: string[];
   suggestions: string[];
+  brandComplianceNotes?: {
+    forbiddenWordsFound?: string[];
+    ctaAligned?: boolean;
+    keywordsUsed?: string[];
+    voiceMatch?: 'strong' | 'moderate' | 'weak';
+    toneMatch?: 'strong' | 'moderate' | 'weak';
+  };
 }

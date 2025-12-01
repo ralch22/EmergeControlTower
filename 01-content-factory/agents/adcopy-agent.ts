@@ -1,6 +1,12 @@
 import { generateWithClaude } from "../integrations/anthropic";
 import { generateImageWithNanoBananaPro } from "../integrations/nano-banana-pro";
-import type { ClientBrief, ContentTopic, GeneratedContent, ContentType, AgentResponse } from "../types";
+import type { ClientBrief, ContentTopic, GeneratedContent, ContentType, AgentResponse, EnrichedClientBrief } from "../types";
+import { 
+  formatTextualBriefForPrompt, 
+  buildSystemPromptSuffix,
+  buildImagePromptEnrichment,
+  getEffectiveCTA 
+} from "../services/brand-brief";
 
 const AD_CONFIGS = {
   facebook_ad: {
@@ -16,33 +22,53 @@ const AD_CONFIGS = {
   },
 };
 
-const SYSTEM_PROMPT = `You are a direct-response copywriter specializing in paid advertising. You create high-converting ad copy that:
+function buildAdCopySystemPrompt(brief: EnrichedClientBrief, platform: string): string {
+  const baseSuffix = buildSystemPromptSuffix(brief);
+  
+  return `You are a direct-response copywriter specializing in ${platform} advertising. You create high-converting ad copy that:
 
 - Captures attention in the first 3 words
-- Addresses pain points and desires
+- Addresses pain points: ${brief.textual.audiencePainPoints.slice(0, 3).join(', ') || 'audience challenges'}
 - Uses power words and emotional triggers
-- Includes clear value propositions
+- Includes clear value propositions aligned with brand values
 - Has irresistible calls-to-action
 - A/B tests through multiple variations
 
-You understand platform policies and character limits. Create copy that converts.`;
+${baseSuffix}
+
+You understand platform policies and character limits. Create copy that converts while maintaining brand integrity.`;
+}
 
 export async function generateAdCopy(
   topic: ContentTopic,
-  brief: ClientBrief,
+  brief: ClientBrief | EnrichedClientBrief,
   platform: 'facebook_ad' | 'google_ad'
 ): Promise<AgentResponse<GeneratedContent>> {
   try {
     const config = AD_CONFIGS[platform];
+    const isEnriched = 'textual' in brief && 'visual' in brief;
+    const enrichedBrief = brief as EnrichedClientBrief;
+    
+    const brandContext = isEnriched 
+      ? formatTextualBriefForPrompt(enrichedBrief)
+      : `Target Audience: ${brief.targetAudience}\nContent Goals: ${brief.contentGoals.join(', ')}`;
+    
+    const systemPrompt = isEnriched 
+      ? buildAdCopySystemPrompt(enrichedBrief, platform)
+      : `You are a direct-response copywriter. Create high-converting ad copy for ${brief.clientName}.`;
+    
+    const effectiveCta = isEnriched ? getEffectiveCTA(enrichedBrief) : brief.contentGoals?.[0];
+    const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];
+    const preferredCtas = isEnriched ? enrichedBrief.textual.callToActions : [];
     
     const userPrompt = `Create ${config.variations} ad variations for ${platform === 'facebook_ad' ? 'Facebook/Meta' : 'Google'} Ads.
 
 **Product/Service:** ${brief.clientName}
 **Topic/Offer:** ${topic.title}
 **Angle:** ${topic.angle}
-**Target Audience:** ${brief.targetAudience}
 **Keywords:** ${topic.keywords.join(', ')}
-**Content Goals:** ${brief.contentGoals.join(', ')}
+
+${brandContext}
 
 ${platform === 'facebook_ad' ? `
 **Facebook Ad Requirements:**
@@ -55,10 +81,18 @@ ${platform === 'facebook_ad' ? `
 - Descriptions (2): Max ${config.descriptionLimit} characters each
 `}
 
+${preferredCtas.length ? `**Preferred CTAs to use:** ${preferredCtas.join(' | ')}` : ''}
+${forbiddenWords.length ? `**NEVER use these words:** ${forbiddenWords.join(', ')}` : ''}
+
 Create ${config.variations} variations with different angles:
-1. Problem-agitate-solve approach
-2. Benefit-focused approach
+1. Problem-agitate-solve approach (address pain points: ${isEnriched ? enrichedBrief.textual.audiencePainPoints.slice(0, 2).join(', ') : 'audience challenges'})
+2. Benefit-focused approach (align with goals: ${isEnriched ? enrichedBrief.textual.audienceGoals.slice(0, 2).join(', ') : 'desired outcomes'})
 3. Social proof / urgency approach
+
+Each variation must:
+- Match the ${isEnriched ? enrichedBrief.textual.archetype : 'professional'} brand personality
+- Use ${isEnriched ? enrichedBrief.textual.toneDescription : 'brand-appropriate'} tone
+${effectiveCta ? `- Drive toward CTA: "${effectiveCta}"` : '- Include compelling CTA'}
 
 Format output as JSON:
 {
@@ -75,7 +109,7 @@ Format output as JSON:
   ]
 }`;
 
-    const response = await generateWithClaude(SYSTEM_PROMPT, userPrompt, {
+    const response = await generateWithClaude(systemPrompt, userPrompt, {
       maxTokens: 2048,
       temperature: 0.8,
     });
@@ -89,15 +123,24 @@ Format output as JSON:
     if (geminiKey) {
       try {
         console.log(`[AdCopyAgent] Generating ad creative image with Nano Banana Pro for ${platform}...`);
+        
+        const basePrompt = `Advertisement creative for: ${brief.clientName} - ${topic.title}. Marketing focused, conversion-optimized.`;
+        
         const adStyle = platform === 'facebook_ad' 
           ? 'eye-catching, scroll-stopping, vibrant colors, clear focal point, marketing focused'
           : 'clean, professional, minimal, high contrast, conversion-optimized';
         
+        const imagePrompt = isEnriched 
+          ? buildImagePromptEnrichment(enrichedBrief, basePrompt)
+          : basePrompt;
+        
         const imageResult = await generateImageWithNanoBananaPro(
-          `Advertisement creative for: ${brief.clientName} - ${topic.title}. Marketing focused, conversion-optimized.`,
+          imagePrompt,
           {
             resolution: '2K',
-            style: adStyle,
+            style: isEnriched 
+              ? `${enrichedBrief.visual.aesthetic.join(', ')}, ${adStyle}`
+              : adStyle,
           }
         );
         
@@ -122,7 +165,7 @@ Format output as JSON:
       title: `${topic.title} - Ad Copy`,
       content: JSON.stringify(adData, null, 2),
       metadata: {
-        callToAction: brief.contentGoals?.[0] || 'Learn More',
+        callToAction: effectiveCta || 'Learn More',
         imageDataUrl,
       },
       status: 'draft',
@@ -143,7 +186,7 @@ Format output as JSON:
 
 export async function generateAllAdCopy(
   topic: ContentTopic,
-  brief: ClientBrief
+  brief: ClientBrief | EnrichedClientBrief
 ): Promise<AgentResponse<GeneratedContent[]>> {
   try {
     const [facebookResult, googleResult] = await Promise.all([

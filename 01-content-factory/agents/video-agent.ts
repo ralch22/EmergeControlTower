@@ -2,9 +2,16 @@ import { generateVideoFromText, waitForVideoCompletion } from "../integrations/r
 import { generateSceneImageWithAlibaba, isAlibabaImageConfigured } from "../integrations/alibaba-image";
 import { generateImageWithFal, isFalConfigured } from "../integrations/fal-ai";
 import { generateVideoScriptWithFallback } from "../services/text-generation";
-import type { ClientBrief, ContentTopic, GeneratedContent, AgentResponse } from "../types";
+import type { ClientBrief, ContentTopic, GeneratedContent, AgentResponse, EnrichedClientBrief } from "../types";
+import { 
+  formatTextualBriefForPrompt, 
+  formatVisualBriefForPrompt,
+  buildSystemPromptSuffix,
+  buildVideoSceneEnrichment,
+  getEffectiveCTA 
+} from "../services/brand-brief";
 
-const SYSTEM_PROMPT = `You are a video content strategist and scriptwriter. You create engaging video scripts optimized for:
+const BASE_SYSTEM_PROMPT = `You are a video content strategist and scriptwriter. You create engaging video scripts optimized for:
 
 - Social media (TikTok, Reels, Shorts)
 - YouTube content
@@ -30,16 +37,40 @@ export interface VideoScene {
   thumbnailUrl?: string;
 }
 
-async function generateSceneThumbnail(visualDescription: string, sceneNumber: number): Promise<string | undefined> {
+function buildVideoSystemPrompt(brief: EnrichedClientBrief): string {
+  const baseSuffix = buildSystemPromptSuffix(brief);
+  
+  return `${BASE_SYSTEM_PROMPT}
+
+${baseSuffix}
+
+Visual Style Requirements:
+- Aesthetic: ${brief.visual.aesthetic.join(', ')}
+- Mood: ${brief.visual.moodKeywords.join(', ')}
+- Colors: ${brief.visual.primaryColor.name} (${brief.visual.primaryColor.hex}) accents on ${brief.visual.backgroundColor.name} (${brief.visual.backgroundColor.hex}) backgrounds
+- Motion Style: ${brief.visual.cinematicMotionStyle}
+- Pacing: ${brief.visual.cinematicPacing}
+${brief.visual.motifs.length ? `- Motifs to include: ${brief.visual.motifs.join(', ')}` : ''}`;
+}
+
+async function generateSceneThumbnail(
+  visualDescription: string, 
+  sceneNumber: number,
+  brief?: EnrichedClientBrief
+): Promise<string | undefined> {
   const shortPrompt = visualDescription.length > 200 
     ? visualDescription.substring(0, 200) + '...'
     : visualDescription;
+  
+  const enrichedPrompt = brief 
+    ? buildVideoSceneEnrichment(brief, shortPrompt)
+    : shortPrompt;
   
   console.log(`[VideoAgent] Generating thumbnail for scene ${sceneNumber}...`);
   
   if (isAlibabaImageConfigured()) {
     try {
-      const result = await generateSceneImageWithAlibaba(shortPrompt, '16:9');
+      const result = await generateSceneImageWithAlibaba(enrichedPrompt, '16:9');
       if (result.success && result.imageUrl) {
         console.log(`[VideoAgent] Scene ${sceneNumber} thumbnail generated via Alibaba`);
         return result.imageUrl;
@@ -52,7 +83,7 @@ async function generateSceneThumbnail(visualDescription: string, sceneNumber: nu
   if (isFalConfigured()) {
     try {
       const result = await generateImageWithFal(
-        `Cinematic video frame: ${shortPrompt}. Professional cinematography, high quality.`,
+        `Cinematic video frame: ${enrichedPrompt}. Professional cinematography, high quality.`,
         { width: 1280, height: 720 }
       );
       if (result.success && result.imageUrl) {
@@ -68,8 +99,15 @@ async function generateSceneThumbnail(visualDescription: string, sceneNumber: nu
   return undefined;
 }
 
-function buildBrandVisualContext(brief: ClientBrief): string {
-  const config = brief.brandVoiceConfig;
+function buildBrandVisualContext(brief: ClientBrief | EnrichedClientBrief): string {
+  const isEnriched = 'textual' in brief && 'visual' in brief;
+  
+  if (isEnriched) {
+    const enrichedBrief = brief as EnrichedClientBrief;
+    return formatVisualBriefForPrompt(enrichedBrief);
+  }
+  
+  const config = (brief as ClientBrief).brandVoiceConfig;
   if (!config) {
     return "**Brand Visual Guidelines:** Use professional, modern, clean visuals with high contrast.";
   }
@@ -113,7 +151,7 @@ function buildBrandVisualContext(brief: ClientBrief): string {
 
 export async function generateVideoScript(
   topic: ContentTopic,
-  brief: ClientBrief,
+  brief: ClientBrief | EnrichedClientBrief,
   options: {
     duration?: number;
     format?: 'short' | 'medium' | 'long';
@@ -122,15 +160,28 @@ export async function generateVideoScript(
 ): Promise<AgentResponse<GeneratedContent>> {
   try {
     const { duration = 60, format = 'short', style = 'mixed' } = options;
+    const isEnriched = 'textual' in brief && 'visual' in brief;
+    const enrichedBrief = brief as EnrichedClientBrief;
     
     const brandVisualContext = buildBrandVisualContext(brief);
+    const brandTextualContext = isEnriched 
+      ? formatTextualBriefForPrompt(enrichedBrief)
+      : `Brand Voice: ${brief.brandVoice}\nTarget Audience: ${brief.targetAudience}`;
+    
+    const systemPrompt = isEnriched 
+      ? buildVideoSystemPrompt(enrichedBrief)
+      : BASE_SYSTEM_PROMPT;
+    
+    const effectiveCta = isEnriched ? getEffectiveCTA(enrichedBrief) : undefined;
+    const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];
     
     const userPrompt = `Create a video script for ${brief.clientName}.
 
 **Topic:** ${topic.title}
 **Angle:** ${topic.angle}
 **Target Audience:** ${brief.targetAudience}
-**Brand Voice:** ${brief.brandVoice}
+
+${brandTextualContext}
 
 ${brandVisualContext}
 
@@ -140,14 +191,16 @@ ${brandVisualContext}
 - Style: ${style}
 
 IMPORTANT: All visual descriptions MUST incorporate the brand visual style, color palette, and cinematic guidelines above.
+${isEnriched ? `Use ${enrichedBrief.visual.cinematicMotionStyle} motion and ${enrichedBrief.visual.cinematicPacing} pacing.` : ''}
+${forbiddenWords.length ? `\nNEVER use these words in voiceover: ${forbiddenWords.join(', ')}` : ''}
 
 Create a complete video script with:
-1. Hook (first 3 seconds to stop scrolling)
-2. Scene-by-scene breakdown
-3. Visual descriptions for each scene (following brand visual style)
-4. Voiceover/dialogue script
-5. Text overlays suggestions (using brand fonts if specified)
-6. Call-to-action
+1. Hook (first 3 seconds to stop scrolling) - address ${isEnriched ? enrichedBrief.textual.audiencePainPoints[0] || 'audience challenge' : 'key pain point'}
+2. Scene-by-scene breakdown (following brand visual style)
+3. Visual descriptions for each scene incorporating brand colors, motifs, and aesthetic
+4. Voiceover/dialogue script in ${isEnriched ? enrichedBrief.textual.archetype : 'brand'} voice
+5. Text overlays suggestions (using brand typography style)
+6. Call-to-action${effectiveCta ? `: "${effectiveCta}"` : ''}
 
 Output as JSON:
 {
@@ -161,13 +214,13 @@ Output as JSON:
       "textOverlay": "Optional text on screen"
     }
   ],
-  "callToAction": "Final CTA",
+  "callToAction": "${effectiveCta || 'Final CTA'}",
   "duration": ${duration},
   "voiceoverText": "Full voiceover script combined"
 }`;
 
     console.log(`[VideoAgent] Generating video script with text fallback system...`);
-    const textResult = await generateVideoScriptWithFallback(SYSTEM_PROMPT, userPrompt, {
+    const textResult = await generateVideoScriptWithFallback(systemPrompt, userPrompt, {
       maxTokens: 3000,
       temperature: 0.7,
     });
@@ -192,7 +245,11 @@ Output as JSON:
     const maxThumbnails = Math.min(scriptData.scenes?.length || 0, 5);
     
     const thumbnailPromises = scriptData.scenes?.slice(0, maxThumbnails).map(async (scene) => {
-      const thumbnailUrl = await generateSceneThumbnail(scene.visualDescription, scene.sceneNumber);
+      const thumbnailUrl = await generateSceneThumbnail(
+        scene.visualDescription, 
+        scene.sceneNumber,
+        isEnriched ? enrichedBrief : undefined
+      );
       if (thumbnailUrl) {
         sceneThumbnails[scene.sceneNumber] = thumbnailUrl;
         scene.thumbnailUrl = thumbnailUrl;
@@ -213,8 +270,12 @@ Output as JSON:
           .slice(0, 2)
           .join('. ');
         
+        const enrichedVideoPrompt = isEnriched 
+          ? buildVideoSceneEnrichment(enrichedBrief, videoPrompt)
+          : videoPrompt;
+        
         const videoResult = await generateVideoFromText(
-          videoPrompt,
+          enrichedVideoPrompt,
           style === 'animated' ? 'animated, motion graphics' : 'cinematic, professional'
         );
         

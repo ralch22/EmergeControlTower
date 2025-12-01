@@ -1,6 +1,12 @@
 import { generateWithClaude } from "../integrations/anthropic";
 import { generateSocialMediaGraphic } from "../integrations/nano-banana-pro";
-import type { ClientBrief, ContentTopic, GeneratedContent, ContentType, AgentResponse } from "../types";
+import type { ClientBrief, ContentTopic, GeneratedContent, ContentType, AgentResponse, EnrichedClientBrief } from "../types";
+import { 
+  formatTextualBriefForPrompt, 
+  buildSystemPromptSuffix,
+  buildImagePromptEnrichment,
+  getEffectiveCTA 
+} from "../services/brand-brief";
 
 const PLATFORM_CONFIGS = {
   linkedin: {
@@ -20,7 +26,10 @@ const PLATFORM_CONFIGS = {
   },
 };
 
-const SYSTEM_PROMPT = `You are a social media content expert who creates scroll-stopping posts for various platforms. You understand:
+function buildSocialSystemPrompt(brief: EnrichedClientBrief, platform: string): string {
+  const baseSuffix = buildSystemPromptSuffix(brief);
+  
+  return `You are a social media content expert who creates scroll-stopping posts for ${platform}. You understand:
 
 - Platform-specific best practices and algorithms
 - Engagement-driving hooks and formats
@@ -28,38 +37,56 @@ const SYSTEM_PROMPT = `You are a social media content expert who creates scroll-
 - Call-to-action optimization
 - Visual content suggestions
 
-Create content that drives engagement, shares, and conversions.`;
+${baseSuffix}
+
+Create content that drives engagement, shares, and conversions while maintaining brand consistency.`;
+}
 
 export async function generateSocialPost(
   topic: ContentTopic,
-  brief: ClientBrief,
+  brief: ClientBrief | EnrichedClientBrief,
   platform: 'linkedin' | 'twitter' | 'instagram'
 ): Promise<AgentResponse<GeneratedContent>> {
   try {
     const config = PLATFORM_CONFIGS[platform];
+    const isEnriched = 'textual' in brief && 'visual' in brief;
+    const enrichedBrief = brief as EnrichedClientBrief;
+    
+    const brandContext = isEnriched 
+      ? formatTextualBriefForPrompt(enrichedBrief)
+      : `Brand Voice: ${brief.brandVoice}\nTarget Audience: ${brief.targetAudience}`;
+    
+    const systemPrompt = isEnriched 
+      ? buildSocialSystemPrompt(enrichedBrief, platform)
+      : `You are a social media content expert. Create content in the brand voice: ${brief.brandVoice}.`;
+    
+    const effectiveCta = isEnriched ? getEffectiveCTA(enrichedBrief) : undefined;
+    const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];
     
     const userPrompt = `Create a ${platform.toUpperCase()} post for ${brief.clientName}.
 
 **Topic:** ${topic.title}
 **Angle:** ${topic.angle}
 **Keywords:** ${topic.keywords.join(', ')}
-**Brand Voice:** ${brief.brandVoice}
-**Target Audience:** ${brief.targetAudience}
+
+${brandContext}
 
 **Platform Requirements:**
 - Max characters: ${config.maxChars}
 - Style: ${config.style}
-- Tone: ${config.tone}
+- Platform tone: ${config.tone}
 
 Create a highly engaging post that:
-1. Opens with a hook that stops scrolling
-2. Delivers value or insight
-3. Ends with engagement prompt or CTA
-4. Includes appropriate hashtags
+1. Opens with a hook that stops scrolling and speaks to ${isEnriched ? enrichedBrief.textual.audienceDemographics : brief.targetAudience}
+2. Delivers value or insight aligned with brand personality (${isEnriched ? enrichedBrief.textual.archetype : 'professional'})
+3. Maintains ${isEnriched ? `${enrichedBrief.textual.toneDescription} tone` : 'brand voice'}
+4. ${effectiveCta ? `Ends with CTA: "${effectiveCta}"` : 'Ends with engagement prompt or CTA'}
+5. Includes appropriate hashtags
+${forbiddenWords.length ? `6. NEVER use: ${forbiddenWords.join(', ')}` : ''}
 
 Output ONLY the post content, ready to publish.`;
 
-    const content = await generateWithClaude(SYSTEM_PROMPT, userPrompt, {
+    const content = await generateWithClaude(systemPrompt, userPrompt, {
       maxTokens: 1024,
       temperature: 0.8,
     });
@@ -72,10 +99,16 @@ Output ONLY the post content, ready to publish.`;
     if (geminiKey) {
       try {
         console.log(`[SocialAgent] Generating image with Nano Banana Pro for ${platform} post...`);
+        
+        const basePrompt = `Social media graphic for ${platform}: ${topic.title}`;
+        const brandVoice = isEnriched 
+          ? `${enrichedBrief.visual.aesthetic.join(', ')}, ${enrichedBrief.visual.moodKeywords.join(', ')}`
+          : brief.brandVoice;
+        
         const imageResult = await generateSocialMediaGraphic(
-          topic.title,
+          isEnriched ? buildImagePromptEnrichment(enrichedBrief, basePrompt) : topic.title,
           platform,
-          brief.brandVoice
+          brandVoice
         );
         
         if (imageResult.success && imageResult.imageDataUrl) {
@@ -121,7 +154,7 @@ Output ONLY the post content, ready to publish.`;
 
 export async function generateAllSocialPosts(
   topic: ContentTopic,
-  brief: ClientBrief,
+  brief: ClientBrief | EnrichedClientBrief,
   platforms: ('linkedin' | 'twitter' | 'instagram')[] = ['linkedin', 'twitter', 'instagram']
 ): Promise<AgentResponse<GeneratedContent[]>> {
   try {
