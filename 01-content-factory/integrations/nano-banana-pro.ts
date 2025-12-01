@@ -14,7 +14,8 @@ export async function generateImageWithNanoBananaPro(
   prompt: string,
   options: NanoBananaProOptions = {}
 ): Promise<NanoBananaProResult> {
-  const apiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  // Prefer GEMINI_API_KEY first as it's the validated key
+  const apiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
   
   if (!apiKey) {
     return {
@@ -156,9 +157,11 @@ export async function testNanoBananaProConnection(): Promise<{
   message: string;
   status: 'working' | 'error' | 'not_configured';
 }> {
-  const apiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  // Prefer GEMINI_API_KEY first as it's the validated key
+  const apiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
   
   if (!apiKey) {
+    console.log('[NanoBananaPro] No API key found in AI_INTEGRATIONS_GEMINI_API_KEY or GEMINI_API_KEY');
     return {
       success: false,
       message: "GEMINI_API_KEY not configured",
@@ -166,25 +169,33 @@ export async function testNanoBananaProConnection(): Promise<{
     };
   }
 
+  console.log('[NanoBananaPro] Testing connection with API key (length:', apiKey.length, ')');
+
   try {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
     );
 
     if (response.ok) {
+      const data = await response.json();
+      const modelCount = data.models?.length || 0;
+      console.log('[NanoBananaPro] Connection test passed, found', modelCount, 'models');
       return { 
         success: true, 
-        message: "Nano Banana Pro (Gemini Image) connected", 
+        message: `Gemini Image connected (${modelCount} models available)`, 
         status: 'working' 
       };
     }
     
+    const errorText = await response.text();
+    console.log('[NanoBananaPro] API test failed:', response.status, errorText.substring(0, 100));
     return { 
       success: false, 
-      message: `API error: ${response.status}`, 
+      message: `API error: ${response.status} - ${errorText.substring(0, 50)}`, 
       status: 'error' 
     };
   } catch (error: any) {
+    console.error('[NanoBananaPro] Connection test error:', error.message);
     return {
       success: false,
       message: error.message || 'Connection test failed',

@@ -873,12 +873,18 @@ export async function registerRoutes(
           const { generateImageWithFalFluxPro, isFalConfigured } = await import("../01-content-factory/integrations/fal-ai");
           const { generateSceneImageWithAlibaba, isAlibabaImageConfigured } = await import("../01-content-factory/integrations/alibaba-image");
           
+          // Check if Gemini API key is available for image generation
+          // Prefer GEMINI_API_KEY first as it's the validated key
+          const geminiApiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
+          const geminiAvailable = !!geminiApiKey;
+          const primaryProvider = geminiAvailable ? 'gemini_image' : (isFalConfigured() ? 'fal_ai' : 'alibaba');
+          
           await storage.createActivityLog({
             runId: `video_proj_${projectId}`,
             eventType: 'reference_image_generation_started',
             level: 'info',
-            message: `Generating reference images for ${parsedScenes.length} scenes using Nano Banana Pro...`,
-            metadata: JSON.stringify({ projectId, scenesCount: parsedScenes.length, primaryProvider: 'nano_banana_pro' }),
+            message: `Generating reference images for ${parsedScenes.length} scenes using ${primaryProvider}...`,
+            metadata: JSON.stringify({ projectId, scenesCount: parsedScenes.length, primaryProvider }),
           });
 
           const imagePromises = parsedScenes.map(async (scene, index) => {
@@ -886,16 +892,24 @@ export async function registerRoutes(
               let imageUrl: string | undefined;
               let provider: string = 'none';
               
-              // Priority 1: Nano Banana Pro (Gemini Image Generation) - default
-              const nanoResult = await generateVideoThumbnail(scene.visualPrompt, { resolution: '2K' });
-              if (nanoResult.success && (nanoResult.imageUrl || nanoResult.imageDataUrl)) {
-                imageUrl = nanoResult.imageUrl || nanoResult.imageDataUrl;
-                provider = 'nano_banana_pro';
+              // Priority 1: Gemini Image Generation (GEMINI_API_KEY) - primary
+              if (geminiAvailable) {
+                try {
+                  const geminiResult = await generateVideoThumbnail(scene.visualPrompt, { resolution: '2K' });
+                  if (geminiResult.success && (geminiResult.imageUrl || geminiResult.imageDataUrl)) {
+                    imageUrl = geminiResult.imageUrl || geminiResult.imageDataUrl;
+                    provider = 'gemini_image';
+                  } else if (geminiResult.error) {
+                    console.log(`[VideoProject] Scene ${scene.sceneNumber}: Gemini failed: ${geminiResult.error}`);
+                  }
+                } catch (geminiError: any) {
+                  console.log(`[VideoProject] Scene ${scene.sceneNumber}: Gemini error: ${geminiError.message}`);
+                }
               }
               
               // Priority 2: Fal AI Flux Pro - first fallback
               if (!imageUrl && isFalConfigured()) {
-                console.log(`[VideoProject] Scene ${scene.sceneNumber}: Nano Banana Pro failed, trying Fal AI...`);
+                console.log(`[VideoProject] Scene ${scene.sceneNumber}: Trying Fal AI...`);
                 const falResult = await generateImageWithFalFluxPro(
                   scene.visualPrompt,
                   { width: 1280, height: 720 }
