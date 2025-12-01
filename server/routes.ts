@@ -753,27 +753,9 @@ export async function registerRoutes(
       res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Cache-Control', 'public, max-age=3600');
 
-      // Stream the video to the client
-      if (response.body) {
-        const reader = response.body.getReader();
-        const stream = new ReadableStream({
-          async start(controller) {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              controller.enqueue(value);
-            }
-            controller.close();
-          }
-        });
-        
-        // Convert to Node.js stream and pipe to response
-        const nodeStream = require('stream').Readable.fromWeb(stream);
-        nodeStream.pipe(res);
-      } else {
-        const buffer = await response.arrayBuffer();
-        res.send(Buffer.from(buffer));
-      }
+      // Stream the video to the client using arrayBuffer (ESM compatible)
+      const buffer = await response.arrayBuffer();
+      res.send(Buffer.from(buffer));
     } catch (error: any) {
       console.error('[VideoProxy] Error:', error);
       res.status(500).json({ error: error.message || "Failed to proxy video" });
