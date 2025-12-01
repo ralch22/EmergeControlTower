@@ -170,6 +170,12 @@ export default function VideoProjectsPage() {
     script: "",
   });
   const [provider, setProvider] = useState<"runway" | "wan">("runway");
+  const [selectedPreviewScene, setSelectedPreviewScene] = useState<{
+    sceneId: string;
+    title: string;
+    type: "video" | "audio";
+    url: string;
+  } | null>(null);
 
   const [ingredients, setIngredients] = useState({
     title: "",
