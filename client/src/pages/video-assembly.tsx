@@ -276,12 +276,15 @@ export default function VideoAssemblyPage() {
   const { data: assemblyStatus, isLoading: statusLoading, refetch: refetchStatus } = useQuery<AssemblyStatus>({
     queryKey: ['/api/video-projects', selectedProjectId, 'assembly-status'],
     queryFn: async () => {
+      if (!selectedProjectId) {
+        throw new Error('No project selected');
+      }
       const res = await fetch(`/api/video-projects/${selectedProjectId}/assembly-status`);
       if (!res.ok) throw new Error('Failed to fetch assembly status');
       return res.json();
     },
     enabled: !!selectedProjectId,
-    refetchInterval: 5000,
+    refetchInterval: selectedProjectId ? 5000 : false,
   });
   
   const forceAssembleMutation = useMutation({
