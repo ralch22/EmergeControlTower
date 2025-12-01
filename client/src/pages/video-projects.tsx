@@ -1433,20 +1433,29 @@ export default function VideoProjectsPage() {
 
         {/* Media Preview Modal */}
         <Dialog open={!!selectedPreviewScene} onOpenChange={() => setSelectedPreviewScene(null)}>
-          <DialogContent className="bg-zinc-900 border-zinc-700 max-w-2xl">
+          <DialogContent className="bg-zinc-900 border-zinc-700 max-w-3xl">
             <DialogHeader>
               <DialogTitle className="text-cyan-400">{selectedPreviewScene?.title}</DialogTitle>
             </DialogHeader>
             {selectedPreviewScene && (
               <div className="space-y-4 mt-4">
                 {selectedPreviewScene.type === 'video' ? (
-                  <video
-                    src={selectedPreviewScene.url}
-                    controls
-                    autoPlay
-                    className="w-full rounded-lg bg-black"
-                    data-testid="video-player"
-                  />
+                  <div className="relative">
+                    <video
+                      key={selectedPreviewScene.url}
+                      controls
+                      autoPlay
+                      playsInline
+                      className="w-full rounded-lg bg-black min-h-[300px]"
+                      data-testid="video-player"
+                      onError={(e) => console.error('Video error:', e)}
+                      onLoadStart={() => console.log('Video loading...')}
+                      onCanPlay={() => console.log('Video ready to play')}
+                    >
+                      <source src={selectedPreviewScene.url} type="video/mp4" />
+                      Your browser does not support the video tag.
+                    </video>
+                  </div>
                 ) : (
                   <div className="space-y-4">
                     <div className="flex flex-col items-center justify-center p-8 bg-zinc-800 rounded-lg">

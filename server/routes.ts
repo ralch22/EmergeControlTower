@@ -711,7 +711,7 @@ export async function registerRoutes(
 
   // ========== VIDEO PROJECTS ==========
 
-  // Proxy endpoint to serve Gemini-hosted videos with authentication
+  // Proxy endpoint to serve Gemini-hosted videos with authentication and Range support
   app.get("/api/video-proxy", async (req, res) => {
     try {
       const { url } = req.query;
@@ -734,10 +734,17 @@ export async function registerRoutes(
       const separator = url.includes('?') ? '&' : '?';
       const authenticatedUrl = `${url}${separator}key=${apiKey}`;
 
+      // Forward Range header if present
+      const headers: Record<string, string> = {};
+      const rangeHeader = req.headers.range;
+      if (rangeHeader) {
+        headers['Range'] = rangeHeader;
+      }
+
       // Fetch the video from Gemini
-      const response = await fetch(authenticatedUrl);
+      const response = await fetch(authenticatedUrl, { headers });
       
-      if (!response.ok) {
+      if (!response.ok && response.status !== 206) {
         console.error(`[VideoProxy] Failed to fetch video: ${response.status} ${response.statusText}`);
         return res.status(response.status).json({ error: "Failed to fetch video" });
       }
@@ -745,13 +752,20 @@ export async function registerRoutes(
       // Get content type and set appropriate headers
       const contentType = response.headers.get('content-type') || 'video/mp4';
       const contentLength = response.headers.get('content-length');
+      const contentRange = response.headers.get('content-range');
       
       res.setHeader('Content-Type', contentType);
       if (contentLength) {
         res.setHeader('Content-Length', contentLength);
       }
+      if (contentRange) {
+        res.setHeader('Content-Range', contentRange);
+      }
       res.setHeader('Accept-Ranges', 'bytes');
       res.setHeader('Cache-Control', 'public, max-age=3600');
+
+      // Set status code (206 for partial content, 200 for full content)
+      res.status(response.status);
 
       // Stream the video to the client using arrayBuffer (ESM compatible)
       const buffer = await response.arrayBuffer();
