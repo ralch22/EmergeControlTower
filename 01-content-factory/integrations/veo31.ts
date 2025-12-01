@@ -67,9 +67,22 @@ async function generateWithVertexAI(
   };
 
   if (imageBase64) {
+    let base64Data = imageBase64;
+    let mimeType = 'image/png';
+    
+    if (imageBase64.startsWith('data:')) {
+      const match = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        mimeType = match[1];
+        base64Data = match[2];
+      }
+    }
+    
     requestBody.instances[0].image = {
-      bytesBase64Encoded: imageBase64,
+      bytesBase64Encoded: base64Data,
+      mimeType: mimeType,
     };
+    console.log(`[Veo-Vertex] Using image with mimeType: ${mimeType}`);
   } else if (imageUrl) {
     requestBody.instances[0].image = {
       gcsUri: imageUrl,
@@ -178,9 +191,22 @@ async function generateWithGeminiAPI(
   };
 
   if (imageBase64) {
+    let base64Data = imageBase64;
+    let mimeType = 'image/png';
+    
+    if (imageBase64.startsWith('data:')) {
+      const match = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        mimeType = match[1];
+        base64Data = match[2];
+      }
+    }
+    
     requestBody.instances[0].image = {
-      bytesBase64Encoded: imageBase64,
+      bytesBase64Encoded: base64Data,
+      mimeType: mimeType,
     };
+    console.log(`[Veo3.1] Using image with mimeType: ${mimeType}, data length: ${base64Data.length}`);
   } else if (imageUrl) {
     requestBody.instances[0].image = {
       uri: imageUrl,
