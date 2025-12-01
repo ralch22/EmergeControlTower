@@ -739,52 +739,64 @@ export function ActivityPanel() {
   const activeRunCount = pipelineStatus?.activeRuns?.length || 0;
   const isActive = pipelineStatus?.isActive || false;
 
-  const panelWidth = isFullScreen ? "w-[500px]" : "w-96";
-  const panelHeight = isFullScreen ? "max-h-[80vh]" : "max-h-[600px]";
+  const panelWidth = isFullScreen ? "w-full max-w-[1400px]" : "w-96";
+  const panelHeight = isFullScreen ? "h-[calc(100vh-4rem)]" : "max-h-[600px]";
 
   return (
-    <div className="fixed bottom-4 right-4 z-50">
-      {!isExpanded ? (
-        <Button
-          onClick={() => setIsExpanded(true)}
-          className={cn(
-            "relative h-12 w-12 rounded-full shadow-lg border",
-            "bg-zinc-900 border-zinc-700 hover:bg-zinc-800 hover:border-cyan-500/50",
-            "transition-all duration-300"
-          )}
-          data-testid="panel-activity-toggle"
-        >
-          <Activity className={cn("w-5 h-5", isActive ? "text-cyan-400" : "text-zinc-400")} />
-          {activeRunCount > 0 && (
-            <Badge
-              className="absolute -top-1 -right-1 h-5 min-w-5 p-0 flex items-center justify-center bg-cyan-500 text-white border-0 text-xs"
-              data-testid="badge-active-runs"
-            >
-              {activeRunCount}
-            </Badge>
-          )}
-          {criticalIncidents.length > 0 && (
-            <Badge
-              className="absolute -top-1 -left-1 h-4 min-w-4 p-0 flex items-center justify-center bg-red-500 text-white border-0 text-[10px] animate-pulse"
-            >
-              !
-            </Badge>
-          )}
-          {isActive && (
-            <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-1 w-6 bg-cyan-400 rounded-full animate-pulse" />
-          )}
-        </Button>
-      ) : (
-        <div
-          className={cn(
-            panelWidth,
-            panelHeight,
-            "rounded-lg shadow-xl border overflow-hidden flex flex-col",
-            "bg-zinc-900/95 backdrop-blur-sm border-zinc-700",
-            "animate-in slide-in-from-bottom-5 duration-300"
-          )}
-          data-testid="panel-activity-expanded"
-        >
+    <>
+      {isFullScreen && isExpanded && (
+        <div 
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          onClick={() => setIsFullScreen(false)}
+        />
+      )}
+      <div className={cn(
+        "fixed z-50",
+        isFullScreen && isExpanded 
+          ? "inset-0 p-4 flex items-center justify-center" 
+          : "bottom-4 right-4"
+      )}>
+        {!isExpanded ? (
+          <Button
+            onClick={() => setIsExpanded(true)}
+            className={cn(
+              "relative h-12 w-12 rounded-full shadow-lg border",
+              "bg-zinc-900 border-zinc-700 hover:bg-zinc-800 hover:border-cyan-500/50",
+              "transition-all duration-300"
+            )}
+            data-testid="panel-activity-toggle"
+          >
+            <Activity className={cn("w-5 h-5", isActive ? "text-cyan-400" : "text-zinc-400")} />
+            {activeRunCount > 0 && (
+              <Badge
+                className="absolute -top-1 -right-1 h-5 min-w-5 p-0 flex items-center justify-center bg-cyan-500 text-white border-0 text-xs"
+                data-testid="badge-active-runs"
+              >
+                {activeRunCount}
+              </Badge>
+            )}
+            {criticalIncidents.length > 0 && (
+              <Badge
+                className="absolute -top-1 -left-1 h-4 min-w-4 p-0 flex items-center justify-center bg-red-500 text-white border-0 text-[10px] animate-pulse"
+              >
+                !
+              </Badge>
+            )}
+            {isActive && (
+              <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-1 w-6 bg-cyan-400 rounded-full animate-pulse" />
+            )}
+          </Button>
+        ) : (
+          <div
+            className={cn(
+              panelWidth,
+              panelHeight,
+              "rounded-lg shadow-xl border overflow-hidden flex flex-col",
+              "bg-zinc-900/95 backdrop-blur-sm border-zinc-700",
+              "animate-in slide-in-from-bottom-5 duration-300"
+            )}
+            data-testid="panel-activity-expanded"
+          >
           <div className="flex items-center justify-between p-3 border-b border-zinc-700 bg-zinc-800/50">
             <div className="flex items-center gap-2">
               <Activity className={cn("w-4 h-4", isActive ? "text-cyan-400" : "text-zinc-400")} />
@@ -853,6 +865,7 @@ export function ActivityPanel() {
           />
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
