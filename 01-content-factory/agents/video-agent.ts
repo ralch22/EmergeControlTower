@@ -1,5 +1,7 @@
 import { generateWithClaude } from "../integrations/anthropic";
 import { generateVideoFromText, waitForVideoCompletion } from "../integrations/runway";
+import { generateSceneImageWithAlibaba, isAlibabaImageConfigured } from "../integrations/alibaba-image";
+import { generateImageWithFal, isFalConfigured } from "../integrations/fal-ai";
 import type { ClientBrief, ContentTopic, GeneratedContent, AgentResponse } from "../types";
 
 const SYSTEM_PROMPT = `You are a video content strategist and scriptwriter. You create engaging video scripts optimized for:
@@ -25,6 +27,45 @@ export interface VideoScene {
   visualDescription: string;
   voiceover: string;
   textOverlay?: string;
+  thumbnailUrl?: string;
+}
+
+async function generateSceneThumbnail(visualDescription: string, sceneNumber: number): Promise<string | undefined> {
+  const shortPrompt = visualDescription.length > 200 
+    ? visualDescription.substring(0, 200) + '...'
+    : visualDescription;
+  
+  console.log(`[VideoAgent] Generating thumbnail for scene ${sceneNumber}...`);
+  
+  if (isAlibabaImageConfigured()) {
+    try {
+      const result = await generateSceneImageWithAlibaba(shortPrompt, '16:9');
+      if (result.success && result.imageUrl) {
+        console.log(`[VideoAgent] Scene ${sceneNumber} thumbnail generated via Alibaba`);
+        return result.imageUrl;
+      }
+    } catch (error) {
+      console.log(`[VideoAgent] Alibaba image failed for scene ${sceneNumber}:`, error);
+    }
+  }
+  
+  if (isFalConfigured()) {
+    try {
+      const result = await generateImageWithFal(
+        `Cinematic video frame: ${shortPrompt}. Professional cinematography, high quality.`,
+        { width: 1280, height: 720 }
+      );
+      if (result.success && result.imageUrl) {
+        console.log(`[VideoAgent] Scene ${sceneNumber} thumbnail generated via Fal AI`);
+        return result.imageUrl;
+      }
+    } catch (error) {
+      console.log(`[VideoAgent] Fal AI image failed for scene ${sceneNumber}:`, error);
+    }
+  }
+  
+  console.log(`[VideoAgent] No thumbnail generated for scene ${sceneNumber}`);
+  return undefined;
 }
 
 function buildBrandVisualContext(brief: ClientBrief): string {
@@ -137,6 +178,23 @@ Output as JSON:
 
     const scriptData: VideoScript = JSON.parse(jsonMatch[0]);
 
+    console.log(`[VideoAgent] Generating thumbnails for ${scriptData.scenes?.length || 0} scenes...`);
+    
+    const sceneThumbnails: Record<number, string> = {};
+    const maxThumbnails = Math.min(scriptData.scenes?.length || 0, 5);
+    
+    const thumbnailPromises = scriptData.scenes?.slice(0, maxThumbnails).map(async (scene) => {
+      const thumbnailUrl = await generateSceneThumbnail(scene.visualDescription, scene.sceneNumber);
+      if (thumbnailUrl) {
+        sceneThumbnails[scene.sceneNumber] = thumbnailUrl;
+        scene.thumbnailUrl = thumbnailUrl;
+      }
+    }) || [];
+    
+    await Promise.all(thumbnailPromises);
+    
+    console.log(`[VideoAgent] Generated ${Object.keys(sceneThumbnails).length} scene thumbnails`);
+
     let videoUrl: string | undefined;
     let videoTaskId: string | undefined;
     
@@ -182,6 +240,7 @@ Output as JSON:
         wordCount: scriptData.voiceoverText?.split(/\s+/).length || 0,
         videoTaskId,
         videoUrl,
+        sceneThumbnails,
       },
       status: 'draft',
       createdAt: new Date(),

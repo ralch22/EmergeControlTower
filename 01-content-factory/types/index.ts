@@ -61,6 +61,7 @@ export interface ContentMetadata {
   videoUrl?: string;
   videoTaskId?: string;
   imageDataUrl?: string;
+  sceneThumbnails?: Record<number, string>;
 }
 
 export interface ContentRunConfig {

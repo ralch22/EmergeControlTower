@@ -209,6 +209,9 @@ function formatContentPreview(content: GeneratedContent): string {
 function VideoScriptViewer({ content }: { content: GeneratedContent }) {
   try {
     const scriptData = JSON.parse(content.content);
+    const metadata = content.metadata ? (typeof content.metadata === 'string' ? JSON.parse(content.metadata) : content.metadata) : {};
+    const sceneThumbnails = metadata.sceneThumbnails || {};
+    
     return (
       <div className="space-y-6">
         <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-4">
@@ -228,6 +231,11 @@ function VideoScriptViewer({ content }: { content: GeneratedContent }) {
             <Film className="w-4 h-4" />
             {scriptData.scenes?.length || 0} Scenes
           </span>
+          {Object.keys(sceneThumbnails).length > 0 && (
+            <Badge variant="outline" className="text-green-400 border-green-500/30">
+              {Object.keys(sceneThumbnails).length} Thumbnails
+            </Badge>
+          )}
         </div>
 
         <div className="space-y-3">
@@ -235,37 +243,57 @@ function VideoScriptViewer({ content }: { content: GeneratedContent }) {
             <Film className="w-4 h-4" />
             Scene Breakdown
           </h4>
-          {scriptData.scenes?.map((scene: any, idx: number) => (
-            <div key={idx} className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700">
-              <div className="flex items-center justify-between mb-3">
-                <Badge variant="outline" className="text-cyan-400 border-cyan-500/30">
-                  Scene {scene.sceneNumber} • {scene.duration}s
-                </Badge>
-                {scene.textOverlay && (
-                  <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
-                    <Type className="w-3 h-3 mr-1" />
-                    Text Overlay
+          {scriptData.scenes?.map((scene: any, idx: number) => {
+            const thumbnailUrl = scene.thumbnailUrl || sceneThumbnails[scene.sceneNumber];
+            return (
+              <div key={idx} className="bg-zinc-800/50 rounded-lg p-4 border border-zinc-700">
+                <div className="flex items-center justify-between mb-3">
+                  <Badge variant="outline" className="text-cyan-400 border-cyan-500/30">
+                    Scene {scene.sceneNumber} • {scene.duration}s
                   </Badge>
-                )}
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <span className="text-xs text-zinc-500 uppercase tracking-wide">Visual</span>
-                  <p className="text-sm text-zinc-300 mt-1">{scene.visualDescription}</p>
+                  {scene.textOverlay && (
+                    <Badge variant="outline" className="text-yellow-400 border-yellow-500/30">
+                      <Type className="w-3 h-3 mr-1" />
+                      Text Overlay
+                    </Badge>
+                  )}
                 </div>
-                <div>
-                  <span className="text-xs text-zinc-500 uppercase tracking-wide">Voiceover</span>
-                  <p className="text-sm text-white mt-1 italic">"{scene.voiceover}"</p>
-                </div>
-                {scene.textOverlay && (
-                  <div>
-                    <span className="text-xs text-zinc-500 uppercase tracking-wide">On-Screen Text</span>
-                    <p className="text-sm text-yellow-400 mt-1 font-mono whitespace-pre-line">{scene.textOverlay}</p>
+                
+                <div className="flex gap-4">
+                  {thumbnailUrl && (
+                    <div className="flex-shrink-0 w-40">
+                      <img 
+                        src={thumbnailUrl} 
+                        alt={`Scene ${scene.sceneNumber} preview`}
+                        className="w-full h-24 object-cover rounded-lg border border-zinc-600"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                      <span className="text-[10px] text-zinc-500 mt-1 block text-center">Reference Image</span>
+                    </div>
+                  )}
+                  
+                  <div className="flex-1 space-y-3">
+                    <div>
+                      <span className="text-xs text-zinc-500 uppercase tracking-wide">Visual</span>
+                      <p className="text-sm text-zinc-300 mt-1">{scene.visualDescription}</p>
+                    </div>
+                    <div>
+                      <span className="text-xs text-zinc-500 uppercase tracking-wide">Voiceover</span>
+                      <p className="text-sm text-white mt-1 italic">"{scene.voiceover}"</p>
+                    </div>
+                    {scene.textOverlay && (
+                      <div>
+                        <span className="text-xs text-zinc-500 uppercase tracking-wide">On-Screen Text</span>
+                        <p className="text-sm text-yellow-400 mt-1 font-mono whitespace-pre-line">{scene.textOverlay}</p>
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4">
