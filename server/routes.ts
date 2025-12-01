@@ -1767,6 +1767,191 @@ export async function registerRoutes(
     }
   });
 
+  // Force Assembly - assemble with available clips only, skip failed/pending
+  app.post("/api/video-projects/:projectId/force-assemble", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      
+      const fullProject = await storage.getFullVideoProject(projectId);
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Get only ready clips (prefer permanentVideoUrl, fall back to videoUrl)
+      const readyClips = fullProject.clips.filter((c: any) => 
+        c.status === 'ready' && (c.permanentVideoUrl || c.videoUrl)
+      );
+      const readyAudio = fullProject.audioTracks.filter(a => a.status === 'ready' && a.audioUrl);
+      
+      if (readyClips.length === 0) {
+        return res.status(400).json({ 
+          error: "No ready clips available for assembly",
+          message: "At least one video clip must be ready before assembly",
+        });
+      }
+
+      // Get scenes that have ready clips
+      const readySceneIds = new Set(readyClips.map((c: any) => c.sceneId));
+      const scenesToAssemble = fullProject.scenes
+        .filter(s => readySceneIds.has(s.sceneId))
+        .sort((a, b) => a.sceneNumber - b.sceneNumber);
+
+      const skippedScenes = fullProject.scenes.filter(s => !readySceneIds.has(s.sceneId));
+
+      console.log(`[ForceAssembly] Project ${projectId}: ${readyClips.length} ready clips, ${skippedScenes.length} skipped scenes`);
+
+      // Update project status
+      await storage.updateVideoProject(projectId, { status: 'assembling' });
+
+      // Import Shotstack
+      const { createMultiSceneVideo, renderVideo, waitForRender, isGoogleAuthenticatedUrl } = await import("../01-content-factory/integrations/shotstack");
+
+      // Build scenes array using permanentVideoUrl when available (no preprocessing needed for cached videos)
+      const scenes: { videoUrl: string; audioUrl: string | undefined; duration: number }[] = [];
+      const expiredClips: { sceneNumber: number; clipId: string }[] = [];
+      
+      for (const scene of scenesToAssemble) {
+        const clip = readyClips.find((c: any) => c.sceneId === scene.sceneId);
+        const audio = readyAudio.find(a => a.sceneId === scene.sceneId);
+        
+        if (!clip) continue;
+        
+        // Use permanentVideoUrl if available (cached), otherwise use videoUrl
+        let videoUrl = (clip as any).permanentVideoUrl || clip.videoUrl;
+        
+        // If no permanent URL and original URL is a Google auth URL, it's likely expired
+        if (!videoUrl) {
+          console.log(`[ForceAssembly] Skipping scene ${scene.sceneNumber}: no video URL available`);
+          expiredClips.push({ sceneNumber: scene.sceneNumber, clipId: clip.clipId });
+          continue;
+        }
+        
+        // If using original Google URL without permanent cache, warn about potential expiration
+        if (!(clip as any).permanentVideoUrl && isGoogleAuthenticatedUrl(videoUrl)) {
+          console.log(`[ForceAssembly] Warning: Scene ${scene.sceneNumber} using uncached Google URL (may be expired)`);
+        }
+        
+        scenes.push({
+          videoUrl,
+          audioUrl: audio?.audioUrl || undefined,
+          duration: clip.duration || scene.duration || 5,
+        });
+      }
+
+      if (scenes.length === 0) {
+        await storage.updateVideoProject(projectId, { status: 'failed' });
+        return res.status(500).json({ 
+          error: "No clips could be processed for assembly",
+          expiredClips,
+          message: expiredClips.length > 0 ? "Video clips may have expired. Please regenerate them." : undefined,
+        });
+      }
+
+      // Create and render
+      const edit = createMultiSceneVideo(scenes, { resolution: 'hd', transitions: true });
+      const renderResult = await renderVideo(edit);
+
+      if (!renderResult.success || !renderResult.renderId) {
+        await storage.updateVideoProject(projectId, { status: 'failed' });
+        return res.status(500).json({ error: renderResult.error || "Failed to start assembly" });
+      }
+
+      // Wait for render in background
+      waitForRender(renderResult.renderId, 600).then(async (result) => {
+        if (result.success && result.videoUrl) {
+          await storage.updateVideoProject(projectId, {
+            status: 'completed',
+            outputUrl: result.videoUrl,
+          });
+          console.log(`[ForceAssembly] Complete: ${result.videoUrl}`);
+        } else {
+          await storage.updateVideoProject(projectId, { status: 'failed' });
+          console.error(`[ForceAssembly] Failed: ${result.error}`);
+        }
+      });
+
+      const cachedClipsCount = readyClips.filter((c: any) => c.permanentVideoUrl).length;
+      
+      res.json({
+        success: true,
+        message: `Force assembly started with ${scenes.length} clips (${skippedScenes.length} scenes skipped)`,
+        renderId: renderResult.renderId,
+        assembledScenes: scenes.length,
+        cachedClips: cachedClipsCount,
+        uncachedClips: scenes.length - cachedClipsCount,
+        skippedScenes: skippedScenes.map(s => ({
+          sceneNumber: s.sceneNumber,
+          status: fullProject.clips.find((c: any) => c.sceneId === s.sceneId)?.status || 'no_clip',
+        })),
+        expiredClips,
+        estimatedDuration: scenes.reduce((sum, s) => sum + s.duration, 0),
+      });
+    } catch (error: any) {
+      console.error('Failed to force assemble video project:', error);
+      res.status(500).json({ error: error.message || "Failed to force assemble" });
+    }
+  });
+
+  // Get assembly status with detailed clip info
+  app.get("/api/video-projects/:projectId/assembly-status", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      
+      const fullProject = await storage.getFullVideoProject(projectId);
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      const clipStatus = fullProject.scenes.map(scene => {
+        const clip = fullProject.clips.find(c => c.sceneId === scene.sceneId);
+        const audio = fullProject.audioTracks.find(a => a.sceneId === scene.sceneId);
+        
+        return {
+          sceneNumber: scene.sceneNumber,
+          sceneId: scene.sceneId,
+          duration: scene.duration,
+          visualDescription: scene.visualPrompt,
+          voiceoverText: scene.voiceoverText,
+          referenceImageUrl: scene.imageUrl,
+          clip: clip ? {
+            status: clip.status,
+            provider: clip.provider,
+            videoUrl: clip.videoUrl,
+            errorMessage: clip.errorMessage,
+          } : null,
+          audio: audio ? {
+            status: audio.status,
+            provider: audio.provider,
+            audioUrl: audio.audioUrl,
+            errorMessage: audio.errorMessage,
+          } : null,
+          isReady: clip?.status === 'ready' && clip?.videoUrl,
+        };
+      });
+
+      const readyCount = clipStatus.filter(c => c.isReady).length;
+      const failedCount = clipStatus.filter(c => c.clip?.status === 'failed').length;
+      const pendingCount = clipStatus.filter(c => c.clip?.status === 'pending' || c.clip?.status === 'generating').length;
+
+      res.json({
+        projectId,
+        projectTitle: fullProject.project.title,
+        projectStatus: fullProject.project.status,
+        outputUrl: fullProject.project.outputUrl,
+        totalScenes: clipStatus.length,
+        readyCount,
+        failedCount,
+        pendingCount,
+        canForceAssemble: readyCount > 0,
+        estimatedDuration: clipStatus.filter(c => c.isReady).reduce((sum, c) => sum + (c.duration || 5), 0),
+        scenes: clipStatus,
+      });
+    } catch (error: any) {
+      console.error('Failed to get assembly status:', error);
+      res.status(500).json({ error: error.message || "Failed to get assembly status" });
+    }
+  });
+
   // ==========================================
   // AI Providers API Routes
   // ==========================================
@@ -2914,6 +3099,30 @@ async function generateVideoProjectAsync(
               videoUrl: clipResult.videoUrl,
               status: 'ready',
             });
+            
+            // Proactively cache Google authenticated URLs to prevent expiration
+            const { isGoogleAuthenticatedUrl, preprocessVideoUrl } = await import("../01-content-factory/integrations/shotstack");
+            if (isGoogleAuthenticatedUrl(clipResult.videoUrl)) {
+              console.log(`[VideoProject] Scene ${scene.sceneNumber}: Caching Veo 3.1 video to prevent expiration...`);
+              try {
+                const permanentUrl = await preprocessVideoUrl(clipResult.videoUrl, scene.sceneId);
+                await storage.updateVideoClip(clipId, { permanentVideoUrl: permanentUrl });
+                console.log(`[VideoProject] Scene ${scene.sceneNumber}: Video cached successfully`);
+              } catch (cacheError: any) {
+                console.error(`[VideoProject] Scene ${scene.sceneNumber}: Failed to cache video - ${cacheError.message}`);
+                await storage.createActivityLog({
+                  runId: `video_proj_${projectId}`,
+                  eventType: 'video_cache_failed',
+                  level: 'warning',
+                  message: `Scene ${scene.sceneNumber}: Failed to cache video for permanent storage`,
+                  metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, error: cacheError.message }),
+                });
+              }
+            } else {
+              // For non-Google URLs (Runway, etc.), they're already public - store as permanent
+              await storage.updateVideoClip(clipId, { permanentVideoUrl: clipResult.videoUrl });
+            }
+            
             await storage.updateVideoScene(scene.sceneId, { status: 'ready' });
             await storage.createActivityLog({
               runId: `video_proj_${projectId}`,

@@ -235,11 +235,12 @@ export const videoClips = pgTable("video_clips", {
   projectId: text("project_id").notNull(),
   provider: text("provider").notNull().default("wan"), // wan, runway
   taskId: text("task_id"), // provider task ID for polling
-  videoUrl: text("video_url"),
+  videoUrl: text("video_url"), // original provider URL (may expire)
+  permanentVideoUrl: text("permanent_video_url"), // cached public URL (Shotstack Ingest)
   thumbnailUrl: text("thumbnail_url"),
   duration: integer("duration"), // actual duration in seconds
   resolution: text("resolution").default("1080p"),
-  status: text("status").notNull().default("pending"), // pending, generating, ready, failed
+  status: text("status").notNull().default("pending"), // pending, generating, ready, failed, expired
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

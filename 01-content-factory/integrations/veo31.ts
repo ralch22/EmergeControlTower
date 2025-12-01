@@ -1,4 +1,5 @@
 import { getVertexAIAccessToken, getProjectId, getLocation } from './vertex-auth';
+import { sanitizeForVeo } from '../utils/prompt-sanitizer';
 
 export interface Veo31Result {
   success: boolean;
@@ -74,7 +75,8 @@ async function generateWithVertexAI(
     brandGuidelines,
   } = options;
   
-  const enhancedPrompt = buildBrandEnhancedPrompt(prompt, brandGuidelines);
+  const brandEnhancedPrompt = buildBrandEnhancedPrompt(prompt, brandGuidelines);
+  const enhancedPrompt = sanitizeForVeo(brandEnhancedPrompt);
 
   const validAspectRatio = aspectRatio === '9:16' ? '9:16' : '16:9';
   const validDurations = [4, 6, 8] as const;

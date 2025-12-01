@@ -8,6 +8,7 @@ import { SidebarLayout } from "@/components/sidebar";
 import { ActivityPanel } from "@/components/activity-panel";
 import NotFound from "@/pages/not-found";
 import VideoProjects from "@/pages/video-projects";
+import VideoAssembly from "@/pages/video-assembly";
 import Settings from "@/pages/settings";
 import Dashboard from "@/pages/dashboard";
 import ControlTower from "@/pages/control-tower";
@@ -27,6 +28,8 @@ function Router() {
         <Route path="/brand-files" component={BrandFiles} />
         <Route path="/content-factory" component={ContentFactory} />
         <Route path="/video-projects" component={VideoProjects} />
+        <Route path="/video-assembly" component={VideoAssembly} />
+        <Route path="/video-assembly/:projectId" component={VideoAssembly} />
         <Route path="/settings" component={Settings} />
         <Route path="/control-tower" component={ControlTower} />
         <Route component={NotFound} />

@@ -270,6 +270,184 @@ export async function uploadBase64AudioToShotstack(base64DataUrl: string, filena
   }
 }
 
+export async function uploadVideoToShotstack(videoBuffer: Buffer, filename: string = 'video.mp4'): Promise<IngestUploadResult> {
+  const apiKey = process.env.SHOTSTACK_API_KEY;
+  const ingestUrl = getIngestApiUrl();
+  
+  if (!apiKey) {
+    console.log("[Shotstack Ingest] No API key configured, cannot upload video");
+    return {
+      success: false,
+      error: "SHOTSTACK_API_KEY not configured",
+    };
+  }
+
+  try {
+    console.log(`[Shotstack Ingest] Requesting signed upload URL for video ${filename}...`);
+    
+    const uploadResponse = await fetch(`${ingestUrl}/upload`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'x-api-key': apiKey,
+      },
+    });
+
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.error("[Shotstack Ingest] Upload URL request failed:", uploadResponse.status, errorText);
+      return {
+        success: false,
+        error: `Failed to get upload URL: ${uploadResponse.status} - ${errorText}`,
+      };
+    }
+
+    const uploadData = await uploadResponse.json();
+    const signedUrl = uploadData.data?.attributes?.url;
+    const sourceId = uploadData.data?.id;
+
+    if (!signedUrl || !sourceId) {
+      return {
+        success: false,
+        error: "No signed URL or source ID returned",
+      };
+    }
+
+    console.log(`[Shotstack Ingest] Uploading video buffer (${(videoBuffer.length / 1024 / 1024).toFixed(2)} MB) to signed URL...`);
+    
+    const putResponse = await fetch(signedUrl, {
+      method: 'PUT',
+      body: videoBuffer,
+      headers: {
+        'Content-Type': 'video/mp4',
+      },
+    });
+
+    if (!putResponse.ok) {
+      const errorText = await putResponse.text();
+      console.error("[Shotstack Ingest] Video upload failed:", putResponse.status, errorText);
+      return {
+        success: false,
+        error: `Failed to upload video: ${putResponse.status}`,
+      };
+    }
+
+    console.log(`[Shotstack Ingest] Video upload complete, polling for status (sourceId: ${sourceId})...`);
+    
+    const sourceUrl = await pollIngestStatus(sourceId, 60);
+    
+    if (sourceUrl) {
+      console.log(`[Shotstack Ingest] Video hosted at: ${sourceUrl}`);
+      return {
+        success: true,
+        sourceId,
+        sourceUrl,
+      };
+    }
+
+    return {
+      success: false,
+      error: "Failed to get source URL after upload",
+    };
+  } catch (error: any) {
+    console.error("[Shotstack Ingest] Video upload error:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to upload video",
+    };
+  }
+}
+
+export function isGoogleAuthenticatedUrl(url: string): boolean {
+  if (!url) return false;
+  return url.includes('generativelanguage.googleapis.com') && url.includes('/files/');
+}
+
+export async function downloadGoogleVideo(videoUrl: string): Promise<Buffer | null> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  
+  if (!apiKey) {
+    console.error("[Google Video Download] No GEMINI_API_KEY configured");
+    return null;
+  }
+
+  try {
+    const urlWithAuth = videoUrl.includes('?') 
+      ? `${videoUrl}&key=${apiKey}`
+      : `${videoUrl}?key=${apiKey}`;
+    
+    console.log(`[Google Video Download] Downloading video from Google API...`);
+    
+    const response = await fetch(urlWithAuth);
+    
+    if (!response.ok) {
+      console.error(`[Google Video Download] Failed: ${response.status} ${response.statusText}`);
+      return null;
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    console.log(`[Google Video Download] Downloaded ${(buffer.length / 1024 / 1024).toFixed(2)} MB`);
+    
+    return buffer;
+  } catch (error: any) {
+    console.error("[Google Video Download] Error:", error.message);
+    return null;
+  }
+}
+
+export async function preprocessVideoUrl(videoUrl: string, sceneId: string): Promise<string> {
+  if (!isGoogleAuthenticatedUrl(videoUrl)) {
+    return videoUrl;
+  }
+  
+  console.log(`[Video Preprocess] Scene ${sceneId}: Converting Google authenticated URL to public URL...`);
+  
+  const videoBuffer = await downloadGoogleVideo(videoUrl);
+  if (!videoBuffer) {
+    console.error(`[Video Preprocess] Failed to download video for scene ${sceneId}`);
+    throw new Error(`Failed to download video from Google for scene ${sceneId}`);
+  }
+  
+  const uploadResult = await uploadVideoToShotstack(videoBuffer, `${sceneId}.mp4`);
+  if (!uploadResult.success || !uploadResult.sourceUrl) {
+    console.error(`[Video Preprocess] Failed to upload video to Shotstack for scene ${sceneId}: ${uploadResult.error}`);
+    throw new Error(`Failed to upload video to Shotstack for scene ${sceneId}: ${uploadResult.error}`);
+  }
+  
+  console.log(`[Video Preprocess] Scene ${sceneId}: Successfully converted to ${uploadResult.sourceUrl}`);
+  return uploadResult.sourceUrl;
+}
+
+export async function preprocessVideoUrls(clips: { sceneId: string; videoUrl: string }[]): Promise<Map<string, string>> {
+  const urlMap = new Map<string, string>();
+  
+  const googleClips = clips.filter(c => isGoogleAuthenticatedUrl(c.videoUrl));
+  const regularClips = clips.filter(c => !isGoogleAuthenticatedUrl(c.videoUrl));
+  
+  for (const clip of regularClips) {
+    urlMap.set(clip.sceneId, clip.videoUrl);
+  }
+  
+  if (googleClips.length === 0) {
+    console.log(`[Video Preprocess] No Google authenticated URLs to process`);
+    return urlMap;
+  }
+  
+  console.log(`[Video Preprocess] Processing ${googleClips.length} Google authenticated URLs...`);
+  
+  for (const clip of googleClips) {
+    try {
+      const publicUrl = await preprocessVideoUrl(clip.videoUrl, clip.sceneId);
+      urlMap.set(clip.sceneId, publicUrl);
+    } catch (error: any) {
+      console.error(`[Video Preprocess] Error processing ${clip.sceneId}: ${error.message}`);
+    }
+  }
+  
+  return urlMap;
+}
+
 export function isHostedUrl(url: string): boolean {
   if (!url) return false;
   return url.startsWith('http://') || url.startsWith('https://');
