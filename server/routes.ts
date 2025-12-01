@@ -963,6 +963,35 @@ export async function registerRoutes(
     }
   });
 
+  // Transition project status (e.g., draft -> pending)
+  app.post("/api/video-projects/:projectId/transition", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { status } = req.body;
+
+      if (!["pending", "draft"].includes(status)) {
+        return res.status(400).json({ error: "Invalid status transition" });
+      }
+
+      const fullProject = await storage.getFullVideoProject(projectId);
+      if (!fullProject) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Allow draft -> pending transition
+      if (fullProject.project.status === "draft" && status === "pending") {
+        await storage.updateVideoProject(projectId, { status: "pending" });
+        const updated = await storage.getFullVideoProject(projectId);
+        res.json({ success: true, message: "Project transitioned to pending", project: updated });
+      } else {
+        res.status(400).json({ error: `Cannot transition from ${fullProject.project.status} to ${status}` });
+      }
+    } catch (error: any) {
+      console.error('Failed to transition project:', error);
+      res.status(500).json({ error: error.message || "Failed to transition project" });
+    }
+  });
+
   // Cancel/Stop video generation for a project
   app.post("/api/video-projects/:projectId/cancel", async (req, res) => {
     try {

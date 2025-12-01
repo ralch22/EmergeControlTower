@@ -375,6 +375,25 @@ export default function VideoProjectsPage() {
     },
   });
 
+  const transitionToPendingMutation = useMutation({
+    mutationFn: async (projectId: string) => {
+      const res = await fetch(`/api/video-projects/${projectId}/transition`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "pending" }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/video-projects"] });
+      toast({ title: "Ready", description: "Project is now ready for generation" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const clearAllMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch("/api/video-projects/clear", {
@@ -1091,6 +1110,23 @@ export default function VideoProjectsPage() {
                       )}
 
                       <div className="flex gap-2">
+                        {project.status === "draft" && (
+                          <Button
+                            size="sm"
+                            onClick={() => transitionToPendingMutation.mutate(project.projectId)}
+                            disabled={transitionToPendingMutation.isPending}
+                            className="flex-1 bg-blue-600 hover:bg-blue-500"
+                            data-testid={`button-prepare-${project.projectId}`}
+                          >
+                            {transitionToPendingMutation.isPending ? (
+                              <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            ) : (
+                              <Sparkles className="w-4 h-4 mr-2" />
+                            )}
+                            Prepare
+                          </Button>
+                        )}
+
                         {project.status === "pending" && (
                           <Button
                             size="sm"
