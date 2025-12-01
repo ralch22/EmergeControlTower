@@ -51,6 +51,7 @@ type VideoProjectApiResponse = {
     duration: number;
     visualPrompt?: string;
     voiceoverText?: string;
+    imageUrl?: string;
   }>;
   clips: Array<{
     clipId: string;
@@ -82,6 +83,7 @@ type VideoProject = {
     duration: number;
     visualPrompt?: string;
     voiceoverText?: string;
+    imageUrl?: string;
   }>;
   clips: Array<{
     clipId: string;
@@ -1358,6 +1360,23 @@ export default function VideoProjectsPage() {
                           </CollapsibleTrigger>
                           <CollapsibleContent asChild>
                             <div className="p-3 bg-zinc-900 border-l-2 border-cyan-400/30 ml-2 mt-1 rounded-lg space-y-3">
+                              {scene.imageUrl && (
+                                <div>
+                                  <p className="text-xs font-medium text-zinc-400 uppercase mb-2">Reference Image</p>
+                                  <img
+                                    src={scene.imageUrl}
+                                    alt={`Reference for ${scene.title}`}
+                                    className="w-full h-32 object-cover rounded-lg border border-cyan-400/20 cursor-pointer hover:border-cyan-400/50 transition-colors"
+                                    onClick={() => setSelectedPreviewScene({
+                                      sceneId: scene.sceneId,
+                                      title: `${scene.title} - Reference Image`,
+                                      type: 'video',
+                                      url: scene.imageUrl!
+                                    })}
+                                    data-testid={`img-reference-${scene.sceneId}`}
+                                  />
+                                </div>
+                              )}
                               <div>
                                 <p className="text-xs font-medium text-zinc-400 uppercase mb-1">Visual Prompt</p>
                                 <p className="text-sm text-zinc-200 break-words">{scene.visualPrompt || 'No visual prompt specified'}</p>
