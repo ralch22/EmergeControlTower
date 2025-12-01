@@ -402,3 +402,18 @@ export const anomalyModels = pgTable("anomaly_models", {
 export const insertAnomalyModelSchema = createInsertSchema(anomalyModels).omit({ id: true, createdAt: true });
 export type InsertAnomalyModel = z.infer<typeof insertAnomalyModelSchema>;
 export type AnomalyModel = typeof anomalyModels.$inferSelect;
+
+// Pipeline Activity Logs - Real-time tracking of content generation
+export const activityLogs = pgTable("activity_logs", {
+  id: serial("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  eventType: text("event_type").notNull(), // run_started, topic_generated, content_started, content_completed, content_failed, run_completed, run_failed
+  level: text("level").notNull().default("info"), // info, success, warning, error
+  message: text("message").notNull(),
+  metadata: text("metadata"), // JSON with additional details
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({ id: true, createdAt: true });
+export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
+export type ActivityLog = typeof activityLogs.$inferSelect;

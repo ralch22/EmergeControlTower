@@ -37,6 +37,8 @@ import {
   type InsertHealingAlert,
   type AnomalyModel,
   type InsertAnomalyModel,
+  type ActivityLog,
+  type InsertActivityLog,
   kpis,
   pods,
   phaseChanges,
@@ -55,7 +57,8 @@ import {
   controlEvents,
   agentMetrics,
   healingAlerts,
-  anomalyModels
+  anomalyModels,
+  activityLogs
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, inArray } from "drizzle-orm";
@@ -192,6 +195,12 @@ export interface IStorage {
   getActiveAnomalyModel(metricType: string): Promise<AnomalyModel | undefined>;
   updateAnomalyModel(id: number, updates: Partial<InsertAnomalyModel>): Promise<AnomalyModel>;
   createAnomalyModel(model: InsertAnomalyModel): Promise<AnomalyModel>;
+
+  // Activity Logs
+  createActivityLog(log: InsertActivityLog): Promise<ActivityLog>;
+  getActivityLogs(options?: { runId?: string; limit?: number }): Promise<ActivityLog[]>;
+  getRecentActivityLogs(limit?: number): Promise<ActivityLog[]>;
+  clearActivityLogs(runId?: string): Promise<{ deletedCount: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1028,6 +1037,48 @@ export class DatabaseStorage implements IStorage {
   async createAnomalyModel(model: InsertAnomalyModel): Promise<AnomalyModel> {
     const [result] = await db.insert(anomalyModels).values(model).returning();
     return result;
+  }
+
+  // Activity Logs
+  async createActivityLog(log: InsertActivityLog): Promise<ActivityLog> {
+    const [result] = await db.insert(activityLogs).values(log).returning();
+    return result;
+  }
+
+  async getActivityLogs(options?: { runId?: string; limit?: number }): Promise<ActivityLog[]> {
+    const { runId, limit = 100 } = options || {};
+    
+    if (runId) {
+      return await db
+        .select()
+        .from(activityLogs)
+        .where(eq(activityLogs.runId, runId))
+        .orderBy(desc(activityLogs.createdAt))
+        .limit(limit);
+    }
+    
+    return await db
+      .select()
+      .from(activityLogs)
+      .orderBy(desc(activityLogs.createdAt))
+      .limit(limit);
+  }
+
+  async getRecentActivityLogs(limit: number = 50): Promise<ActivityLog[]> {
+    return await db
+      .select()
+      .from(activityLogs)
+      .orderBy(desc(activityLogs.createdAt))
+      .limit(limit);
+  }
+
+  async clearActivityLogs(runId?: string): Promise<{ deletedCount: number }> {
+    if (runId) {
+      const result = await db.delete(activityLogs).where(eq(activityLogs.runId, runId));
+      return { deletedCount: result.rowCount || 0 };
+    }
+    const result = await db.delete(activityLogs);
+    return { deletedCount: result.rowCount || 0 };
   }
 }
 
