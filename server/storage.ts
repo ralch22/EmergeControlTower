@@ -708,9 +708,9 @@ export class DatabaseStorage implements IStorage {
     const hasGeminiKey = !!(process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY);
     
     const defaultProviders: InsertAiProvider[] = [
-      // Video Providers - Veo 3.1 Fast is primary (native audio, Ultra tier), Runway as fallback
+      // Video Providers - Veo 3.1 Fast is primary (native audio, Ultra tier), Runway Gen-4 as fallback
       { category: 'video', name: 'veo31', displayName: 'Veo 3.1 Fast', isEnabled: true, priority: 1, apiKeyConfigured: hasGeminiKey },
-      { category: 'video', name: 'runway', displayName: 'Runway Gen-3', isEnabled: true, priority: 2, apiKeyConfigured: !!process.env.RUNWAY_API_KEY },
+      { category: 'video', name: 'runway', displayName: 'Runway Gen-4 Turbo', isEnabled: true, priority: 2, apiKeyConfigured: !!process.env.RUNWAY_API_KEY },
       { category: 'video', name: 'veo2', displayName: 'Veo 2.0', isEnabled: false, priority: 3, apiKeyConfigured: hasGeminiKey },
       { category: 'video', name: 'pika', displayName: 'Pika Labs', isEnabled: false, priority: 4, apiKeyConfigured: false },
       { category: 'video', name: 'luma', displayName: 'Luma Dream Machine', isEnabled: false, priority: 5, apiKeyConfigured: false },

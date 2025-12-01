@@ -57,6 +57,76 @@ export const PROVIDER_CONFIG = {
     basePriority: 70,
     constraints: { allowedDurations: [5, 10] }
   },
+  runway_gen4_turbo: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.05,  // 5 credits/sec
+    basePriority: 72,
+    constraints: {}
+  },
+  runway_gen4_aleph: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.15,  // 15 credits/sec
+    basePriority: 68,
+    constraints: {}
+  },
+  runway_veo3: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.40,  // 40 credits/sec
+    basePriority: 65,
+    constraints: {}
+  },
+  runway_veo31: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.40,  // 40 credits/sec
+    basePriority: 66,
+    constraints: {}
+  },
+  runway_veo31_fast: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.15,  // 15 credits/sec
+    basePriority: 71,
+    constraints: {}
+  },
+  runway_upscale: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.02,  // 2 credits/sec
+    basePriority: 50,
+    constraints: {}
+  },
+  runway_act_two: { 
+    serviceType: 'video', 
+    isFree: false, 
+    costPerRequest: 0.05,  // 5 credits/sec
+    basePriority: 60,
+    constraints: {}
+  },
+  runway_image: { 
+    serviceType: 'image', 
+    isFree: false, 
+    costPerRequest: 0.05,  // 5-8 credits per image
+    basePriority: 70,
+    constraints: {}
+  },
+  runway_image_turbo: { 
+    serviceType: 'image', 
+    isFree: false, 
+    costPerRequest: 0.02,  // 2 credits per image
+    basePriority: 75,
+    constraints: {}
+  },
+  runway_audio: { 
+    serviceType: 'audio', 
+    isFree: false, 
+    costPerRequest: 0.01,  // 1 credit per 50 chars/6 sec
+    basePriority: 70,
+    constraints: {}
+  },
   pika: { 
     serviceType: 'video', 
     isFree: false, 

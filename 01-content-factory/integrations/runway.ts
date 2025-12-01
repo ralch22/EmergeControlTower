@@ -1,5 +1,30 @@
 const RUNWAY_BASE_URL = "https://api.dev.runwayml.com/v1";
 
+// Runway API Models (as of Dec 2025)
+// Video: gen4_turbo, gen4_aleph, upscale_v1, act_two, veo3, veo3.1, veo3.1_fast
+// Image: gen4_image, gen4_image_turbo, gemini_2.5_flash
+// Audio: eleven_multilingual_v2, eleven_text_to_sound_v2, eleven_voice_isolation, eleven_voice_dubbing, eleven_multilingual_sts_v2
+
+export type RunwayVideoModel = 
+  | 'gen4_turbo'      // Image→Video (5 credits/sec)
+  | 'gen4_aleph'      // Video→Video with text/image (15 credits/sec)
+  | 'veo3'            // Text/Image→Video (40 credits/sec)
+  | 'veo3.1'          // Text/Image→Video (40 credits/sec)  
+  | 'veo3.1_fast'     // Text/Image→Video fast (15 credits/sec)
+  | 'gen3a_turbo';    // Legacy model
+
+export type RunwayImageModel = 
+  | 'gen4_image'        // Text/Image→Image (5-8 credits)
+  | 'gen4_image_turbo'  // Fast image gen (2 credits)
+  | 'gemini_2.5_flash'; // Text/Image→Image (5 credits)
+
+export type RunwayAudioModel =
+  | 'eleven_multilingual_v2'     // TTS (1 credit/50 chars)
+  | 'eleven_text_to_sound_v2'    // Sound effects (1 credit/6s)
+  | 'eleven_voice_isolation'     // Voice isolation (1 credit/6s)
+  | 'eleven_voice_dubbing'       // Dubbing (1 credit/2s)
+  | 'eleven_multilingual_sts_v2'; // Speech-to-speech (1 credit/2s)
+
 export interface VideoGenerationResult {
   success: boolean;
   videoUrl?: string;
@@ -7,7 +32,51 @@ export interface VideoGenerationResult {
   status?: 'pending' | 'processing' | 'completed' | 'failed';
   error?: string;
   imageUrl?: string;
+  model?: string;
 }
+
+export interface ImageGenerationResult {
+  success: boolean;
+  imageUrl?: string;
+  taskId?: string;
+  error?: string;
+  model?: string;
+}
+
+export interface AudioGenerationResult {
+  success: boolean;
+  audioUrl?: string;
+  taskId?: string;
+  error?: string;
+  model?: string;
+}
+
+export interface UpscaleResult {
+  success: boolean;
+  videoUrl?: string;
+  taskId?: string;
+  status?: 'pending' | 'processing' | 'completed' | 'failed';
+  error?: string;
+}
+
+// Model pricing info (credits per second/item)
+export const RUNWAY_PRICING = {
+  gen4_turbo: { type: 'video', costPerSec: 5 },
+  gen4_aleph: { type: 'video', costPerSec: 15 },
+  upscale_v1: { type: 'video', costPerSec: 2 },
+  act_two: { type: 'video', costPerSec: 5 },
+  veo3: { type: 'video', costPerSec: 40 },
+  'veo3.1': { type: 'video', costPerSec: 40 },
+  'veo3.1_fast': { type: 'video', costPerSec: 15 },
+  gen4_image: { type: 'image', costPer720p: 5, costPer1080p: 8 },
+  gen4_image_turbo: { type: 'image', costPerImage: 2 },
+  'gemini_2.5_flash': { type: 'image', costPerImage: 5 },
+  eleven_multilingual_v2: { type: 'audio', costPer50Chars: 1 },
+  eleven_text_to_sound_v2: { type: 'audio', costPer6Sec: 1 },
+  eleven_voice_isolation: { type: 'audio', costPer6Sec: 1 },
+  eleven_voice_dubbing: { type: 'audio', costPer2Sec: 1 },
+  eleven_multilingual_sts_v2: { type: 'audio', costPer2Sec: 1 },
+};
 
 function getContextualFallbackImage(prompt: string): string {
   const promptLower = prompt.toLowerCase();
@@ -157,7 +226,7 @@ export async function generateVideoWithRunway(
   options: {
     duration?: number;
     aspectRatio?: '16:9' | '9:16';
-    model?: 'gen3a_turbo' | 'gen3';
+    model?: RunwayVideoModel;
     imageUrl?: string;
     imageBase64?: string;
   } = {}
@@ -171,7 +240,7 @@ export async function generateVideoWithRunway(
     };
   }
 
-  const { duration = 5, aspectRatio = '16:9', model = 'gen3a_turbo', imageBase64 } = options;
+  const { duration = 5, aspectRatio = '16:9', model = 'gen4_turbo', imageBase64 } = options;
   
   // Runway requires specific pixel ratios
   const runwayRatio = aspectRatio === '9:16' ? '768:1280' : '1280:768';
@@ -195,6 +264,8 @@ export async function generateVideoWithRunway(
     imageUrl = imageResult.imageUrl;
     console.log("[Runway] Image generated, starting video conversion...");
   }
+
+  console.log(`[Runway] Starting video generation with model: ${model}`);
 
   try {
     const response = await fetch(`${RUNWAY_BASE_URL}/image_to_video`, {
@@ -229,6 +300,7 @@ export async function generateVideoWithRunway(
       taskId: result.id,
       status: 'pending',
       imageUrl,
+      model,
     };
   } catch (error: any) {
     console.error("Runway video generation error:", error);
@@ -237,6 +309,497 @@ export async function generateVideoWithRunway(
       error: error.message || "Failed to start video generation",
     };
   }
+}
+
+// Gen-4 Aleph: Video-to-Video generation (15 credits/sec)
+export async function generateVideoToVideoWithRunway(
+  sourceVideoUrl: string,
+  prompt: string,
+  options: {
+    referenceImageUrl?: string;
+    duration?: number;
+  } = {}
+): Promise<VideoGenerationResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  console.log("[Runway] Starting Gen-4 Aleph video-to-video generation...");
+
+  try {
+    const body: Record<string, any> = {
+      promptVideo: sourceVideoUrl,
+      promptText: prompt,
+      model: 'gen4_aleph',
+    };
+    
+    if (options.referenceImageUrl) {
+      body.referenceImage = options.referenceImageUrl;
+    }
+
+    const response = await fetch(`${RUNWAY_BASE_URL}/video_to_video`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-Runway-Version': '2024-11-06',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Runway API error: ${response.status} - ${errorText}` };
+    }
+
+    const result = await response.json();
+    return { success: true, taskId: result.id, status: 'pending', model: 'gen4_aleph' };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to start video-to-video generation" };
+  }
+}
+
+// Video Upscaling (2 credits/sec)
+export async function upscaleVideoWithRunway(
+  videoUrl: string
+): Promise<UpscaleResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  console.log("[Runway] Starting video upscaling...");
+
+  try {
+    const response = await fetch(`${RUNWAY_BASE_URL}/video_upscale`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-Runway-Version': '2024-11-06',
+      },
+      body: JSON.stringify({
+        promptVideo: videoUrl,
+        model: 'upscale_v1',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Runway API error: ${response.status} - ${errorText}` };
+    }
+
+    const result = await response.json();
+    return { success: true, taskId: result.id, status: 'pending' };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to start upscaling" };
+  }
+}
+
+// Character Performance / Act Two (5 credits/sec)
+export async function generateCharacterPerformance(
+  referenceMediaUrl: string, // Image or video URL
+  driverVideoUrl: string,
+  options: {
+    resolution?: '720p' | '1080p';
+  } = {}
+): Promise<VideoGenerationResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  console.log("[Runway] Starting Act Two character performance...");
+
+  try {
+    const response = await fetch(`${RUNWAY_BASE_URL}/character_performance`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-Runway-Version': '2024-11-06',
+      },
+      body: JSON.stringify({
+        referenceMedia: referenceMediaUrl,
+        driverVideo: driverVideoUrl,
+        model: 'act_two',
+        resolution: options.resolution || '720p',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Runway API error: ${response.status} - ${errorText}` };
+    }
+
+    const result = await response.json();
+    return { success: true, taskId: result.id, status: 'pending', model: 'act_two' };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to start character performance" };
+  }
+}
+
+// Image Generation with Gen-4 (5-8 credits) or Turbo (2 credits)
+export async function generateImageWithRunway(
+  prompt: string,
+  options: {
+    model?: RunwayImageModel;
+    resolution?: '720p' | '1080p';
+    referenceImages?: string[]; // URLs for style reference
+  } = {}
+): Promise<ImageGenerationResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  const model = options.model || 'gen4_image_turbo';
+  console.log(`[Runway] Generating image with ${model}...`);
+
+  try {
+    const body: Record<string, any> = {
+      promptText: prompt,
+      model,
+    };
+
+    if (options.resolution && model === 'gen4_image') {
+      body.resolution = options.resolution;
+    }
+
+    if (options.referenceImages?.length) {
+      body.referenceImages = options.referenceImages;
+    }
+
+    const response = await fetch(`${RUNWAY_BASE_URL}/text_to_image`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-Runway-Version': '2024-11-06',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Runway API error: ${response.status} - ${errorText}` };
+    }
+
+    const result = await response.json();
+    return { success: true, taskId: result.id, model };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to start image generation" };
+  }
+}
+
+// Text-to-Speech with ElevenLabs via Runway (1 credit/50 chars)
+export async function generateSpeechWithRunway(
+  text: string,
+  options: {
+    voiceId?: string;
+    modelId?: string;
+  } = {}
+): Promise<AudioGenerationResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  console.log("[Runway] Generating speech with ElevenLabs...");
+
+  try {
+    const response = await fetch(`${RUNWAY_BASE_URL}/text_to_speech`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-Runway-Version': '2024-11-06',
+      },
+      body: JSON.stringify({
+        text,
+        model: 'eleven_multilingual_v2',
+        voiceId: options.voiceId,
+        modelId: options.modelId,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Runway API error: ${response.status} - ${errorText}` };
+    }
+
+    const result = await response.json();
+    return { success: true, taskId: result.id, model: 'eleven_multilingual_v2' };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to start speech generation" };
+  }
+}
+
+// Sound Effects with ElevenLabs via Runway (1 credit/6 sec)
+export async function generateSoundEffectWithRunway(
+  prompt: string,
+  options: {
+    durationSeconds?: number;
+  } = {}
+): Promise<AudioGenerationResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  console.log("[Runway] Generating sound effect with ElevenLabs...");
+
+  try {
+    const response = await fetch(`${RUNWAY_BASE_URL}/sound_effect`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-Runway-Version': '2024-11-06',
+      },
+      body: JSON.stringify({
+        promptText: prompt,
+        model: 'eleven_text_to_sound_v2',
+        durationSeconds: options.durationSeconds,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Runway API error: ${response.status} - ${errorText}` };
+    }
+
+    const result = await response.json();
+    return { success: true, taskId: result.id, model: 'eleven_text_to_sound_v2' };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to start sound effect generation" };
+  }
+}
+
+// Voice Isolation (1 credit/6 sec)
+export async function isolateVoiceWithRunway(
+  audioUrl: string
+): Promise<AudioGenerationResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  console.log("[Runway] Isolating voice with ElevenLabs...");
+
+  try {
+    const response = await fetch(`${RUNWAY_BASE_URL}/voice_isolation`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-Runway-Version': '2024-11-06',
+      },
+      body: JSON.stringify({
+        audio: audioUrl,
+        model: 'eleven_voice_isolation',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Runway API error: ${response.status} - ${errorText}` };
+    }
+
+    const result = await response.json();
+    return { success: true, taskId: result.id, model: 'eleven_voice_isolation' };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to start voice isolation" };
+  }
+}
+
+// Voice Dubbing (1 credit/2 sec output)
+export async function dubVoiceWithRunway(
+  sourceAudioUrl: string,
+  targetLanguage: string,
+  options: {
+    numSpeakers?: number;
+  } = {}
+): Promise<AudioGenerationResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  console.log(`[Runway] Dubbing voice to ${targetLanguage}...`);
+
+  try {
+    const response = await fetch(`${RUNWAY_BASE_URL}/voice_dubbing`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-Runway-Version': '2024-11-06',
+      },
+      body: JSON.stringify({
+        sourceAudio: sourceAudioUrl,
+        targetLang: targetLanguage,
+        model: 'eleven_voice_dubbing',
+        numSpeakers: options.numSpeakers || 1,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Runway API error: ${response.status} - ${errorText}` };
+    }
+
+    const result = await response.json();
+    return { success: true, taskId: result.id, model: 'eleven_voice_dubbing' };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to start voice dubbing" };
+  }
+}
+
+// Speech-to-Speech transformation (1 credit/2 sec output)
+export async function transformSpeechWithRunway(
+  audioUrl: string,
+  targetVoiceId: string
+): Promise<AudioGenerationResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  console.log("[Runway] Transforming speech...");
+
+  try {
+    const response = await fetch(`${RUNWAY_BASE_URL}/speech_to_speech`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'X-Runway-Version': '2024-11-06',
+      },
+      body: JSON.stringify({
+        audio: audioUrl,
+        voiceId: targetVoiceId,
+        model: 'eleven_multilingual_sts_v2',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return { success: false, error: `Runway API error: ${response.status} - ${errorText}` };
+    }
+
+    const result = await response.json();
+    return { success: true, taskId: result.id, model: 'eleven_multilingual_sts_v2' };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to start speech transformation" };
+  }
+}
+
+// Check status for image generation tasks
+export async function checkImageStatus(taskId: string): Promise<ImageGenerationResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  try {
+    const response = await fetch(`${RUNWAY_BASE_URL}/tasks/${taskId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'X-Runway-Version': '2024-11-06',
+      },
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `Failed to check status: ${response.status}` };
+    }
+
+    const result = await response.json();
+    
+    if (result.status === 'SUCCEEDED') {
+      return { success: true, imageUrl: result.output?.[0], taskId };
+    } else if (result.status === 'FAILED') {
+      return { success: false, error: result.failure || 'Image generation failed', taskId };
+    }
+    
+    return { success: true, taskId }; // Still processing
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to check status" };
+  }
+}
+
+// Check status for audio generation tasks
+export async function checkAudioStatus(taskId: string): Promise<AudioGenerationResult> {
+  const apiKey = process.env.RUNWAY_API_KEY;
+  
+  if (!apiKey) {
+    return { success: false, error: "RUNWAY_API_KEY not configured" };
+  }
+
+  try {
+    const response = await fetch(`${RUNWAY_BASE_URL}/tasks/${taskId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'X-Runway-Version': '2024-11-06',
+      },
+    });
+
+    if (!response.ok) {
+      return { success: false, error: `Failed to check status: ${response.status}` };
+    }
+
+    const result = await response.json();
+    
+    if (result.status === 'SUCCEEDED') {
+      return { success: true, audioUrl: result.output?.[0], taskId };
+    } else if (result.status === 'FAILED') {
+      return { success: false, error: result.failure || 'Audio generation failed', taskId };
+    }
+    
+    return { success: true, taskId }; // Still processing
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to check status" };
+  }
+}
+
+// Get all available Runway models
+export function getRunwayModels() {
+  return {
+    video: [
+      { id: 'gen4_turbo', name: 'Gen-4 Turbo', description: 'Image to video', costPerSec: 5, input: 'image' },
+      { id: 'gen4_aleph', name: 'Gen-4 Aleph', description: 'Video to video with reference', costPerSec: 15, input: 'video' },
+      { id: 'upscale_v1', name: 'Upscale V1', description: 'Video upscaling', costPerSec: 2, input: 'video' },
+      { id: 'act_two', name: 'Act Two', description: 'Character performance', costPerSec: 5, input: 'image/video' },
+      { id: 'veo3', name: 'Veo 3', description: 'Google Veo text/image to video', costPerSec: 40, input: 'text/image' },
+      { id: 'veo3.1', name: 'Veo 3.1', description: 'Google Veo 3.1 text/image to video', costPerSec: 40, input: 'text/image' },
+      { id: 'veo3.1_fast', name: 'Veo 3.1 Fast', description: 'Faster Veo 3.1', costPerSec: 15, input: 'text/image' },
+    ],
+    image: [
+      { id: 'gen4_image', name: 'Gen-4 Image', description: 'High quality image generation', costPer720p: 5, costPer1080p: 8 },
+      { id: 'gen4_image_turbo', name: 'Gen-4 Image Turbo', description: 'Fast image generation', costPerImage: 2 },
+      { id: 'gemini_2.5_flash', name: 'Gemini 2.5 Flash', description: 'Gemini image generation', costPerImage: 5 },
+    ],
+    audio: [
+      { id: 'eleven_multilingual_v2', name: 'ElevenLabs TTS', description: 'Text to speech', costPer50Chars: 1 },
+      { id: 'eleven_text_to_sound_v2', name: 'ElevenLabs Sound FX', description: 'Sound effects', costPer6Sec: 1 },
+      { id: 'eleven_voice_isolation', name: 'Voice Isolation', description: 'Isolate voice from audio', costPer6Sec: 1 },
+      { id: 'eleven_voice_dubbing', name: 'Voice Dubbing', description: 'Dub to other languages', costPer2Sec: 1 },
+      { id: 'eleven_multilingual_sts_v2', name: 'Speech to Speech', description: 'Transform voice', costPer2Sec: 1 },
+    ],
+  };
 }
 
 export async function checkVideoStatus(taskId: string): Promise<VideoGenerationResult> {

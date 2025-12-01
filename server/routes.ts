@@ -4500,16 +4500,16 @@ export function registerVideoIngredientsRoutes(app: Express) {
           : 'Get API key from https://elevenlabs.io',
       };
 
-      // Check Runway (Video)
+      // Check Runway (Video/Image/Audio)
       const runwayKey = process.env.RUNWAY_API_KEY;
       providerStatus['runway'] = {
         configured: !!runwayKey,
         status: runwayKey ? 'working' : 'not_configured',
         message: runwayKey 
-          ? 'Runway Gen-3 configured and working'
+          ? 'Runway configured - Gen-4 Turbo/Aleph, Veo 3/3.1, Upscaling, Image Gen, ElevenLabs Audio'
           : 'RUNWAY_API_KEY not set',
         remediation: runwayKey ? undefined :
-          'Get API key from https://runwayml.com',
+          'Get API key from https://dev.runwayml.com - Full model list at /api/runway/models',
       };
 
       // Check Shotstack (Video Assembly)
@@ -5350,6 +5350,263 @@ export function registerVideoIngredientsRoutes(app: Express) {
       });
     } catch (error: any) {
       console.error("[Quality] Recommend tier error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ==================== RUNWAY API ENDPOINTS ====================
+  // Full Runway API integration with all available models
+
+  // Get all available Runway models and pricing
+  app.get("/api/runway/models", async (req, res) => {
+    try {
+      const { getRunwayModels, RUNWAY_PRICING } = await import("../01-content-factory/integrations/runway");
+      const isConfigured = !!process.env.RUNWAY_API_KEY;
+      
+      res.json({
+        configured: isConfigured,
+        models: getRunwayModels(),
+        pricing: RUNWAY_PRICING,
+        documentation: 'https://docs.dev.runwayml.com/guides/models/',
+      });
+    } catch (error: any) {
+      console.error("[Runway] Models error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate video with specific Runway model
+  app.post("/api/runway/video/generate", async (req, res) => {
+    try {
+      const { prompt, model = 'gen4_turbo', duration = 5, aspectRatio = '16:9', imageUrl, imageBase64 } = req.body;
+      
+      if (!prompt) {
+        return res.status(400).json({ error: "prompt is required" });
+      }
+      
+      const { generateVideoWithRunway } = await import("../01-content-factory/integrations/runway");
+      const result = await generateVideoWithRunway(prompt, {
+        model,
+        duration,
+        aspectRatio,
+        imageUrl,
+        imageBase64,
+      });
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Video generate error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Video-to-video with Gen-4 Aleph
+  app.post("/api/runway/video/video-to-video", async (req, res) => {
+    try {
+      const { sourceVideoUrl, prompt, referenceImageUrl } = req.body;
+      
+      if (!sourceVideoUrl || !prompt) {
+        return res.status(400).json({ error: "sourceVideoUrl and prompt are required" });
+      }
+      
+      const { generateVideoToVideoWithRunway } = await import("../01-content-factory/integrations/runway");
+      const result = await generateVideoToVideoWithRunway(sourceVideoUrl, prompt, { referenceImageUrl });
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Video-to-video error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Upscale video
+  app.post("/api/runway/video/upscale", async (req, res) => {
+    try {
+      const { videoUrl } = req.body;
+      
+      if (!videoUrl) {
+        return res.status(400).json({ error: "videoUrl is required" });
+      }
+      
+      const { upscaleVideoWithRunway } = await import("../01-content-factory/integrations/runway");
+      const result = await upscaleVideoWithRunway(videoUrl);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Upscale error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Character performance (Act Two)
+  app.post("/api/runway/video/character-performance", async (req, res) => {
+    try {
+      const { referenceMediaUrl, driverVideoUrl, resolution = '720p' } = req.body;
+      
+      if (!referenceMediaUrl || !driverVideoUrl) {
+        return res.status(400).json({ error: "referenceMediaUrl and driverVideoUrl are required" });
+      }
+      
+      const { generateCharacterPerformance } = await import("../01-content-factory/integrations/runway");
+      const result = await generateCharacterPerformance(referenceMediaUrl, driverVideoUrl, { resolution });
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Character performance error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate image with Runway
+  app.post("/api/runway/image/generate", async (req, res) => {
+    try {
+      const { prompt, model = 'gen4_image_turbo', resolution = '720p', referenceImages } = req.body;
+      
+      if (!prompt) {
+        return res.status(400).json({ error: "prompt is required" });
+      }
+      
+      const { generateImageWithRunway } = await import("../01-content-factory/integrations/runway");
+      const result = await generateImageWithRunway(prompt, { model, resolution, referenceImages });
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Image generate error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Text-to-speech with ElevenLabs via Runway
+  app.post("/api/runway/audio/speech", async (req, res) => {
+    try {
+      const { text, voiceId, modelId } = req.body;
+      
+      if (!text) {
+        return res.status(400).json({ error: "text is required" });
+      }
+      
+      const { generateSpeechWithRunway } = await import("../01-content-factory/integrations/runway");
+      const result = await generateSpeechWithRunway(text, { voiceId, modelId });
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Speech error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate sound effects
+  app.post("/api/runway/audio/sound-effect", async (req, res) => {
+    try {
+      const { prompt, durationSeconds } = req.body;
+      
+      if (!prompt) {
+        return res.status(400).json({ error: "prompt is required" });
+      }
+      
+      const { generateSoundEffectWithRunway } = await import("../01-content-factory/integrations/runway");
+      const result = await generateSoundEffectWithRunway(prompt, { durationSeconds });
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Sound effect error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Voice isolation
+  app.post("/api/runway/audio/voice-isolation", async (req, res) => {
+    try {
+      const { audioUrl } = req.body;
+      
+      if (!audioUrl) {
+        return res.status(400).json({ error: "audioUrl is required" });
+      }
+      
+      const { isolateVoiceWithRunway } = await import("../01-content-factory/integrations/runway");
+      const result = await isolateVoiceWithRunway(audioUrl);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Voice isolation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Voice dubbing
+  app.post("/api/runway/audio/dubbing", async (req, res) => {
+    try {
+      const { sourceAudioUrl, targetLanguage, numSpeakers = 1 } = req.body;
+      
+      if (!sourceAudioUrl || !targetLanguage) {
+        return res.status(400).json({ error: "sourceAudioUrl and targetLanguage are required" });
+      }
+      
+      const { dubVoiceWithRunway } = await import("../01-content-factory/integrations/runway");
+      const result = await dubVoiceWithRunway(sourceAudioUrl, targetLanguage, { numSpeakers });
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Voice dubbing error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Speech-to-speech transformation
+  app.post("/api/runway/audio/speech-to-speech", async (req, res) => {
+    try {
+      const { audioUrl, targetVoiceId } = req.body;
+      
+      if (!audioUrl || !targetVoiceId) {
+        return res.status(400).json({ error: "audioUrl and targetVoiceId are required" });
+      }
+      
+      const { transformSpeechWithRunway } = await import("../01-content-factory/integrations/runway");
+      const result = await transformSpeechWithRunway(audioUrl, targetVoiceId);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Speech-to-speech error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Check task status (works for video, image, and audio tasks)
+  app.get("/api/runway/tasks/:taskId", async (req, res) => {
+    try {
+      const { taskId } = req.params;
+      const { type = 'video' } = req.query;
+      
+      const { checkVideoStatus, checkImageStatus, checkAudioStatus } = await import("../01-content-factory/integrations/runway");
+      
+      let result;
+      if (type === 'image') {
+        result = await checkImageStatus(taskId);
+      } else if (type === 'audio') {
+        result = await checkAudioStatus(taskId);
+      } else {
+        result = await checkVideoStatus(taskId);
+      }
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Task status error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Wait for task completion with polling
+  app.post("/api/runway/tasks/:taskId/wait", async (req, res) => {
+    try {
+      const { taskId } = req.params;
+      const { maxWaitSeconds = 120, pollIntervalSeconds = 5 } = req.body;
+      
+      const { waitForVideoCompletion } = await import("../01-content-factory/integrations/runway");
+      const result = await waitForVideoCompletion(taskId, maxWaitSeconds, pollIntervalSeconds);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Task wait error:", error);
       res.status(500).json({ error: error.message });
     }
   });

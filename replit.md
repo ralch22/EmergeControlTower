@@ -88,9 +88,27 @@ Preferred communication style: Simple, everyday language.
 - **Adobe Firefly**: Professional image generation with custom models support (v3 API).
 - **OpenRouter**: Unified AI gateway providing access to 100+ models (DeepSeek R1, Llama 4, Qwen 3, Mistral) - many FREE.
 - **ElevenLabs**: Text-to-speech.
-- **Runway**: AI video generation.
+- **Runway API (Full Model Support)**: Comprehensive video, image, and audio generation.
+  - **Video Models**: `gen4_turbo` (5 cr/s), `gen4_aleph` (15 cr/s), `upscale_v1` (2 cr/s), `act_two` (5 cr/s), `veo3`/`veo3.1`/`veo3.1_fast` (15-40 cr/s)
+  - **Image Models**: `gen4_image` (5-8 cr), `gen4_image_turbo` (2 cr), `gemini_2.5_flash` (5 cr)
+  - **Audio Models via ElevenLabs**: TTS (`eleven_multilingual_v2`), Sound Effects (`eleven_text_to_sound_v2`), Voice Isolation, Dubbing, Speech-to-Speech
 - **Midjourney (via Replicate)**: Image generation.
 - **Alibaba Dashscope**: Image generation (`wan2.5-t2i-preview`, `qwen-image-plus`).
+
+### Runway API Endpoints
+- `GET /api/runway/models`: List all available models with pricing
+- `POST /api/runway/video/generate`: Generate video with any Runway model
+- `POST /api/runway/video/video-to-video`: Gen-4 Aleph video transformation
+- `POST /api/runway/video/upscale`: Video upscaling (2 cr/s)
+- `POST /api/runway/video/character-performance`: Act Two character animation
+- `POST /api/runway/image/generate`: Image generation (gen4_image, gen4_image_turbo)
+- `POST /api/runway/audio/speech`: Text-to-speech via ElevenLabs
+- `POST /api/runway/audio/sound-effect`: AI sound effect generation
+- `POST /api/runway/audio/voice-isolation`: Isolate voice from audio
+- `POST /api/runway/audio/dubbing`: Multi-language dubbing
+- `POST /api/runway/audio/speech-to-speech`: Voice transformation
+- `GET /api/runway/tasks/:taskId`: Check task status
+- `POST /api/runway/tasks/:taskId/wait`: Wait for completion with polling
 
 ### OpenRouter Integration
 - **Unified Gateway**: Single API key for 100+ AI models from DeepSeek, Meta, Alibaba, Mistral, Google.

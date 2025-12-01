@@ -1,4 +1,14 @@
-import { generateVideoWithRunway, checkVideoStatus, waitForVideoCompletion } from './runway';
+import { 
+  generateVideoWithRunway, 
+  checkVideoStatus, 
+  waitForVideoCompletion,
+  generateVideoToVideoWithRunway,
+  upscaleVideoWithRunway,
+  generateCharacterPerformance,
+  generateImageWithRunway,
+  getRunwayModels,
+  RunwayVideoModel
+} from './runway';
 import { generateVideoWithWan, checkWanTaskStatus, waitForWanCompletion } from './wan';
 import { generateVideoWithPika, checkPikaStatus, waitForPikaCompletion } from './pika';
 import { generateVideoWithLuma, checkLumaStatus, waitForLumaCompletion } from './luma';
@@ -28,7 +38,25 @@ export interface VideoProviderResult {
   fallbackAttempts?: number;
 }
 
-export type VideoProvider = 'veo31' | 'veo2' | 'runway' | 'wan' | 'pika' | 'luma' | 'kling' | 'hailuo' | 'fal' | 'fal_kling' | 'fal_minimax';
+export type VideoProvider = 
+  | 'veo31' 
+  | 'veo2' 
+  | 'runway' 
+  | 'runway_gen4_turbo'    // Runway Gen-4 Turbo (5 credits/sec)
+  | 'runway_gen4_aleph'    // Runway Gen-4 Aleph video-to-video (15 credits/sec)
+  | 'runway_veo3'          // Runway Veo 3 (40 credits/sec)
+  | 'runway_veo31'         // Runway Veo 3.1 (40 credits/sec)
+  | 'runway_veo31_fast'    // Runway Veo 3.1 Fast (15 credits/sec)
+  | 'runway_upscale'       // Runway upscaling (2 credits/sec)
+  | 'runway_act_two'       // Runway character performance (5 credits/sec)
+  | 'wan' 
+  | 'pika' 
+  | 'luma' 
+  | 'kling' 
+  | 'hailuo' 
+  | 'fal' 
+  | 'fal_kling' 
+  | 'fal_minimax';
 
 interface ProviderConfig {
   name: VideoProvider;
@@ -113,13 +141,14 @@ const providerConfigs: Record<VideoProvider, ProviderConfig> = {
   
   runway: {
     name: 'runway',
-    displayName: 'Runway Gen-3',
+    displayName: 'Runway Gen-4 Turbo',
     isConfigured: () => !!process.env.RUNWAY_API_KEY,
     generate: async (prompt, options) => {
       const runwayAspect = options.aspectRatio === '1:1' ? '16:9' : (options.aspectRatio || '16:9');
       const result = await generateVideoWithRunway(prompt, {
         duration: options.duration || 5,
         aspectRatio: runwayAspect as '16:9' | '9:16',
+        model: 'gen4_turbo',
         imageUrl: options.imageUrl,
         imageBase64: options.imageBase64,
       });
@@ -135,6 +164,177 @@ const providerConfigs: Record<VideoProvider, ProviderConfig> = {
     waitForCompletion: async (taskId, maxWait = 120, interval = 5) => {
       const result = await waitForVideoCompletion(taskId, maxWait, interval);
       return { ...result, provider: 'runway' };
+    },
+  },
+
+  runway_gen4_turbo: {
+    name: 'runway_gen4_turbo',
+    displayName: 'Runway Gen-4 Turbo (5 cr/s)',
+    isConfigured: () => !!process.env.RUNWAY_API_KEY,
+    generate: async (prompt, options) => {
+      const runwayAspect = options.aspectRatio === '1:1' ? '16:9' : (options.aspectRatio || '16:9');
+      const result = await generateVideoWithRunway(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: runwayAspect as '16:9' | '9:16',
+        model: 'gen4_turbo',
+        imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
+      });
+      return { ...result, provider: 'runway_gen4_turbo' };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkVideoStatus(taskId);
+      return { ...result, provider: 'runway_gen4_turbo' };
+    },
+    waitForCompletion: async (taskId, maxWait = 120, interval = 5) => {
+      const result = await waitForVideoCompletion(taskId, maxWait, interval);
+      return { ...result, provider: 'runway_gen4_turbo' };
+    },
+  },
+
+  runway_gen4_aleph: {
+    name: 'runway_gen4_aleph',
+    displayName: 'Runway Gen-4 Aleph (15 cr/s)',
+    isConfigured: () => !!process.env.RUNWAY_API_KEY,
+    generate: async (prompt, options) => {
+      // Gen-4 Aleph requires a source video for video-to-video
+      // For now, use it as image-to-video with gen4_turbo fallback
+      if (options.imageUrl) {
+        const result = await generateVideoWithRunway(prompt, {
+          duration: options.duration || 5,
+          aspectRatio: (options.aspectRatio || '16:9') as '16:9' | '9:16',
+          model: 'gen4_turbo',
+          imageUrl: options.imageUrl,
+          imageBase64: options.imageBase64,
+        });
+        return { ...result, provider: 'runway_gen4_aleph' };
+      }
+      return { success: false, provider: 'runway_gen4_aleph', error: 'Gen-4 Aleph requires a source video for video-to-video generation' };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkVideoStatus(taskId);
+      return { ...result, provider: 'runway_gen4_aleph' };
+    },
+    waitForCompletion: async (taskId, maxWait = 180, interval = 5) => {
+      const result = await waitForVideoCompletion(taskId, maxWait, interval);
+      return { ...result, provider: 'runway_gen4_aleph' };
+    },
+  },
+
+  runway_veo3: {
+    name: 'runway_veo3',
+    displayName: 'Runway Veo 3 (40 cr/s)',
+    isConfigured: () => !!process.env.RUNWAY_API_KEY,
+    generate: async (prompt, options) => {
+      const runwayAspect = options.aspectRatio === '1:1' ? '16:9' : (options.aspectRatio || '16:9');
+      const result = await generateVideoWithRunway(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: runwayAspect as '16:9' | '9:16',
+        model: 'veo3',
+        imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
+      });
+      return { ...result, provider: 'runway_veo3' };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkVideoStatus(taskId);
+      return { ...result, provider: 'runway_veo3' };
+    },
+    waitForCompletion: async (taskId, maxWait = 300, interval = 10) => {
+      const result = await waitForVideoCompletion(taskId, maxWait, interval);
+      return { ...result, provider: 'runway_veo3' };
+    },
+  },
+
+  runway_veo31: {
+    name: 'runway_veo31',
+    displayName: 'Runway Veo 3.1 (40 cr/s)',
+    isConfigured: () => !!process.env.RUNWAY_API_KEY,
+    generate: async (prompt, options) => {
+      const runwayAspect = options.aspectRatio === '1:1' ? '16:9' : (options.aspectRatio || '16:9');
+      const result = await generateVideoWithRunway(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: runwayAspect as '16:9' | '9:16',
+        model: 'veo3.1',
+        imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
+      });
+      return { ...result, provider: 'runway_veo31' };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkVideoStatus(taskId);
+      return { ...result, provider: 'runway_veo31' };
+    },
+    waitForCompletion: async (taskId, maxWait = 300, interval = 10) => {
+      const result = await waitForVideoCompletion(taskId, maxWait, interval);
+      return { ...result, provider: 'runway_veo31' };
+    },
+  },
+
+  runway_veo31_fast: {
+    name: 'runway_veo31_fast',
+    displayName: 'Runway Veo 3.1 Fast (15 cr/s)',
+    isConfigured: () => !!process.env.RUNWAY_API_KEY,
+    generate: async (prompt, options) => {
+      const runwayAspect = options.aspectRatio === '1:1' ? '16:9' : (options.aspectRatio || '16:9');
+      const result = await generateVideoWithRunway(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: runwayAspect as '16:9' | '9:16',
+        model: 'veo3.1_fast',
+        imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
+      });
+      return { ...result, provider: 'runway_veo31_fast' };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkVideoStatus(taskId);
+      return { ...result, provider: 'runway_veo31_fast' };
+    },
+    waitForCompletion: async (taskId, maxWait = 180, interval = 5) => {
+      const result = await waitForVideoCompletion(taskId, maxWait, interval);
+      return { ...result, provider: 'runway_veo31_fast' };
+    },
+  },
+
+  runway_upscale: {
+    name: 'runway_upscale',
+    displayName: 'Runway Upscale (2 cr/s)',
+    isConfigured: () => !!process.env.RUNWAY_API_KEY,
+    generate: async (_prompt, options) => {
+      if (!options.imageUrl) {
+        return { success: false, provider: 'runway_upscale', error: 'Upscaling requires a video URL' };
+      }
+      const result = await upscaleVideoWithRunway(options.imageUrl);
+      return { ...result, provider: 'runway_upscale', status: result.status as VideoProviderResult['status'] };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkVideoStatus(taskId);
+      return { ...result, provider: 'runway_upscale' };
+    },
+    waitForCompletion: async (taskId, maxWait = 300, interval = 10) => {
+      const result = await waitForVideoCompletion(taskId, maxWait, interval);
+      return { ...result, provider: 'runway_upscale' };
+    },
+  },
+
+  runway_act_two: {
+    name: 'runway_act_two',
+    displayName: 'Runway Act Two (5 cr/s)',
+    isConfigured: () => !!process.env.RUNWAY_API_KEY,
+    generate: async (_prompt, options) => {
+      if (!options.imageUrl) {
+        return { success: false, provider: 'runway_act_two', error: 'Act Two requires reference media and driver video URLs' };
+      }
+      // Act Two requires both reference and driver - for now return error if not provided
+      return { success: false, provider: 'runway_act_two', error: 'Act Two requires specific reference media and driver video - use API directly' };
+    },
+    checkStatus: async (taskId) => {
+      const result = await checkVideoStatus(taskId);
+      return { ...result, provider: 'runway_act_two' };
+    },
+    waitForCompletion: async (taskId, maxWait = 300, interval = 10) => {
+      const result = await waitForVideoCompletion(taskId, maxWait, interval);
+      return { ...result, provider: 'runway_act_two' };
     },
   },
   
