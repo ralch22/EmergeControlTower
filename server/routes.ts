@@ -1004,10 +1004,93 @@ export async function registerRoutes(
   });
 
   // Approve content by content ID (for Slack buttons)
+  // Automatically creates a video project when a video script is approved
   app.post("/api/content/:contentId/approve", async (req, res) => {
     try {
       const { contentId } = req.params;
       const content = await storage.updateGeneratedContentStatus(contentId, 'approved');
+      
+      // If this is a video script, automatically create a video project
+      if (content && content.type === 'video_script') {
+        try {
+          console.log(`[AutoVideoProject] Creating video project from approved script: ${contentId}`);
+          
+          // Import scene parser
+          const { parseVideoScript, calculateTotalDuration } = await import("../01-content-factory/utils/scene-parser");
+          
+          // Parse the script into scenes
+          const parsedScenes = parseVideoScript(content.content);
+          const totalDuration = calculateTotalDuration(parsedScenes);
+          
+          // Generate project ID
+          const projectId = `proj_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          // Create the project
+          const project = await storage.createVideoProject({
+            projectId,
+            clientId: content.clientId,
+            sourceContentId: contentId,
+            title: content.title,
+            description: `Video project from: ${content.title}`,
+            totalDuration,
+            status: 'draft',
+          });
+          
+          // Create scenes (without generating images yet - that happens when user triggers generation)
+          let startTime = 0;
+          for (const scene of parsedScenes) {
+            const sceneId = `scene_${projectId}_${scene.sceneNumber}`;
+            await storage.createVideoScene({
+              sceneId,
+              projectId,
+              sceneNumber: scene.sceneNumber,
+              title: scene.title,
+              visualPrompt: scene.visualPrompt,
+              voiceoverText: scene.voiceoverText,
+              duration: scene.duration,
+              startTime,
+              status: 'pending',
+            });
+            startTime += scene.duration;
+          }
+          
+          // Log activity
+          await storage.createActivityLog({
+            runId: `video_proj_${projectId}`,
+            eventType: 'video_project_auto_created',
+            level: 'success',
+            message: `Video project automatically created from approved script: ${content.title}`,
+            metadata: JSON.stringify({ projectId, contentId, scenesCount: parsedScenes.length }),
+          });
+          
+          console.log(`[AutoVideoProject] Created project ${projectId} with ${parsedScenes.length} scenes`);
+          
+          res.json({ 
+            status: 'approved', 
+            contentId, 
+            content,
+            videoProject: {
+              projectId,
+              title: project.title,
+              scenesCount: parsedScenes.length,
+              totalDuration,
+              message: 'Video project automatically created from approved script'
+            }
+          });
+          return;
+        } catch (projectError: any) {
+          console.error(`[AutoVideoProject] Failed to create video project: ${projectError.message}`);
+          // Still return success for approval, but note the project creation failure
+          res.json({ 
+            status: 'approved', 
+            contentId, 
+            content,
+            videoProjectError: projectError.message
+          });
+          return;
+        }
+      }
+      
       res.json({ status: 'approved', contentId, content });
     } catch (error) {
       res.status(500).json({ error: "Failed to approve content" });

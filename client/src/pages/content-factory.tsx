@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -326,6 +327,7 @@ function VideoScriptViewer({ content }: { content: GeneratedContent }) {
 export default function ContentFactoryPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
   const [selectedClientId, setSelectedClientId] = useState<string>("");
   const [contentView, setContentView] = useState<"grid" | "list">("grid");
   const [contentTab, setContentTab] = useState<string>("all");
@@ -438,6 +440,38 @@ export default function ContentFactoryPage() {
         title: variables.status === "approved" ? "Content Approved" : "Content Rejected",
         description: `Content has been ${variables.status}`,
       });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const createVideoProjectMutation = useMutation({
+    mutationFn: async ({ contentId, clientId, title }: { contentId: string; clientId: number; title: string }) => {
+      const res = await fetch("/api/video-projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentId, clientId, title, generateImages: true }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || "Failed to create video project");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/video-projects"] });
+      toast({
+        title: "Video Project Created",
+        description: `Project created with ${data.scenes?.length || 0} scenes. Redirecting to assembly...`,
+      });
+      setTimeout(() => {
+        setLocation(`/video-assembly/${data.projectId}`);
+      }, 1500);
     },
     onError: (error: Error) => {
       toast({
@@ -968,12 +1002,13 @@ export default function ContentFactoryPage() {
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 px-2 text-green-400 hover:bg-green-500/20"
-                                onClick={() =>
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   updateStatusMutation.mutate({
                                     contentId: content.contentId,
                                     status: "approved",
-                                  })
-                                }
+                                  });
+                                }}
                                 disabled={updateStatusMutation.isPending}
                                 data-testid={`button-approve-${content.contentId}`}
                               >
@@ -983,18 +1018,39 @@ export default function ContentFactoryPage() {
                                 size="sm"
                                 variant="ghost"
                                 className="h-7 px-2 text-red-400 hover:bg-red-500/20"
-                                onClick={() =>
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   updateStatusMutation.mutate({
                                     contentId: content.contentId,
                                     status: "rejected",
-                                  })
-                                }
+                                  });
+                                }}
                                 disabled={updateStatusMutation.isPending}
                                 data-testid={`button-reject-${content.contentId}`}
                               >
                                 <ThumbsDown className="w-3 h-3" />
                               </Button>
                             </div>
+                          )}
+                          {content.status === "approved" && content.type === "video_script" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                createVideoProjectMutation.mutate({
+                                  contentId: content.contentId,
+                                  clientId: content.clientId,
+                                  title: content.title,
+                                });
+                              }}
+                              disabled={createVideoProjectMutation.isPending}
+                              data-testid={`button-create-video-${content.contentId}`}
+                            >
+                              <Film className="w-3 h-3 mr-1" />
+                              Create Video
+                            </Button>
                           )}
                           {content.qaScore && (
                             <Badge variant="outline" className="text-xs">
@@ -1067,6 +1123,25 @@ export default function ContentFactoryPage() {
                             </Button>
                           </div>
                         )}
+                        {content.status === "approved" && content.type === "video_script" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20"
+                            onClick={() =>
+                              createVideoProjectMutation.mutate({
+                                contentId: content.contentId,
+                                clientId: content.clientId,
+                                title: content.title,
+                              })
+                            }
+                            disabled={createVideoProjectMutation.isPending}
+                            data-testid={`button-create-video-list-${content.contentId}`}
+                          >
+                            <Film className="w-3 h-3 mr-1" />
+                            Create Video
+                          </Button>
+                        )}
                       </div>
                     );
                   })}
@@ -1137,6 +1212,26 @@ export default function ContentFactoryPage() {
                   >
                     <ThumbsUp className="w-4 h-4 mr-2" />
                     Approve
+                  </Button>
+                </div>
+              )}
+              {viewingContent.status === "approved" && viewingContent.type === "video_script" && (
+                <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-zinc-700">
+                  <Button
+                    className="bg-cyan-600 hover:bg-cyan-700"
+                    onClick={() => {
+                      createVideoProjectMutation.mutate({
+                        contentId: viewingContent.contentId,
+                        clientId: viewingContent.clientId,
+                        title: viewingContent.title,
+                      });
+                      setViewingContent(null);
+                    }}
+                    disabled={createVideoProjectMutation.isPending}
+                    data-testid="button-create-video-modal"
+                  >
+                    <Film className="w-4 h-4 mr-2" />
+                    Create Video Project
                   </Button>
                 </div>
               )}
