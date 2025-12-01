@@ -603,7 +603,7 @@ export function ActivityPanel() {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
-  const [previousRuns, setPreviousRuns] = useState<Map<string, ActiveRun>>(new Map());
+  const previousRunsRef = useRef<Map<string, ActiveRun>>(new Map());
 
   const { data: clients = [] } = useQuery<Client[]>({
     queryKey: ["/api/clients"],
@@ -689,6 +689,7 @@ export function ActivityPanel() {
     if (!pipelineStatus) return;
 
     const currentRunIds = new Set(pipelineStatus.activeRuns.map((r) => r.runId));
+    const previousRuns = previousRunsRef.current;
     
     previousRuns.forEach((prevRun, runId) => {
       if (!currentRunIds.has(runId)) {
@@ -720,7 +721,7 @@ export function ActivityPanel() {
     pipelineStatus.activeRuns.forEach((run) => {
       newRunsMap.set(run.runId, run);
     });
-    setPreviousRuns(newRunsMap);
+    previousRunsRef.current = newRunsMap;
   }, [pipelineStatus, getClientName]);
 
   const toggleRunExpansion = useCallback((runId: string) => {

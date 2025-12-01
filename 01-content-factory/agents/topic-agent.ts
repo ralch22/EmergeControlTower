@@ -15,7 +15,7 @@ Always output valid JSON arrays.`;
 export async function generateTopics(
   brief: ClientBrief,
   count: number = 5,
-  contentTypes: ContentType[] = ['blog', 'linkedin', 'twitter']
+  contentTypes: ContentType[] = ['blog', 'linkedin', 'twitter', 'video_script']
 ): Promise<AgentResponse<ContentTopic[]>> {
   try {
     const userPrompt = `Generate ${count} high-impact content topics for the following client:
@@ -31,7 +31,9 @@ For each topic, provide:
 1. A compelling title
 2. A unique angle or hook
 3. Relevant keywords (3-5)
-4. Which content types it's suitable for: ${contentTypes.join(', ')}
+4. Which content types it's suitable for from this list: ${contentTypes.join(', ')}
+   - IMPORTANT: For at least 2-3 topics, include "video_script" in contentTypes if it's in the allowed list
+   - Video scripts work best for topics with strong visual potential or emotional narratives
 5. Priority level (high/medium/low)
 
 Return ONLY a valid JSON array with this structure:
@@ -41,7 +43,7 @@ Return ONLY a valid JSON array with this structure:
     "title": "...",
     "angle": "...",
     "keywords": ["...", "..."],
-    "contentTypes": ["blog", "linkedin"],
+    "contentTypes": ["blog", "linkedin", "video_script"],
     "priority": "high"
   }
 ]`;
