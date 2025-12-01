@@ -1443,122 +1443,218 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
         failedPieces: 0,
       });
 
-      // Build the prompt based on content type
-      const brandContext = client.brandProfile 
-        ? `Brand Context:\n${JSON.stringify(client.brandProfile, null, 2)}\n\n`
-        : `Brand Voice: ${client.brandVoice}\nTarget Audience: ${client.targetAudience}\n\n`;
+      // Build comprehensive brand brief from profile
+      const buildBrandBrief = () => {
+        const bp = client.brandProfile;
+        if (!bp) {
+          return {
+            context: `Brand: ${client.name}\nIndustry: ${client.industry}\nBrand Voice: ${client.brandVoice}\nTarget Audience: ${client.targetAudience}\nKeywords: ${client.keywords}\nContent Goals: ${client.contentGoals}`,
+            systemAddition: `Write in the brand voice: ${client.brandVoice}. Target audience: ${client.targetAudience}.`,
+            ctas: [] as string[],
+            forbiddenWords: [] as string[],
+          };
+        }
+        
+        const t = bp.textual;
+        const v = bp.visual;
+        
+        const brandIdentity = `
+=== BRAND IDENTITY ===
+Brand Name: ${t.brandName.primary}${t.brandName.token ? ` (Token: ${t.brandName.token})` : ''}
+Tagline: "${t.tagline.primary}"
+${t.mission ? `Mission: ${t.mission}` : ''}
+${t.brandStory?.short ? `Brand Story: ${t.brandStory.short}` : ''}`;
+
+        const voicePersonality = `
+=== VOICE & PERSONALITY ===
+Archetype: ${t.personality.archetype}
+Personality Traits: ${t.personality.traits.join(', ')}
+${t.personality.avoidTraits?.length ? `Avoid: ${t.personality.avoidTraits.join(', ')}` : ''}
+Tone: ${t.tone.description}
+- Formality: ${t.tone.formality}/10
+- Energy: ${t.tone.energy}/10
+- Technicality: ${t.tone.technicality}/10
+- Warmth: ${t.tone.warmth}/10`;
+
+        const audienceInfo = `
+=== TARGET AUDIENCE ===
+Demographics: ${t.targetAudience.demographics}
+${t.targetAudience.psychographics ? `Psychographics: ${t.targetAudience.psychographics}` : ''}
+${t.targetAudience.painPoints?.length ? `Pain Points: ${t.targetAudience.painPoints.join('; ')}` : ''}
+${t.targetAudience.goals?.length ? `Goals: ${t.targetAudience.goals.join('; ')}` : ''}`;
+
+        const contentGuidelines = `
+=== CONTENT GUIDELINES ===
+Keywords to naturally include: ${t.keywords.join(', ')}
+Content Goals: ${t.contentGoals.join('; ')}
+${t.examplePhrases?.length ? `Example Phrases to emulate: "${t.examplePhrases.slice(0, 3).join('", "')}"` : ''}
+${t.forbiddenWords?.length ? `NEVER use these words: ${t.forbiddenWords.join(', ')}` : ''}
+${t.callToActions?.length ? `Preferred CTAs: ${t.callToActions.join(' | ')}` : ''}`;
+
+        const visualContext = v ? `
+=== VISUAL BRAND CONTEXT ===
+Visual Style: ${v.visualStyle.description}
+Aesthetic: ${v.visualStyle.aesthetic.join(', ')}
+Mood: ${v.visualStyle.moodKeywords.join(', ')}
+Primary Color: ${v.colorPalette.darkMode.accent.name} (${v.colorPalette.darkMode.accent.hex})
+Background: ${v.colorPalette.darkMode.background.name} (${v.colorPalette.darkMode.background.hex})` : '';
+
+        const values = t.values?.length ? `
+=== BRAND VALUES ===
+${t.values.map(v => `• ${v.name}: ${v.description}`).join('\n')}` : '';
+
+        return {
+          context: `${brandIdentity}${voicePersonality}${audienceInfo}${contentGuidelines}${values}${visualContext}`,
+          systemAddition: `You are writing for ${t.brandName.primary}. Embody the ${t.personality.archetype} archetype with traits: ${t.personality.traits.join(', ')}. Use a ${t.tone.description} tone. Target audience: ${t.targetAudience.demographics}. Naturally incorporate these keywords: ${t.keywords.slice(0, 5).join(', ')}.${t.forbiddenWords?.length ? ` NEVER use: ${t.forbiddenWords.join(', ')}.` : ''}`,
+          ctas: t.callToActions || [],
+          forbiddenWords: t.forbiddenWords || [],
+        };
+      };
+      
+      const brandBrief = buildBrandBrief();
+      const effectiveCta = callToAction || (brandBrief.ctas.length > 0 ? brandBrief.ctas[0] : null);
 
       const contentPrompts: Record<string, { system: string; template: (topic: string, brief: string, extra: string) => string }> = {
         blog: {
-          system: "You are an expert content writer specializing in SEO-optimized blog posts. Write engaging, informative content that provides value to readers.",
+          system: `You are an expert content writer for ${client.name}. ${brandBrief.systemAddition} Write engaging, SEO-optimized blog posts that provide genuine value while maintaining brand consistency.`,
           template: (topic, brief, extra) => `Write a comprehensive blog post about: ${topic}
 
-${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+${brief ? `Brief: ${brief}\n` : ''}${extra}
 
-Requirements:
+${brandBrief.context}
+
+REQUIREMENTS:
 - Length: ${targetLength === 'long' ? '1500-2000' : targetLength === 'short' ? '500-800' : '1000-1500'} words
-- Include an engaging introduction
-- Use subheadings for better readability
-- Include actionable insights
+- Open with a hook that resonates with the target audience's pain points
+- Use the brand voice consistently throughout
+- Include subheadings for readability
+- Naturally weave in the brand keywords
 - End with a compelling conclusion
-${callToAction ? `- Include this call-to-action: ${callToAction}` : ''}`
+${effectiveCta ? `- Include call-to-action: "${effectiveCta}"` : ''}
+${brandBrief.forbiddenWords.length ? `- AVOID these words: ${brandBrief.forbiddenWords.join(', ')}` : ''}`
         },
         linkedin: {
-          system: "You are a LinkedIn content strategist. Create professional, engaging posts that drive engagement and establish thought leadership.",
+          system: `You are a LinkedIn strategist for ${client.name}. ${brandBrief.systemAddition} Create professional thought-leadership content that drives engagement.`,
           template: (topic, brief, extra) => `Write a LinkedIn post about: ${topic}
 
-${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+${brief ? `Brief: ${brief}\n` : ''}${extra}
 
-Requirements:
-- Professional yet engaging tone
-- Include a hook in the first line
+${brandBrief.context}
+
+REQUIREMENTS:
+- Open with a scroll-stopping hook (first line is crucial)
+- Professional yet personable tone matching brand personality
 - Use line breaks for readability
-- Include relevant hashtags (3-5)
-- ${targetLength === 'long' ? 'Longer format with detailed insights' : targetLength === 'short' ? 'Short, punchy format' : 'Medium length with clear value'}
-${callToAction ? `- End with: ${callToAction}` : '- End with a question or call-to-action'}`
+- Include 3-5 relevant hashtags
+- ${targetLength === 'long' ? 'Detailed insights format (800+ chars)' : targetLength === 'short' ? 'Punchy format (under 300 chars)' : 'Balanced format (400-600 chars)'}
+${effectiveCta ? `- End with: "${effectiveCta}"` : '- End with engagement prompt'}
+${brandBrief.forbiddenWords.length ? `- AVOID: ${brandBrief.forbiddenWords.join(', ')}` : ''}`
         },
         twitter: {
-          system: "You are a Twitter/X content expert. Create viral, engaging tweets that maximize engagement within character limits.",
+          system: `You are a Twitter/X strategist for ${client.name}. ${brandBrief.systemAddition} Create viral, engaging posts that maximize engagement within character limits.`,
           template: (topic, brief, extra) => `Write a Twitter/X post about: ${topic}
 
-${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+${brief ? `Brief: ${brief}\n` : ''}${extra}
 
-Requirements:
-- Maximum 280 characters (or thread if longer format requested)
+${brandBrief.context}
+
+REQUIREMENTS:
+- ${targetLength === 'long' ? 'Create a thread with 3-5 connected tweets, each building on the last' : 'Single powerful tweet under 280 characters'}
 - Attention-grabbing opening
-- Include 1-2 relevant hashtags
-- ${targetLength === 'long' ? 'Create a thread with 3-5 connected tweets' : 'Single impactful tweet'}
-${callToAction ? `- Include: ${callToAction}` : ''}`
+- Match the brand's ${client.brandProfile?.textual?.personality?.archetype || 'professional'} personality
+- Include 1-2 highly relevant hashtags
+- Use emojis strategically (matching brand energy level)
+${effectiveCta ? `- Include: "${effectiveCta}"` : ''}
+${brandBrief.forbiddenWords.length ? `- NEVER use: ${brandBrief.forbiddenWords.join(', ')}` : ''}`
         },
         instagram: {
-          system: "You are an Instagram content creator. Write captions that drive engagement and build community.",
+          system: `You are an Instagram content creator for ${client.name}. ${brandBrief.systemAddition} Write captions that build community and drive engagement.`,
           template: (topic, brief, extra) => `Write an Instagram caption about: ${topic}
 
-${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+${brief ? `Brief: ${brief}\n` : ''}${extra}
 
-Requirements:
-- Engaging opening line (shown before "more")
-- Use emojis strategically
-- Include 5-10 relevant hashtags at the end
-- ${targetLength === 'long' ? 'Longer storytelling format' : targetLength === 'short' ? 'Short, punchy caption' : 'Medium length with personality'}
-${callToAction ? `- Include CTA: ${callToAction}` : '- End with a question or call-to-action'}`
+${brandBrief.context}
+
+REQUIREMENTS:
+- Opening line must hook before "more" (first 125 chars)
+- Storytelling format that connects emotionally
+- Use emojis that match brand aesthetic
+- Include 8-15 relevant hashtags at the end
+- ${targetLength === 'long' ? 'Long-form storytelling' : targetLength === 'short' ? 'Short, punchy' : 'Balanced length'}
+${effectiveCta ? `- End with CTA: "${effectiveCta}"` : '- Include engagement question'}
+${brandBrief.forbiddenWords.length ? `- AVOID: ${brandBrief.forbiddenWords.join(', ')}` : ''}`
         },
         facebook_ad: {
-          system: "You are a Facebook/Meta advertising expert. Create compelling ad copy that drives conversions.",
+          system: `You are a Meta advertising expert for ${client.name}. ${brandBrief.systemAddition} Create high-converting ad copy that speaks directly to target audience pain points.`,
           template: (topic, brief, extra) => `Write Facebook ad copy about: ${topic}
 
-${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+${brief ? `Brief: ${brief}\n` : ''}${extra}
 
-Requirements:
-- Primary text (125 characters ideal, max 500)
-- Headline (25-40 characters)
-- Description (optional, 20 characters)
-- Clear value proposition
-- Strong call-to-action
-${callToAction ? `- CTA button text: ${callToAction}` : ''}`
+${brandBrief.context}
+
+REQUIREMENTS:
+Create ad copy with these elements:
+1. PRIMARY TEXT (125 chars ideal, max 500): Hook addressing audience pain point
+2. HEADLINE (25-40 chars): Clear value proposition
+3. DESCRIPTION (20 chars): Supporting benefit
+4. Clear unique selling proposition tied to brand values
+5. Strong emotional trigger based on audience psychographics
+${effectiveCta ? `6. CTA: "${effectiveCta}"` : '6. Compelling call-to-action'}
+${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.join(', ')}` : ''}`
         },
         video_script: {
-          system: "You are a video script writer. Create engaging scripts with clear scene breakdowns for video production.",
+          system: `You are a video script writer for ${client.name}. ${brandBrief.systemAddition} Create engaging scripts with clear scene breakdowns that reflect brand visual identity.`,
           template: (topic, brief, extra) => `Write a video script about: ${topic}
 
-${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+${brief ? `Brief: ${brief}\n` : ''}${extra}
 
-Requirements:
-- Duration: ${targetLength === 'long' ? '90-120 seconds' : targetLength === 'short' ? '30-45 seconds' : '60-90 seconds'}
-- Include hook, main content, and call-to-action
-- Break down into scenes with visual descriptions
-- Include voiceover text for each scene
-- Suggest b-roll or visual elements
-${callToAction ? `- End with: ${callToAction}` : ''}`
+${brandBrief.context}
+
+REQUIREMENTS:
+- Duration: ${targetLength === 'long' ? '90-120' : targetLength === 'short' ? '30-45' : '60-90'} seconds
+- Opening hook that stops scrolling
+- Scene-by-scene breakdown with:
+  • Visual description (incorporate brand colors and visual style)
+  • Voiceover text (matching brand voice)
+  • On-screen text suggestions
+- Reference brand aesthetic: ${client.brandProfile?.visual?.visualStyle?.aesthetic?.join(', ') || 'professional, modern'}
+${effectiveCta ? `- End with CTA: "${effectiveCta}"` : ''}
+${brandBrief.forbiddenWords.length ? `- AVOID in voiceover: ${brandBrief.forbiddenWords.join(', ')}` : ''}`
         },
         email: {
-          system: "You are an email marketing expert. Write compelling emails that drive opens, clicks, and conversions.",
+          system: `You are an email marketing expert for ${client.name}. ${brandBrief.systemAddition} Write compelling emails that drive opens, clicks, and conversions.`,
           template: (topic, brief, extra) => `Write a marketing email about: ${topic}
 
-${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+${brief ? `Brief: ${brief}\n` : ''}${extra}
 
-Requirements:
-- Subject line (max 50 characters)
-- Preview text (max 100 characters)
-- Compelling opening
-- Clear value proposition
-- ${targetLength === 'long' ? 'Detailed email body' : targetLength === 'short' ? 'Short and punchy' : 'Medium length'}
-- Strong call-to-action button text
-${callToAction ? `- Primary CTA: ${callToAction}` : ''}`
+${brandBrief.context}
+
+REQUIREMENTS:
+1. SUBJECT LINE (max 50 chars): Curiosity-driving, matches brand voice
+2. PREVIEW TEXT (max 100 chars): Extends subject line intrigue
+3. OPENING: Personal, addresses reader's situation
+4. BODY: ${targetLength === 'long' ? 'Detailed with multiple sections' : targetLength === 'short' ? 'Brief and punchy' : 'Balanced'}
+5. Clear value proposition aligned with brand mission
+${effectiveCta ? `6. CTA BUTTON: "${effectiveCta}"` : '6. Strong CTA button text'}
+${brandBrief.forbiddenWords.length ? `\nAVOID: ${brandBrief.forbiddenWords.join(', ')}` : ''}`
         },
         ad_copy: {
-          system: "You are an advertising copywriter. Create compelling ad copy for various platforms.",
+          system: `You are an advertising copywriter for ${client.name}. ${brandBrief.systemAddition} Create compelling ad copy variations that test well across platforms.`,
           template: (topic, brief, extra) => `Write advertising copy about: ${topic}
 
-${brief ? `Brief: ${brief}\n\n` : ''}${brandContext}${extra}
+${brief ? `Brief: ${brief}\n` : ''}${extra}
 
-Requirements:
-- Multiple headline variations (3-5)
-- Multiple description variations (3-5)
-- Clear unique selling proposition
-- Emotional triggers
-- Strong calls-to-action
-${callToAction ? `- Include CTA: ${callToAction}` : ''}`
+${brandBrief.context}
+
+REQUIREMENTS:
+Create multiple variations:
+1. HEADLINES (5 variations): Each highlighting different value props
+2. DESCRIPTIONS (5 variations): Supporting copy for each headline
+3. Clear unique selling propositions tied to brand values
+4. Emotional triggers based on audience pain points and goals
+5. Each variation should test a different angle
+${effectiveCta ? `6. All variations should drive toward: "${effectiveCta}"` : ''}
+${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.join(', ')}` : ''}`
         },
       };
 
