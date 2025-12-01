@@ -744,6 +744,71 @@ export async function registerRoutes(
     }
   });
 
+  // Create test video project for quick testing
+  app.post("/api/video-projects/test", async (req, res) => {
+    try {
+      const projectId = `proj_test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Create test project with 3 sample scenes
+      const project = await storage.createVideoProject({
+        projectId,
+        clientId: 1,
+        title: "Test Video - AI Future",
+        description: "Test video project with 3 sample scenes",
+        totalDuration: 15,
+        status: 'draft',
+      });
+
+      // Scene 1: AI concept intro
+      const scene1Id = `scene_${projectId}_1`;
+      await storage.createVideoScene({
+        sceneId: scene1Id,
+        projectId,
+        sceneNumber: 1,
+        title: "AI Future Vision",
+        visualPrompt: "Futuristic AI interface with glowing holographic displays, digital matrix background, cyberpunk neon aesthetic, 4K quality",
+        voiceoverText: "Artificial intelligence is transforming the world. Machines are learning to see, think, and create.",
+        duration: 5,
+        startTime: 0,
+        status: 'pending',
+      });
+
+      // Scene 2: Human-AI collaboration
+      const scene2Id = `scene_${projectId}_2`;
+      await storage.createVideoScene({
+        sceneId: scene2Id,
+        projectId,
+        sceneNumber: 2,
+        title: "Collaboration Era",
+        visualPrompt: "Humans and AI robots working together in harmony, split screen, modern office meets tech lab, minimalist design with blue accents",
+        voiceoverText: "The future isn't about AI replacing humans. It's about humans and AI working together to solve problems.",
+        duration: 5,
+        startTime: 5,
+        status: 'pending',
+      });
+
+      // Scene 3: Impact and growth
+      const scene3Id = `scene_${projectId}_3`;
+      await storage.createVideoScene({
+        sceneId: scene3Id,
+        projectId,
+        sceneNumber: 3,
+        title: "Growth Trajectory",
+        visualPrompt: "Upward trending graphs and metrics, growth visualization, success indicators, digital evolution, tech-forward aesthetic",
+        voiceoverText: "Together, we're creating a smarter, faster, better future. The possibilities are endless.",
+        duration: 5,
+        startTime: 10,
+        status: 'pending',
+      });
+
+      const fullProject = await storage.getFullVideoProject(projectId);
+      res.status(201).json(fullProject);
+    } catch (error: any) {
+      console.error('Failed to create test video project:', error);
+      res.status(500).json({ error: error.message || "Failed to create test project" });
+    }
+  });
+
   // Create video project from video script
   app.post("/api/video-projects", async (req, res) => {
     try {

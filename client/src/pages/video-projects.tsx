@@ -362,6 +362,24 @@ export default function VideoProjectsPage() {
     },
   });
 
+  const createTestMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/video-projects/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!res.ok) throw new Error((await res.json()).error);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/video-projects"] });
+      toast({ title: "Test project created", description: "Ready to start video generation with 3 sample scenes" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
   const getProjectStats = (project: VideoProject) => {
     const scenes = project.scenes || [];
     const clips = project.clips || [];
