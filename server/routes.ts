@@ -5631,6 +5631,71 @@ export function registerVideoIngredientsRoutes(app: Express) {
     }
   });
 
+  // Get Runway API tier status (concurrency, daily limits, usage)
+  app.get("/api/runway/tier-status", async (req, res) => {
+    try {
+      const { getRunwayTierStatus } = await import("../01-content-factory/integrations/runway");
+      const tierStatus = await getRunwayTierStatus();
+      
+      res.json({
+        ...tierStatus,
+        documentation: 'https://docs.dev.runwayml.com/usage/tiers/',
+      });
+    } catch (error: any) {
+      console.error("[Runway] Tier status error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Set Runway API tier (1-5)
+  app.post("/api/runway/tier", async (req, res) => {
+    try {
+      const { tier } = req.body;
+      
+      if (!tier || tier < 1 || tier > 5) {
+        return res.status(400).json({ 
+          error: "tier is required and must be between 1 and 5",
+          tiers: {
+            1: { description: "Default tier", maxConcurrency: 1, dailyLimit: 50 },
+            2: { description: "1 day after $50 purchased", maxConcurrency: 3, dailyLimit: 500 },
+            3: { description: "7 days after $100 purchased", maxConcurrency: 5, dailyLimit: 1000 },
+            4: { description: "14 days after $1000 purchased", maxConcurrency: 10, dailyLimit: 5000 },
+            5: { description: "7 days after $5000 purchased", maxConcurrency: 20, dailyLimit: 25000 },
+          },
+        });
+      }
+      
+      const { setRunwayTier } = await import("../01-content-factory/integrations/runway");
+      await setRunwayTier(tier);
+      
+      const { getRunwayTierStatus } = await import("../01-content-factory/integrations/runway");
+      const newStatus = await getRunwayTierStatus();
+      
+      res.json({
+        success: true,
+        message: `Updated to Tier ${tier}`,
+        tierStatus: newStatus,
+      });
+    } catch (error: any) {
+      console.error("[Runway] Set tier error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Check if a model can accept new tasks
+  app.get("/api/runway/can-submit/:model", async (req, res) => {
+    try {
+      const { model } = req.params;
+      const { canSubmitRunwayTask } = await import("../01-content-factory/integrations/runway");
+      const result = await canSubmitRunwayTask(model);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("[Runway] Can submit error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Generate video with specific Runway model
   app.post("/api/runway/video/generate", async (req, res) => {
     try {

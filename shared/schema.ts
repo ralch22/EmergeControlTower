@@ -1057,3 +1057,64 @@ export const healingMetrics = pgTable("healing_metrics", {
 export const insertHealingMetricSchema = createInsertSchema(healingMetrics).omit({ id: true, createdAt: true });
 export type InsertHealingMetric = z.infer<typeof insertHealingMetricSchema>;
 export type HealingMetric = typeof healingMetrics.$inferSelect;
+
+// Runway API Tier Configuration
+export const runwayTierConfig = pgTable("runway_tier_config", {
+  id: serial("id").primaryKey(),
+  tier: integer("tier").notNull().default(1), // 1-5
+  
+  // Limits per model type
+  gen4TurboConcurrency: integer("gen4_turbo_concurrency").notNull().default(1),
+  gen4AlephConcurrency: integer("gen4_aleph_concurrency").notNull().default(1),
+  gen4ImageConcurrency: integer("gen4_image_concurrency").notNull().default(2),
+  gen3TurboConcurrency: integer("gen3_turbo_concurrency").notNull().default(1),
+  actTwoConcurrency: integer("act_two_concurrency").notNull().default(1),
+  veo3Concurrency: integer("veo3_concurrency").notNull().default(1),
+  geminiImageConcurrency: integer("gemini_image_concurrency").notNull().default(2),
+  
+  // Daily limits
+  gen4TurboDailyLimit: integer("gen4_turbo_daily_limit").notNull().default(50),
+  gen4AlephDailyLimit: integer("gen4_aleph_daily_limit").notNull().default(50),
+  gen4ImageDailyLimit: integer("gen4_image_daily_limit").notNull().default(200),
+  gen3TurboDailyLimit: integer("gen3_turbo_daily_limit").notNull().default(50),
+  actTwoDailyLimit: integer("act_two_daily_limit").notNull().default(50),
+  veo3DailyLimit: integer("veo3_daily_limit").notNull().default(50),
+  geminiImageDailyLimit: integer("gemini_image_daily_limit").notNull().default(200),
+  
+  // Monthly spend limit
+  monthlySpendLimit: decimal("monthly_spend_limit", { precision: 10, scale: 2 }).notNull().default("100"),
+  
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertRunwayTierConfigSchema = createInsertSchema(runwayTierConfig).omit({ id: true, updatedAt: true });
+export type InsertRunwayTierConfig = z.infer<typeof insertRunwayTierConfigSchema>;
+export type RunwayTierConfig = typeof runwayTierConfig.$inferSelect;
+
+// Runway API Usage Tracking - Rolling window for daily limits
+export const runwayApiUsage = pgTable("runway_api_usage", {
+  id: serial("id").primaryKey(),
+  modelType: text("model_type").notNull(), // gen4_turbo, gen4_aleph, veo3, etc.
+  taskId: text("task_id").notNull(),
+  status: text("status").notNull(), // pending, running, throttled, completed, failed
+  creditsUsed: decimal("credits_used", { precision: 10, scale: 2 }),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+  errorMessage: text("error_message"),
+});
+
+export const insertRunwayApiUsageSchema = createInsertSchema(runwayApiUsage).omit({ id: true, startedAt: true });
+export type InsertRunwayApiUsage = z.infer<typeof insertRunwayApiUsageSchema>;
+export type RunwayApiUsage = typeof runwayApiUsage.$inferSelect;
+
+// Runway Concurrent Tasks - Real-time tracking of active tasks
+export const runwayConcurrentTasks = pgTable("runway_concurrent_tasks", {
+  id: serial("id").primaryKey(),
+  modelType: text("model_type").notNull(),
+  taskId: text("task_id").notNull().unique(),
+  projectId: text("project_id"),
+  sceneId: text("scene_id"),
+  status: text("status").notNull().default("pending"), // pending, running, throttled
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastCheckedAt: timestamp("last_checked_at"),
+});

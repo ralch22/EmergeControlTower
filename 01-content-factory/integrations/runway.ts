@@ -1,4 +1,14 @@
+import { runwayTierManager, mapRunwayModelToCategory } from '../services/runway-tier-manager';
+
 const RUNWAY_BASE_URL = "https://api.dev.runwayml.com/v1";
+
+// Runway API task status types (from docs)
+export type RunwayTaskStatus = 
+  | 'PENDING'     // Task is awaiting execution
+  | 'THROTTLED'   // Task is queued due to concurrency limit
+  | 'RUNNING'     // Task is actively processing
+  | 'SUCCEEDED'   // Task completed successfully
+  | 'FAILED';     // Task failed
 
 // Runway API Models (as of Dec 2025)
 // Video: gen4_turbo, gen4_aleph, upscale_v1, act_two, veo3, veo3.1, veo3.1_fast
@@ -29,10 +39,17 @@ export interface VideoGenerationResult {
   success: boolean;
   videoUrl?: string;
   taskId?: string;
-  status?: 'pending' | 'processing' | 'completed' | 'failed';
+  status?: 'pending' | 'processing' | 'completed' | 'failed' | 'throttled';
   error?: string;
   imageUrl?: string;
   model?: string;
+  tierInfo?: {
+    willBeThrottled?: boolean;
+    currentConcurrency?: number;
+    maxConcurrency?: number;
+    dailyUsage?: number;
+    dailyLimit?: number;
+  };
 }
 
 export interface ImageGenerationResult {
@@ -229,6 +246,9 @@ export async function generateVideoWithRunway(
     model?: RunwayVideoModel;
     imageUrl?: string;
     imageBase64?: string;
+    projectId?: string;
+    sceneId?: string;
+    skipTierCheck?: boolean;
   } = {}
 ): Promise<VideoGenerationResult> {
   const apiKey = process.env.RUNWAY_API_KEY;
@@ -240,7 +260,34 @@ export async function generateVideoWithRunway(
     };
   }
 
-  const { duration = 5, aspectRatio = '16:9', model = 'gen4_turbo', imageBase64 } = options;
+  const { duration = 5, aspectRatio = '16:9', model = 'gen4_turbo', imageBase64, projectId, sceneId, skipTierCheck } = options;
+  
+  // Check tier limits before submitting (unless explicitly skipped)
+  if (!skipTierCheck) {
+    try {
+      const tierCheck = await runwayTierManager.canSubmitTask(model);
+      
+      if (!tierCheck.canSubmit) {
+        console.log(`[Runway] Task blocked by tier limits: ${tierCheck.reason}`);
+        return {
+          success: false,
+          error: tierCheck.reason || "Daily limit reached",
+          tierInfo: {
+            currentConcurrency: tierCheck.currentConcurrency,
+            maxConcurrency: tierCheck.maxConcurrency,
+            dailyUsage: tierCheck.dailyUsage,
+            dailyLimit: tierCheck.dailyLimit,
+          },
+        };
+      }
+      
+      if (tierCheck.willBeThrottled) {
+        console.log(`[Runway] Task will be THROTTLED (queued): ${tierCheck.reason}`);
+      }
+    } catch (error) {
+      console.warn("[Runway] Tier check failed, proceeding anyway:", error);
+    }
+  }
   
   // Runway requires specific pixel ratios from their allowed list:
   // 1280:720, 720:1280, 1104:832, 832:1104, 960:960, 1584:672
@@ -295,6 +342,13 @@ export async function generateVideoWithRunway(
     }
 
     const result = await response.json();
+    
+    // Register task with tier manager for tracking
+    try {
+      await runwayTierManager.registerTask(result.id, model, projectId, sceneId);
+    } catch (trackError) {
+      console.warn("[Runway] Failed to register task for tracking:", trackError);
+    }
     
     return {
       success: true,
@@ -830,25 +884,68 @@ export async function checkVideoStatus(taskId: string): Promise<VideoGenerationR
     }
 
     const result = await response.json();
+    const runwayStatus: RunwayTaskStatus = result.status;
     
-    if (result.status === 'SUCCEEDED') {
+    // Map Runway status to our status and update tier manager
+    let mappedStatus: 'pending' | 'processing' | 'completed' | 'failed' | 'throttled';
+    let tierStatus: 'pending' | 'running' | 'throttled' | 'completed' | 'failed';
+    
+    switch (runwayStatus) {
+      case 'SUCCEEDED':
+        mappedStatus = 'completed';
+        tierStatus = 'completed';
+        break;
+      case 'FAILED':
+        mappedStatus = 'failed';
+        tierStatus = 'failed';
+        break;
+      case 'THROTTLED':
+        mappedStatus = 'throttled';
+        tierStatus = 'throttled';
+        console.log(`[Runway] Task ${taskId} is THROTTLED - waiting in queue due to concurrency limit`);
+        break;
+      case 'RUNNING':
+        mappedStatus = 'processing';
+        tierStatus = 'running';
+        break;
+      case 'PENDING':
+      default:
+        mappedStatus = 'pending';
+        tierStatus = 'pending';
+    }
+    
+    // Update tier manager with current status
+    try {
+      await runwayTierManager.updateTaskStatus(taskId, tierStatus);
+    } catch (trackError) {
+      // Non-critical - don't fail the status check
+    }
+    
+    if (runwayStatus === 'SUCCEEDED') {
       return {
         success: true,
         videoUrl: result.output?.[0],
         status: 'completed',
         taskId,
       };
-    } else if (result.status === 'FAILED') {
+    } else if (runwayStatus === 'FAILED') {
       return {
         success: false,
         status: 'failed',
         error: result.failure || 'Video generation failed',
         taskId,
       };
+    } else if (runwayStatus === 'THROTTLED') {
+      // THROTTLED is not an error - task is queued and will be processed
+      return {
+        success: true,
+        status: 'throttled',
+        taskId,
+      };
     } else {
       return {
         success: true,
-        status: result.status === 'PENDING' ? 'pending' : 'processing',
+        status: mappedStatus,
         taskId,
       };
     }
@@ -903,15 +1000,28 @@ export async function waitForVideoCompletion(
   const startTime = Date.now();
   const maxWaitMs = maxWaitSeconds * 1000;
   const pollIntervalMs = pollIntervalSeconds * 1000;
+  let lastStatus: 'pending' | 'processing' | 'completed' | 'failed' | 'throttled' | undefined;
 
   while (Date.now() - startTime < maxWaitMs) {
     const status = await checkVideoStatus(taskId);
+    
+    // Log status changes
+    if (status.status !== lastStatus) {
+      console.log(`[Runway] Task ${taskId} status: ${status.status}`);
+      lastStatus = status.status;
+    }
     
     if (status.status === 'completed' || status.status === 'failed') {
       return status;
     }
     
-    await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    // THROTTLED tasks are still valid - they're just waiting in queue
+    // Continue polling, but with a slightly longer interval when throttled
+    const effectiveInterval = status.status === 'throttled' 
+      ? pollIntervalMs * 1.5 
+      : pollIntervalMs;
+    
+    await new Promise(resolve => setTimeout(resolve, effectiveInterval));
   }
 
   return {
@@ -920,4 +1030,17 @@ export async function waitForVideoCompletion(
     taskId,
     status: 'processing',
   };
+}
+
+// Export tier manager functions for API routes
+export async function getRunwayTierStatus() {
+  return runwayTierManager.getTierStatus();
+}
+
+export async function setRunwayTier(tier: number) {
+  return runwayTierManager.setTier(tier);
+}
+
+export async function canSubmitRunwayTask(model: string) {
+  return runwayTierManager.canSubmitTask(model);
 }
