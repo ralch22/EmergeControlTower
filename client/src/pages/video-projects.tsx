@@ -1273,14 +1273,50 @@ export default function VideoProjectsPage() {
                             <span className="text-zinc-500 text-sm">{scene.duration}s</span>
                           </div>
                           <div className="flex items-center gap-2">
-                            <Badge className={`text-xs ${statusColors[clip?.status || 'pending']}`}>
-                              <Film className="w-3 h-3 mr-1" />
-                              {clip?.status || 'pending'}
-                            </Badge>
-                            <Badge className={`text-xs ${statusColors[audio?.status || 'pending']}`}>
-                              <Music className="w-3 h-3 mr-1" />
-                              {audio?.status || 'pending'}
-                            </Badge>
+                            <div className="flex items-center gap-1">
+                              <Badge className={`text-xs ${statusColors[clip?.status || 'pending']}`}>
+                                <Film className="w-3 h-3 mr-1" />
+                                {clip?.status || 'pending'}
+                              </Badge>
+                              {clip?.status === 'ready' && clip?.videoUrl && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 hover:bg-green-500/20"
+                                  onClick={() => setSelectedPreviewScene({
+                                    sceneId: scene.sceneId,
+                                    title: `${scene.title} - Video`,
+                                    type: 'video',
+                                    url: clip.videoUrl!
+                                  })}
+                                  data-testid={`button-play-video-${scene.sceneId}`}
+                                >
+                                  <Play className="w-3 h-3 text-green-400" />
+                                </Button>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Badge className={`text-xs ${statusColors[audio?.status || 'pending']}`}>
+                                <Music className="w-3 h-3 mr-1" />
+                                {audio?.status || 'pending'}
+                              </Badge>
+                              {audio?.status === 'ready' && audio?.audioUrl && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 w-6 p-0 hover:bg-green-500/20"
+                                  onClick={() => setSelectedPreviewScene({
+                                    sceneId: scene.sceneId,
+                                    title: `${scene.title} - Audio`,
+                                    type: 'audio',
+                                    url: audio.audioUrl!
+                                  })}
+                                  data-testid={`button-play-audio-${scene.sceneId}`}
+                                >
+                                  <Play className="w-3 h-3 text-green-400" />
+                                </Button>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -1300,6 +1336,42 @@ export default function VideoProjectsPage() {
                     <RefreshCw className="w-4 h-4 mr-2" />
                     Retry Failed Items
                   </Button>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Media Preview Modal */}
+        <Dialog open={!!selectedPreviewScene} onOpenChange={() => setSelectedPreviewScene(null)}>
+          <DialogContent className="bg-zinc-900 border-zinc-700 max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="text-cyan-400">{selectedPreviewScene?.title}</DialogTitle>
+            </DialogHeader>
+            {selectedPreviewScene && (
+              <div className="space-y-4 mt-4">
+                {selectedPreviewScene.type === 'video' ? (
+                  <video
+                    src={selectedPreviewScene.url}
+                    controls
+                    autoPlay
+                    className="w-full rounded-lg bg-black"
+                    data-testid="video-player"
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex flex-col items-center justify-center p-8 bg-zinc-800 rounded-lg">
+                      <Music className="w-12 h-12 text-cyan-400 mb-4" />
+                      <p className="text-zinc-300 text-sm mb-4">Audio Track Preview</p>
+                    </div>
+                    <audio
+                      src={selectedPreviewScene.url}
+                      controls
+                      autoPlay
+                      className="w-full"
+                      data-testid="audio-player"
+                    />
+                  </div>
                 )}
               </div>
             )}
