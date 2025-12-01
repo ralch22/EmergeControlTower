@@ -1588,6 +1588,84 @@ export async function registerRoutes(
     }
   });
 
+  // ==========================================
+  // Unified Full Video Generation (Topic → Final Video)
+  // ==========================================
+  
+  // Generate complete video from topic (script → scenes → clips → voiceover → assembly)
+  app.post("/api/video/generate-full", async (req, res) => {
+    try {
+      const { generateFullVideoFromTopic } = await import("../01-content-factory/services/video-orchestrator");
+      
+      const {
+        topic,
+        clientName,
+        brandVoice,
+        targetAudience,
+        duration = 60,
+        format = 'short',
+        style = 'mixed',
+        aspectRatio = '16:9',
+        voiceStyle = 'professional_male',
+        enableAutoRetry = true,
+        maxRetries = 3,
+      } = req.body;
+
+      if (!topic) {
+        return res.status(400).json({ error: "topic is required" });
+      }
+
+      const result = await generateFullVideoFromTopic({
+        topic,
+        clientName,
+        brandVoice,
+        targetAudience,
+        duration,
+        format,
+        style,
+        aspectRatio,
+        voiceStyle,
+        enableAutoRetry,
+        maxRetries,
+      }, storage);
+
+      if (result.success && result.projectId) {
+        generateVideoProjectAsync(result.projectId, null, storage);
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Failed to generate full video:', error);
+      res.status(500).json({ error: error.message || "Failed to generate full video" });
+    }
+  });
+
+  // Auto-retry failed scenes for a project
+  app.post("/api/video-projects/:projectId/auto-retry", async (req, res) => {
+    try {
+      const { retryFailedScenes, checkAndAutoRetry } = await import("../01-content-factory/services/video-orchestrator");
+      const { projectId } = req.params;
+      const { rotateProviders = true, maxRetries = 3, autoMode = false } = req.body;
+
+      let result;
+      if (autoMode) {
+        const triggered = await checkAndAutoRetry(projectId, storage);
+        result = { success: true, autoRetryTriggered: triggered };
+      } else {
+        result = await retryFailedScenes(projectId, storage, { maxRetries, rotateProviders });
+      }
+
+      if (result.success && result.retriedScenes && result.retriedScenes > 0) {
+        generateVideoProjectAsync(projectId, null, storage);
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('Failed to retry failed scenes:', error);
+      res.status(500).json({ error: error.message || "Failed to retry" });
+    }
+  });
+
   // Start video generation for a project (uses multi-provider fallback system)
   app.post("/api/video-projects/:projectId/generate", async (req, res) => {
     try {

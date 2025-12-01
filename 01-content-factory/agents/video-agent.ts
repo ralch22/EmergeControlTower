@@ -1,7 +1,7 @@
-import { generateWithClaude } from "../integrations/anthropic";
 import { generateVideoFromText, waitForVideoCompletion } from "../integrations/runway";
 import { generateSceneImageWithAlibaba, isAlibabaImageConfigured } from "../integrations/alibaba-image";
 import { generateImageWithFal, isFalConfigured } from "../integrations/fal-ai";
+import { generateVideoScriptWithFallback } from "../services/text-generation";
 import type { ClientBrief, ContentTopic, GeneratedContent, AgentResponse } from "../types";
 
 const SYSTEM_PROMPT = `You are a video content strategist and scriptwriter. You create engaging video scripts optimized for:
@@ -166,10 +166,18 @@ Output as JSON:
   "voiceoverText": "Full voiceover script combined"
 }`;
 
-    const response = await generateWithClaude(SYSTEM_PROMPT, userPrompt, {
+    console.log(`[VideoAgent] Generating video script with text fallback system...`);
+    const textResult = await generateVideoScriptWithFallback(SYSTEM_PROMPT, userPrompt, {
       maxTokens: 3000,
       temperature: 0.7,
     });
+
+    if (!textResult.success || !textResult.content) {
+      throw new Error(textResult.error || "Failed to generate video script");
+    }
+    
+    console.log(`[VideoAgent] Script generated using provider: ${textResult.provider}`);
+    const response = textResult.content;
 
     const jsonMatch = response.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

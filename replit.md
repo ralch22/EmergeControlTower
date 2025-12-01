@@ -45,6 +45,14 @@ Preferred communication style: Simple, everyday language.
 - **Video Assembly**: Shotstack for timeline-based video assembly, audio layering, transitions, and text overlays. Shotstack Ingest API for permanent audio hosting.
 - **API-Python Bridge**: Facilitates communication between the Express backend and the Python content factory for video ingredient generation and status checks.
 
+### Unified Video Orchestrator
+- **Full Video Generation**: Single endpoint (`POST /api/video/generate-full`) handles complete flow: topic → script → scenes → clips → voiceover → assembly.
+- **Text Generation Fallback**: Script generation uses intelligent fallback: Claude (primary) → DeepSeek R1 (free) → Llama 4 (free) → Mistral (free).
+- **Auto-Retry System**: Automatic retry with exponential backoff for failed scenes, provider rotation on failure.
+- **API Endpoints**:
+  - `POST /api/video/generate-full`: Generate complete video from topic
+  - `POST /api/video-projects/:projectId/auto-retry`: Manually trigger retry for failed scenes
+
 ### Provider Status System
 - **API Endpoint**: `GET /api/providers/status` provides a comprehensive health check of all configured external providers (Alibaba, Gemini, ElevenLabs, Runway, Shotstack, Anthropic) including their status (working, limited, error, not_configured) and actionable remediation steps.
 - **Error Handling**: Actionable error messages and model fallback mechanisms (e.g., Alibaba image generation).
