@@ -5,6 +5,15 @@ import {
   type OpenAIVoice 
 } from './openai-tts';
 import { uploadAudioToShotstack, isHostedUrl } from './shotstack';
+import { healthMonitor } from '../services/provider-health-monitor';
+
+// Hard failure patterns for audio provider quarantine
+const AUDIO_HARD_FAILURE_PATTERNS = [
+  'not available', 'access denied', 'quota exceeded', 
+  'model not found', 'forbidden', 'unauthorized',
+  'not enabled', 'billing', 'subscription', 'invalid_api_key',
+  'insufficient_quota', 'rate_limit'
+];
 
 const ELEVENLABS_BASE_URL = "https://api.elevenlabs.io/v1";
 
@@ -296,61 +305,135 @@ export async function generateVoiceoverWithHostedUrl(
   const elevenlabsConfigured = isElevenLabsConfigured();
   const openaiConfigured = isOpenAIConfigured();
   
+  // Check quarantine status for providers
+  const elevenlabsQuarantined = healthMonitor.isProviderQuarantined('elevenlabs');
+  const openaiTtsQuarantined = healthMonitor.isProviderQuarantined('openai_tts');
+  
   let audioBuffer: Buffer | undefined;
   let duration: number | undefined;
   let provider: 'elevenlabs' | 'openai' | undefined;
+  let lastError: string | undefined;
 
-  if (preferredProvider === 'openai' && openaiConfigured) {
+  // Helper to check for hard failures and quarantine
+  const checkAndQuarantine = async (providerName: string, error?: string) => {
+    if (error && AUDIO_HARD_FAILURE_PATTERNS.some(p => error.toLowerCase().includes(p))) {
+      console.log(`[Voiceover] HARD FAILURE for ${providerName}: ${error}`);
+      await healthMonitor.quarantineProvider(providerName, error);
+    }
+  };
+
+  if (preferredProvider === 'openai' && openaiConfigured && !openaiTtsQuarantined) {
     console.log("[Voiceover Hosted] Using OpenAI TTS as preferred provider");
+    const startTime = Date.now();
     const { generateVoiceoverWithOpenAI } = await import('./openai-tts');
-    const result = await generateVoiceoverWithOpenAI(text, { voiceStyle, speed });
     
-    if (result.success && result.audioData) {
-      audioBuffer = result.audioData;
-      duration = result.duration;
-      provider = 'openai';
-    } else if (elevenlabsConfigured) {
-      console.log("[Voiceover Hosted] OpenAI failed, trying ElevenLabs");
-      const elevenLabsResult = await generateVoiceover(text, { voiceStyle, ...elevenLabsOptions });
-      if (elevenLabsResult.success && elevenLabsResult.audioData) {
-        audioBuffer = elevenLabsResult.audioData;
-        duration = elevenLabsResult.duration;
-        provider = 'elevenlabs';
-      }
-    }
-  } else if (elevenlabsConfigured) {
-    console.log("[Voiceover Hosted] Trying ElevenLabs first");
-    const result = await generateVoiceover(text, { voiceStyle, ...elevenLabsOptions });
-    
-    if (result.success && result.audioData) {
-      audioBuffer = result.audioData;
-      duration = result.duration;
-      provider = 'elevenlabs';
-    } else if (openaiConfigured) {
-      console.log("[Voiceover Hosted] ElevenLabs failed, trying OpenAI");
-      const { generateVoiceoverWithOpenAI } = await import('./openai-tts');
-      const openaiResult = await generateVoiceoverWithOpenAI(text, { voiceStyle, speed });
-      if (openaiResult.success && openaiResult.audioData) {
-        audioBuffer = openaiResult.audioData;
-        duration = openaiResult.duration;
+    try {
+      const result = await generateVoiceoverWithOpenAI(text, { voiceStyle, speed });
+      
+      await healthMonitor.recordRequest('openai_tts', 'audio', `audio_${Date.now()}`, {
+        success: result.success,
+        latencyMs: Date.now() - startTime,
+        errorMessage: result.error,
+      });
+      
+      if (result.success && result.audioData) {
+        audioBuffer = result.audioData;
+        duration = result.duration;
         provider = 'openai';
+      } else {
+        lastError = result.error;
+        await checkAndQuarantine('openai_tts', result.error);
+        
+        if (elevenlabsConfigured && !elevenlabsQuarantined) {
+          console.log("[Voiceover Hosted] OpenAI failed, trying ElevenLabs");
+          const elevenLabsResult = await generateVoiceover(text, { voiceStyle, ...elevenLabsOptions });
+          if (elevenLabsResult.success && elevenLabsResult.audioData) {
+            audioBuffer = elevenLabsResult.audioData;
+            duration = elevenLabsResult.duration;
+            provider = 'elevenlabs';
+          } else {
+            await checkAndQuarantine('elevenlabs', elevenLabsResult.error);
+          }
+        }
       }
+    } catch (error: any) {
+      lastError = error.message;
+      await checkAndQuarantine('openai_tts', error.message);
     }
-  } else if (openaiConfigured) {
-    console.log("[Voiceover Hosted] Using OpenAI TTS (ElevenLabs not configured)");
+  } else if (elevenlabsConfigured && !elevenlabsQuarantined) {
+    console.log("[Voiceover Hosted] Trying ElevenLabs first");
+    const startTime = Date.now();
+    
+    try {
+      const result = await generateVoiceover(text, { voiceStyle, ...elevenLabsOptions });
+      
+      await healthMonitor.recordRequest('elevenlabs', 'audio', `audio_${Date.now()}`, {
+        success: result.success,
+        latencyMs: Date.now() - startTime,
+        errorMessage: result.error,
+      });
+      
+      if (result.success && result.audioData) {
+        audioBuffer = result.audioData;
+        duration = result.duration;
+        provider = 'elevenlabs';
+      } else {
+        lastError = result.error;
+        await checkAndQuarantine('elevenlabs', result.error);
+        
+        if (openaiConfigured && !openaiTtsQuarantined) {
+          console.log("[Voiceover Hosted] ElevenLabs failed, trying OpenAI");
+          const { generateVoiceoverWithOpenAI } = await import('./openai-tts');
+          const openaiResult = await generateVoiceoverWithOpenAI(text, { voiceStyle, speed });
+          if (openaiResult.success && openaiResult.audioData) {
+            audioBuffer = openaiResult.audioData;
+            duration = openaiResult.duration;
+            provider = 'openai';
+          } else {
+            await checkAndQuarantine('openai_tts', openaiResult.error);
+          }
+        }
+      }
+    } catch (error: any) {
+      lastError = error.message;
+      await checkAndQuarantine('elevenlabs', error.message);
+    }
+  } else if (openaiConfigured && !openaiTtsQuarantined) {
+    console.log("[Voiceover Hosted] Using OpenAI TTS (ElevenLabs not configured or quarantined)");
     const { generateVoiceoverWithOpenAI } = await import('./openai-tts');
-    const result = await generateVoiceoverWithOpenAI(text, { voiceStyle, speed });
-    if (result.success && result.audioData) {
-      audioBuffer = result.audioData;
-      duration = result.duration;
-      provider = 'openai';
+    const startTime = Date.now();
+    
+    try {
+      const result = await generateVoiceoverWithOpenAI(text, { voiceStyle, speed });
+      
+      await healthMonitor.recordRequest('openai_tts', 'audio', `audio_${Date.now()}`, {
+        success: result.success,
+        latencyMs: Date.now() - startTime,
+        errorMessage: result.error,
+      });
+      
+      if (result.success && result.audioData) {
+        audioBuffer = result.audioData;
+        duration = result.duration;
+        provider = 'openai';
+      } else {
+        lastError = result.error;
+        await checkAndQuarantine('openai_tts', result.error);
+      }
+    } catch (error: any) {
+      lastError = error.message;
+      await checkAndQuarantine('openai_tts', error.message);
     }
+  } else {
+    // Log which providers are quarantined
+    if (elevenlabsQuarantined) console.log("[Voiceover] Skipping elevenlabs: quarantined");
+    if (openaiTtsQuarantined) console.log("[Voiceover] Skipping openai_tts: quarantined");
   }
 
   if (!audioBuffer) {
     return {
       success: false,
-      error: "No TTS provider configured or all providers failed",
+      error: lastError || "No TTS provider configured or all providers failed/quarantined",
       provider: undefined,
     };
   }

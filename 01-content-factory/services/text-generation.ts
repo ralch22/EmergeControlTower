@@ -171,6 +171,12 @@ export async function generateTextWithFallback(
   let lastError = '';
   
   for (const provider of orderedProviders) {
+    // CRITICAL: Check quarantine status BEFORE attempting (self-healing)
+    if (healthMonitor.isProviderQuarantined(provider.name)) {
+      console.log(`[TextGeneration] Skipping ${provider.name}: currently quarantined`);
+      continue;
+    }
+
     if (!provider.isConfigured()) {
       console.log(`[TextGeneration] ${provider.name} not configured, skipping...`);
       continue;
@@ -208,6 +214,21 @@ export async function generateTextWithFallback(
       
       const isRateLimit = error.status === 429 || lastError.includes('rate limit') || lastError.includes('quota');
       
+      // Check for hard failures that warrant quarantine
+      const hardFailurePatterns = [
+        'not available', 'access denied', 'quota exceeded', 
+        'model not found', 'forbidden', 'unauthorized',
+        'not enabled', 'billing', 'subscription', 'invalid_api_key'
+      ];
+      const isHardFailure = hardFailurePatterns.some(pattern => 
+        lastError.toLowerCase().includes(pattern)
+      );
+      
+      if (isHardFailure) {
+        console.log(`[TextGeneration] HARD FAILURE detected for ${provider.name}: ${lastError}`);
+        await healthMonitor.quarantineProvider(provider.name, lastError);
+      }
+      
       healthMonitor.recordRequest(
         provider.name,
         'text',
@@ -216,7 +237,7 @@ export async function generateTextWithFallback(
           success: false, 
           latencyMs: latency, 
           errorMessage: lastError,
-          errorCode: isRateLimit ? 'RATE_LIMIT' : 'PROVIDER_ERROR',
+          errorCode: isRateLimit ? 'RATE_LIMIT' : (isHardFailure ? 'HARD_FAILURE' : 'PROVIDER_ERROR'),
         }
       );
       

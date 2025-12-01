@@ -454,6 +454,11 @@ class ProviderHealthMonitor {
     return true;
   }
 
+  // Public method to quarantine a provider (for use by other modules)
+  async quarantineProvider(providerName: string, errorMessage: string): Promise<void> {
+    await this.checkAndQuarantineProvider(providerName, errorMessage);
+  }
+
   // Get quarantine status for all providers
   getQuarantineStatus(): Array<{ provider: string; reason: string; until: Date; failureCount: number }> {
     const now = new Date();

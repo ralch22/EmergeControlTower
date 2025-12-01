@@ -566,132 +566,191 @@ export async function generateUniqueSceneImage(
 }> {
   const geminiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
   
-  if (geminiKey) {
+  // Hard failure patterns for quarantine detection
+  const hardFailurePatterns = [
+    'not available', 'access denied', 'quota exceeded', 
+    'model not found', 'forbidden', 'unauthorized',
+    'not enabled', 'billing', 'subscription', 'invalid_api_key'
+  ];
+  
+  // Try Gemini (Nano Banana Pro) first
+  if (geminiKey && !healthMonitor.isProviderQuarantined('gemini_image')) {
     console.log('[VideoProvider] Generating unique scene image with Nano Banana Pro (Gemini)...');
     const startTime = Date.now();
     const requestId = `image_gemini_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     
-    const result = await generateImageWithNanoBananaPro(prompt, {
-      resolution: '2K',
-      style: 'cinematic, professional, high quality video frame',
-    });
-    
-    const latencyMs = Date.now() - startTime;
-    
-    await healthMonitor.recordRequest(
-      'gemini_image',
-      'image',
-      requestId,
-      {
-        success: result.success,
-        latencyMs,
-        errorMessage: result.error,
-        costIncurred: 0,
-      },
-      context?.projectId,
-      context?.sceneId,
-      { promptLength: prompt.length }
-    ).catch(err => console.error('[VideoProvider] Failed to record image metrics:', err));
-    
-    if (result.success && result.imageDataUrl) {
-      console.log('[VideoProvider] Nano Banana Pro generated unique scene image');
-      const base64Data = result.imageDataUrl.split(',')[1];
-      return {
-        success: true,
-        imageBase64: base64Data,
-        imageUrl: result.imageUrl,
-        provider: 'gemini_image',
-      };
+    try {
+      const result = await generateImageWithNanoBananaPro(prompt, {
+        resolution: '2K',
+        style: 'cinematic, professional, high quality video frame',
+      });
+      
+      const latencyMs = Date.now() - startTime;
+      
+      await healthMonitor.recordRequest(
+        'gemini_image',
+        'image',
+        requestId,
+        {
+          success: result.success,
+          latencyMs,
+          errorMessage: result.error,
+          costIncurred: 0,
+        },
+        context?.projectId,
+        context?.sceneId,
+        { promptLength: prompt.length }
+      ).catch(err => console.error('[VideoProvider] Failed to record image metrics:', err));
+      
+      if (result.success && result.imageDataUrl) {
+        console.log('[VideoProvider] Nano Banana Pro generated unique scene image');
+        const base64Data = result.imageDataUrl.split(',')[1];
+        return {
+          success: true,
+          imageBase64: base64Data,
+          imageUrl: result.imageUrl,
+          provider: 'gemini_image',
+        };
+      }
+      
+      // Check for hard failure
+      if (result.error && hardFailurePatterns.some(p => result.error!.toLowerCase().includes(p))) {
+        console.log(`[VideoProvider] HARD FAILURE for gemini_image: ${result.error}`);
+        await healthMonitor.quarantineProvider('gemini_image', result.error);
+      }
+      
+      console.log(`[VideoProvider] Nano Banana Pro failed: ${result.error}, trying next fallback...`);
+    } catch (error: any) {
+      console.error('[VideoProvider] Gemini image error:', error.message);
+      if (hardFailurePatterns.some(p => error.message?.toLowerCase().includes(p))) {
+        await healthMonitor.quarantineProvider('gemini_image', error.message);
+      }
     }
-    
-    console.log(`[VideoProvider] Nano Banana Pro failed: ${result.error}, trying next fallback...`);
+  } else if (healthMonitor.isProviderQuarantined('gemini_image')) {
+    console.log('[VideoProvider] Skipping gemini_image: currently quarantined');
   }
   
-  if (isFalConfigured()) {
+  // Try Fal AI next
+  if (isFalConfigured() && !healthMonitor.isProviderQuarantined('fal_ai')) {
     console.log('[VideoProvider] Trying Fal AI Flux Pro for image generation...');
     const startTime = Date.now();
     const requestId = `image_fal_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     
-    const falResult = await generateImageWithFalFluxPro(prompt, {
-      width: 1280,
-      height: 720,
-      style: 'cinematic',
-    });
-    
-    const latencyMs = Date.now() - startTime;
-    
-    await healthMonitor.recordRequest(
-      'fal_ai',
-      'image',
-      requestId,
-      {
-        success: falResult.success,
-        latencyMs,
-        errorMessage: falResult.error,
-        costIncurred: 0.01,
-      },
-      context?.projectId,
-      context?.sceneId,
-      { promptLength: prompt.length }
-    ).catch(err => console.error('[VideoProvider] Failed to record image metrics:', err));
-    
-    if (falResult.success && falResult.imageUrl) {
-      console.log('[VideoProvider] Fal AI Flux Pro generated unique scene image');
-      return {
-        success: true,
-        imageUrl: falResult.imageUrl,
-        provider: 'fal_ai',
-      };
+    try {
+      const falResult = await generateImageWithFalFluxPro(prompt, {
+        width: 1280,
+        height: 720,
+        style: 'cinematic',
+      });
+      
+      const latencyMs = Date.now() - startTime;
+      
+      await healthMonitor.recordRequest(
+        'fal_ai',
+        'image',
+        requestId,
+        {
+          success: falResult.success,
+          latencyMs,
+          errorMessage: falResult.error,
+          costIncurred: 0.01,
+        },
+        context?.projectId,
+        context?.sceneId,
+        { promptLength: prompt.length }
+      ).catch(err => console.error('[VideoProvider] Failed to record image metrics:', err));
+      
+      if (falResult.success && falResult.imageUrl) {
+        console.log('[VideoProvider] Fal AI Flux Pro generated unique scene image');
+        return {
+          success: true,
+          imageUrl: falResult.imageUrl,
+          provider: 'fal_ai',
+        };
+      }
+      
+      // Check for hard failure
+      if (falResult.error && hardFailurePatterns.some(p => falResult.error!.toLowerCase().includes(p))) {
+        console.log(`[VideoProvider] HARD FAILURE for fal_ai: ${falResult.error}`);
+        await healthMonitor.quarantineProvider('fal_ai', falResult.error);
+      }
+      
+      console.log(`[VideoProvider] Fal AI failed: ${falResult.error}, trying Alibaba fallback...`);
+    } catch (error: any) {
+      console.error('[VideoProvider] Fal AI image error:', error.message);
+      if (hardFailurePatterns.some(p => error.message?.toLowerCase().includes(p))) {
+        await healthMonitor.quarantineProvider('fal_ai', error.message);
+      }
     }
-    
-    console.log(`[VideoProvider] Fal AI failed: ${falResult.error}, trying Alibaba fallback...`);
+  } else if (healthMonitor.isProviderQuarantined('fal_ai')) {
+    console.log('[VideoProvider] Skipping fal_ai: currently quarantined');
   }
   
-  if (isAlibabaImageConfigured()) {
+  // Try Alibaba last
+  if (isAlibabaImageConfigured() && !healthMonitor.isProviderQuarantined('dashscope')) {
     console.log('[VideoProvider] Falling back to Alibaba Wanx for image generation...');
     const startTime = Date.now();
     const requestId = `image_alibaba_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     
-    const result = await generateSceneImageWithAlibaba(prompt, '16:9');
-    
-    const latencyMs = Date.now() - startTime;
-    
-    await healthMonitor.recordRequest(
-      'dashscope',
-      'image',
-      requestId,
-      {
-        success: result.success,
-        latencyMs,
-        errorMessage: result.error,
-        costIncurred: 0.008,
-      },
-      context?.projectId,
-      context?.sceneId,
-      { promptLength: prompt.length }
-    ).catch(err => console.error('[VideoProvider] Failed to record image metrics:', err));
-    
-    if (result.success) {
-      console.log('[VideoProvider] Alibaba Wanx generated unique scene image');
+    try {
+      const result = await generateSceneImageWithAlibaba(prompt, '16:9');
+      
+      const latencyMs = Date.now() - startTime;
+      
+      await healthMonitor.recordRequest(
+        'dashscope',
+        'image',
+        requestId,
+        {
+          success: result.success,
+          latencyMs,
+          errorMessage: result.error,
+          costIncurred: 0.008,
+        },
+        context?.projectId,
+        context?.sceneId,
+        { promptLength: prompt.length }
+      ).catch(err => console.error('[VideoProvider] Failed to record image metrics:', err));
+      
+      if (result.success) {
+        console.log('[VideoProvider] Alibaba Wanx generated unique scene image');
+        return {
+          success: true,
+          imageUrl: result.imageUrl,
+          imageBase64: result.imageBase64,
+          provider: 'dashscope',
+        };
+      }
+      
+      // Check for hard failure
+      if (result.error && hardFailurePatterns.some(p => result.error!.toLowerCase().includes(p))) {
+        console.log(`[VideoProvider] HARD FAILURE for dashscope: ${result.error}`);
+        await healthMonitor.quarantineProvider('dashscope', result.error);
+      }
+      
+      console.log(`[VideoProvider] Alibaba Wanx failed: ${result.error}`);
       return {
-        success: true,
-        imageUrl: result.imageUrl,
-        imageBase64: result.imageBase64,
-        provider: 'dashscope',
+        success: false,
+        error: result.error || 'Alibaba Wanx image generation failed',
+      };
+    } catch (error: any) {
+      console.error('[VideoProvider] Alibaba image error:', error.message);
+      if (hardFailurePatterns.some(p => error.message?.toLowerCase().includes(p))) {
+        await healthMonitor.quarantineProvider('dashscope', error.message);
+      }
+      return {
+        success: false,
+        error: error.message || 'Alibaba image generation failed',
       };
     }
-    
-    console.log(`[VideoProvider] Alibaba Wanx failed: ${result.error}`);
-    return {
-      success: false,
-      error: result.error || 'Alibaba Wanx image generation failed',
-    };
+  } else if (healthMonitor.isProviderQuarantined('dashscope')) {
+    console.log('[VideoProvider] Skipping dashscope: currently quarantined');
   }
 
-  console.log('[VideoProvider] No image generation providers configured');
+  console.log('[VideoProvider] No image generation providers available (all quarantined or not configured)');
   return {
     success: false,
-    error: 'No image providers configured - add Gemini, Fal AI, or Alibaba Dashscope keys',
+    error: 'No image providers available - all quarantined or not configured',
   };
 }
 
