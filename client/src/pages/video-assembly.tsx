@@ -73,7 +73,8 @@ interface VideoProject {
 
 function getStatusColor(status: string): string {
   switch (status) {
-    case 'ready': return 'bg-green-500';
+    case 'ready': 
+    case 'completed': return 'bg-green-500';
     case 'generating': return 'bg-yellow-500 animate-pulse';
     case 'failed': return 'bg-red-500';
     case 'pending': return 'bg-zinc-500';
@@ -83,7 +84,8 @@ function getStatusColor(status: string): string {
 
 function getStatusIcon(status: string) {
   switch (status) {
-    case 'ready': return <CheckCircle className="w-4 h-4 text-green-400" />;
+    case 'ready': 
+    case 'completed': return <CheckCircle className="w-4 h-4 text-green-400" />;
     case 'generating': return <Loader2 className="w-4 h-4 text-yellow-400 animate-spin" />;
     case 'failed': return <XCircle className="w-4 h-4 text-red-400" />;
     case 'pending': return <Clock className="w-4 h-4 text-zinc-400" />;

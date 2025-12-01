@@ -139,6 +139,7 @@ const statusColors: Record<string, string> = {
   pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
   generating: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   ready: "bg-green-500/20 text-green-400 border-green-500/30",
+  completed: "bg-green-500/20 text-green-400 border-green-500/30",
   exported: "bg-purple-500/20 text-purple-400 border-purple-500/30",
   failed: "bg-red-500/20 text-red-400 border-red-500/30",
   draft: "bg-zinc-500/20 text-zinc-400 border-zinc-500/30",
@@ -149,6 +150,7 @@ const statusIcons: Record<string, React.ReactNode> = {
   pending: <Clock className="w-3 h-3" />,
   generating: <Loader2 className="w-3 h-3 animate-spin" />,
   ready: <CheckCircle2 className="w-3 h-3" />,
+  completed: <CheckCircle2 className="w-3 h-3" />,
   exported: <Download className="w-3 h-3" />,
   failed: <XCircle className="w-3 h-3" />,
   draft: <Clock className="w-3 h-3" />,
@@ -484,11 +486,11 @@ export default function VideoProjectsPage() {
     const clips = project.clips || [];
     const audioTracks = project.audioTracks || [];
     
-    const readyScenes = scenes.filter(s => s.status === "ready").length;
+    const readyScenes = scenes.filter(s => s.status === "ready" || s.status === "completed").length;
     const failedScenes = scenes.filter(s => s.status === "failed").length;
-    const readyClips = clips.filter(c => c.status === "ready").length;
+    const readyClips = clips.filter(c => c.status === "ready" || c.status === "completed").length;
     const failedClips = clips.filter(c => c.status === "failed").length;
-    const readyAudio = audioTracks.filter(a => a.status === "ready").length;
+    const readyAudio = audioTracks.filter(a => a.status === "ready" || a.status === "completed").length;
     const failedAudio = audioTracks.filter(a => a.status === "failed").length;
 
     return {
@@ -511,7 +513,7 @@ export default function VideoProjectsPage() {
 
   const canExport = (project: VideoProject) => {
     const clips = project.clips || [];
-    return clips.length > 0 && clips.every(c => c.status === "ready");
+    return clips.length > 0 && clips.every(c => c.status === "ready" || c.status === "completed");
   };
 
   const addScene = () => {
@@ -1318,7 +1320,7 @@ export default function VideoProjectsPage() {
                                     <Film className="w-3 h-3 mr-1" />
                                     {clip?.status || 'pending'}
                                   </Badge>
-                                  {clip?.status === 'ready' && clip?.videoUrl && (
+                                  {(clip?.status === 'ready' || clip?.status === 'completed') && clip?.videoUrl && (
                                     <Button
                                       size="sm"
                                       variant="ghost"
@@ -1368,7 +1370,7 @@ export default function VideoProjectsPage() {
                           </CollapsibleTrigger>
                           <CollapsibleContent asChild>
                             <div className="p-3 bg-zinc-900 border-l-2 border-cyan-400/30 ml-2 mt-1 rounded-lg space-y-3">
-                              <div className={clip?.status === 'ready' && clip?.videoUrl ? 'grid grid-cols-2 gap-4' : ''}>
+                              <div className={(clip?.status === 'ready' || clip?.status === 'completed') && clip?.videoUrl ? 'grid grid-cols-2 gap-4' : ''}>
                                 <div className="space-y-3">
                                   {scene.imageUrl && (
                                     <div>
@@ -1392,7 +1394,7 @@ export default function VideoProjectsPage() {
                                     <p className="text-sm text-zinc-200 break-words">{scene.visualPrompt || 'No visual prompt specified'}</p>
                                   </div>
                                 </div>
-                                {clip?.status === 'ready' && clip?.videoUrl && (
+                                {(clip?.status === 'ready' || clip?.status === 'completed') && clip?.videoUrl && (
                                   <div>
                                     <p className="text-xs font-medium text-zinc-400 uppercase mb-2">Video Preview</p>
                                     <video

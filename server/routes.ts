@@ -2365,7 +2365,7 @@ export async function registerRoutes(
             audioUrl: audio.audioUrl,
             errorMessage: audio.errorMessage,
           } : null,
-          isReady: clip?.status === 'ready' && clip?.videoUrl,
+          isReady: (clip?.status === 'ready' || clip?.status === 'completed') && clip?.videoUrl,
         };
       });
 
