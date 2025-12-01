@@ -126,7 +126,8 @@ async function generateWithGeminiAPI(
   prompt: string,
   options: Veo31Options
 ): Promise<Veo31Result> {
-  const apiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  // Prefer GEMINI_API_KEY first as it's the validated key
+  const apiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
   
   if (!apiKey) {
     return {
@@ -159,7 +160,7 @@ async function generateWithGeminiAPI(
     Math.abs(curr - duration) < Math.abs(prev - duration) ? curr : prev
   );
 
-  const modelId = 'veo-3.1-fast-generate-001';
+  const modelId = 'veo-3.1-generate-preview';
   const isImageToVideo = !!(imageUrl || imageBase64);
 
   console.log(`[Veo3.1] Starting ${isImageToVideo ? 'image-to-video' : 'text-to-video'} generation...`);
@@ -173,7 +174,6 @@ async function generateWithGeminiAPI(
       aspectRatio: validAspectRatio,
       sampleCount: 1,
       durationSeconds: snappedDuration,
-      generateAudio: generateAudio,
     },
   };
 
@@ -354,7 +354,8 @@ async function checkVertexAIStatus(operationName: string): Promise<Veo31Result> 
 }
 
 async function checkGeminiStatus(operationName: string): Promise<Veo31Result> {
-  const apiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  // Prefer GEMINI_API_KEY first as it's the validated key
+  const apiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
   
   if (!apiKey) {
     return {
@@ -384,6 +385,8 @@ async function checkGeminiStatus(operationName: string): Promise<Veo31Result> {
 
     const operation = await response.json();
     
+    console.log('[Veo3.1] Operation status response:', JSON.stringify(operation, null, 2).substring(0, 500));
+    
     if (operation.done) {
       if (operation.error) {
         return {
@@ -393,9 +396,40 @@ async function checkGeminiStatus(operationName: string): Promise<Veo31Result> {
         };
       }
 
+      // Try multiple response formats based on API docs
+      // Format 1: response.generateVideoResponse.generatedSamples[0].video.uri (REST API)
+      const generatedSamples = operation.response?.generateVideoResponse?.generatedSamples;
+      if (generatedSamples?.length > 0) {
+        const videoUrl = generatedSamples[0].video?.uri;
+        if (videoUrl) {
+          return {
+            success: true,
+            taskId: operationName,
+            videoUrl: videoUrl,
+            status: 'completed',
+            hasAudio: true,
+          };
+        }
+      }
+
+      // Format 2: response.generatedVideos[0].video.uri (SDK format)
+      const generatedVideos = operation.response?.generatedVideos;
+      if (generatedVideos?.length > 0) {
+        const videoUrl = generatedVideos[0].video?.uri || generatedVideos[0].uri;
+        if (videoUrl) {
+          return {
+            success: true,
+            taskId: operationName,
+            videoUrl: videoUrl,
+            status: 'completed',
+            hasAudio: true,
+          };
+        }
+      }
+
+      // Format 3: Fallback to other possible locations
       const result = operation.response || operation.result || operation.metadata;
-      const videos = result?.predictions || result?.videos || result?.generatedVideos;
-      
+      const videos = result?.predictions || result?.videos;
       if (videos?.length > 0) {
         const videoUrl = videos[0].video?.uri || videos[0].uri || videos[0].videoUri;
         if (videoUrl) {
@@ -412,7 +446,7 @@ async function checkGeminiStatus(operationName: string): Promise<Veo31Result> {
       return {
         success: false,
         status: 'failed',
-        error: 'No videos were generated',
+        error: 'No videos were generated. Response: ' + JSON.stringify(operation.response || {}).substring(0, 200),
       };
     }
 
@@ -490,7 +524,8 @@ export async function testVeo31Connection(): Promise<{
     }
   }
 
-  const apiKey = process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+  // Prefer GEMINI_API_KEY first as it's the validated key
+  const apiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
   
   if (!apiKey) {
     return {
