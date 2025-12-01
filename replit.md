@@ -111,6 +111,29 @@ Preferred communication style: Simple, everyday language.
 - **Free Tier Fallbacks**: Prioritizes free providers (Gemini, Veo 3.1) before paid alternatives.
 - **Provider Health Dashboard**: Visual UI at `/provider-health` showing provider status, smart routing, and healing actions.
 
+### Quality-Aware Optimization System
+- **Database Schema**: `contentQualityReviews` (user ratings), `contentQualityMetrics` (objective metrics), `providerQualityScores` (provider quality tracking), `qualityTierConfigs` (tier settings).
+- **Dual-Score Routing**: Combines operational health (uptime, latency, error rates) with quality metrics (user ratings, acceptance rates) for intelligent provider selection.
+- **Quality Tiers**: Three execution profiles with configurable weighting:
+  - `draft`: Fast/cheap, 30% quality weight, 70% operational
+  - `production`: Balanced, 50% quality weight, 50% operational
+  - `cinematic_4k`: Quality-first, 70% quality weight, 30% operational
+- **Objective Metrics Tracking**: Resolution, bitrate, FPS, color depth, audio loudness, script-to-scene coherence, brand compliance, motion smoothness, artifact detection.
+- **Feedback Loop**: User ratings (1-5 scale) with accept/reject flags feed into provider quality scores, progressively improving routing toward 4K cinematic on-brand content.
+- **Quality Review UI**: Located at `/quality-review` with:
+  - Pending review lists for video projects and content
+  - Star rating system (1-5)
+  - Accept/reject workflow with feedback
+  - Provider quality score display
+  - Review history
+- **API Endpoints**:
+  - `POST /api/quality/reviews`: Submit quality reviews
+  - `GET /api/quality/provider-status`: Combined operational + quality scores
+  - `GET /api/quality/routing/:serviceType`: Quality-aware provider order
+  - `POST /api/quality/provider-feedback`: Update provider quality from review
+  - `POST /api/quality/recommend-tier`: Get recommended quality tier
+  - `GET /api/quality/dashboard`: Comprehensive quality metrics
+
 ### Integrations
 - **Shotstack**: Video assembly and audio hosting.
 - **Slack**: Webhook notifications.
