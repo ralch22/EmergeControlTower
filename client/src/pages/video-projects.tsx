@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,7 +27,9 @@ import {
   Sparkles,
   Trash2,
   Image as ImageIcon,
-  StopCircle
+  StopCircle,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -176,6 +179,7 @@ export default function VideoProjectsPage() {
     type: "video" | "audio";
     url: string;
   } | null>(null);
+  const [expandedScenes, setExpandedScenes] = useState<Set<string>>(new Set());
 
   const [ingredients, setIngredients] = useState({
     title: "",
@@ -1259,66 +1263,120 @@ export default function VideoProjectsPage() {
                       const audioTracks = selectedProject.audioTracks || [];
                       const clip = clips.find(c => c.sceneId === scene.sceneId);
                       const audio = audioTracks.find(a => a.sceneId === scene.sceneId);
+                      const isExpanded = expandedScenes.has(scene.sceneId);
 
                       return (
-                        <div
+                        <Collapsible
                           key={scene.sceneId}
-                          className="flex items-center justify-between p-3 bg-zinc-800 rounded-lg"
+                          open={isExpanded}
+                          onOpenChange={(open) => {
+                            setExpandedScenes(prev => {
+                              const newSet = new Set(prev);
+                              if (open) {
+                                newSet.add(scene.sceneId);
+                              } else {
+                                newSet.delete(scene.sceneId);
+                              }
+                              return newSet;
+                            });
+                          }}
                         >
-                          <div className="flex items-center gap-3">
-                            <span className="text-cyan-400 font-mono text-sm">
-                              #{scene.sceneNumber}
-                            </span>
-                            <span className="text-white">{scene.title}</span>
-                            <span className="text-zinc-500 text-sm">{scene.duration}s</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className="flex items-center gap-1">
-                              <Badge className={`text-xs ${statusColors[clip?.status || 'pending']}`}>
-                                <Film className="w-3 h-3 mr-1" />
-                                {clip?.status || 'pending'}
-                              </Badge>
-                              {clip?.status === 'ready' && clip?.videoUrl && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 hover:bg-green-500/20"
-                                  onClick={() => setSelectedPreviewScene({
-                                    sceneId: scene.sceneId,
-                                    title: `${scene.title} - Video`,
-                                    type: 'video',
-                                    url: clip.videoUrl!
-                                  })}
-                                  data-testid={`button-play-video-${scene.sceneId}`}
-                                >
-                                  <Play className="w-3 h-3 text-green-400" />
-                                </Button>
-                              )}
+                          <CollapsibleTrigger asChild>
+                            <div
+                              className="flex items-center justify-between p-3 bg-zinc-800 rounded-lg cursor-pointer hover:bg-zinc-700 transition-colors"
+                              data-testid={`button-expand-scene-${scene.sceneId}`}
+                            >
+                              <div className="flex items-center gap-3 flex-1">
+                                {isExpanded ? (
+                                  <ChevronUp className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                                ) : (
+                                  <ChevronDown className="w-4 h-4 text-cyan-400 flex-shrink-0" />
+                                )}
+                                <span className="text-cyan-400 font-mono text-sm">
+                                  #{scene.sceneNumber}
+                                </span>
+                                <span className="text-white">{scene.title}</span>
+                                <span className="text-zinc-500 text-sm">{scene.duration}s</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1">
+                                  <Badge className={`text-xs ${statusColors[clip?.status || 'pending']}`}>
+                                    <Film className="w-3 h-3 mr-1" />
+                                    {clip?.status || 'pending'}
+                                  </Badge>
+                                  {clip?.status === 'ready' && clip?.videoUrl && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 hover:bg-green-500/20"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedPreviewScene({
+                                          sceneId: scene.sceneId,
+                                          title: `${scene.title} - Video`,
+                                          type: 'video',
+                                          url: clip.videoUrl!
+                                        });
+                                      }}
+                                      data-testid={`button-play-video-${scene.sceneId}`}
+                                    >
+                                      <Play className="w-3 h-3 text-green-400" />
+                                    </Button>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <Badge className={`text-xs ${statusColors[audio?.status || 'pending']}`}>
+                                    <Music className="w-3 h-3 mr-1" />
+                                    {audio?.status || 'pending'}
+                                  </Badge>
+                                  {audio?.status === 'ready' && audio?.audioUrl && (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-6 w-6 p-0 hover:bg-green-500/20"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setSelectedPreviewScene({
+                                          sceneId: scene.sceneId,
+                                          title: `${scene.title} - Audio`,
+                                          type: 'audio',
+                                          url: audio.audioUrl!
+                                        });
+                                      }}
+                                      data-testid={`button-play-audio-${scene.sceneId}`}
+                                    >
+                                      <Play className="w-3 h-3 text-green-400" />
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1">
-                              <Badge className={`text-xs ${statusColors[audio?.status || 'pending']}`}>
-                                <Music className="w-3 h-3 mr-1" />
-                                {audio?.status || 'pending'}
-                              </Badge>
-                              {audio?.status === 'ready' && audio?.audioUrl && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  className="h-6 w-6 p-0 hover:bg-green-500/20"
-                                  onClick={() => setSelectedPreviewScene({
-                                    sceneId: scene.sceneId,
-                                    title: `${scene.title} - Audio`,
-                                    type: 'audio',
-                                    url: audio.audioUrl!
-                                  })}
-                                  data-testid={`button-play-audio-${scene.sceneId}`}
-                                >
-                                  <Play className="w-3 h-3 text-green-400" />
-                                </Button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent asChild>
+                            <div className="p-3 bg-zinc-900 border-l-2 border-cyan-400/30 ml-2 mt-1 rounded-lg space-y-3">
+                              <div>
+                                <p className="text-xs font-medium text-zinc-400 uppercase mb-1">Visual Prompt</p>
+                                <p className="text-sm text-zinc-200 break-words">{scene.visualPrompt || 'No visual prompt specified'}</p>
+                              </div>
+                              {scene.voiceoverText && (
+                                <div>
+                                  <p className="text-xs font-medium text-zinc-400 uppercase mb-1">Voiceover</p>
+                                  <p className="text-sm text-zinc-200 break-words">{scene.voiceoverText}</p>
+                                </div>
                               )}
+                              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-700">
+                                <div>
+                                  <p className="text-xs text-zinc-500">Duration</p>
+                                  <p className="text-sm text-cyan-400 font-mono">{scene.duration}s</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs text-zinc-500">Status</p>
+                                  <p className="text-sm text-cyan-400 font-mono capitalize">{scene.status}</p>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
+                          </CollapsibleContent>
+                        </Collapsible>
                       );
                     })}
                   </div>
