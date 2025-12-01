@@ -97,6 +97,21 @@ export default function BrandControlPage() {
     enabled: !!selectedClientId,
   });
 
+  const getClientLogoUrl = (): string | null => {
+    if (selectedClient?.primaryLogoUrl && !selectedClient.primaryLogoUrl.includes('placeholder')) {
+      return selectedClient.primaryLogoUrl;
+    }
+    const logoFile = brandAssetFiles.find(
+      f => f.subcategory === 'logos' || f.category === 'logos' || f.purpose?.includes('logo')
+    );
+    if (logoFile) {
+      return `/api/brand-asset-files/download/${logoFile.id}`;
+    }
+    return null;
+  };
+
+  const clientLogoUrl = getClientLogoUrl();
+
   const generateAssetMutation = useMutation({
     mutationFn: async ({ clientId, assetType, options }: { clientId: number; assetType: string; options?: any }) => {
       const response = await fetch(`/api/clients/${clientId}/generate/${assetType}`, {
@@ -223,11 +238,11 @@ export default function BrandControlPage() {
                       <CardTitle>{selectedClient.name}</CardTitle>
                       <CardDescription>{selectedClient.industry}</CardDescription>
                     </div>
-                    {selectedClient.primaryLogoUrl && (
+                    {clientLogoUrl && (
                       <img 
-                        src={selectedClient.primaryLogoUrl} 
+                        src={clientLogoUrl} 
                         alt="Logo" 
-                        className="w-16 h-16 object-contain rounded"
+                        className="w-16 h-16 object-contain rounded border bg-white/5"
                         data-testid="client-logo"
                       />
                     )}
@@ -386,6 +401,29 @@ export default function BrandControlPage() {
                     <TabsContent value="generate" className="space-y-4 mt-4">
                       {selectedClient.brandProfile ? (
                         <>
+                          {clientLogoUrl && (
+                            <Card className="bg-primary/5 border-primary/20">
+                              <CardContent className="p-4">
+                                <div className="flex items-center gap-4">
+                                  <img 
+                                    src={clientLogoUrl} 
+                                    alt="Reference Logo" 
+                                    className="w-12 h-12 object-contain rounded border bg-white/10"
+                                  />
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2">
+                                      <CheckCircle className="w-4 h-4 text-green-500" />
+                                      <span className="font-medium text-sm">Logo Reference Active</span>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      All generated assets will use this logo for brand consistency
+                                    </p>
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )}
+
                           <div className="flex items-center justify-between mb-4">
                             <p className="text-sm text-muted-foreground">
                               Generate brand assets using AI based on the brand profile
