@@ -152,8 +152,31 @@ Preferred communication style: Simple, everyday language.
   - `POST /api/quality/recommend-tier`: Get recommended quality tier
   - `GET /api/quality/dashboard`: Comprehensive quality metrics
 
+### Shotstack Studio Integration
+- **SDK**: `@shotstack/shotstack-studio` for browser-based video editing.
+- **Components**: 
+  - `Edit` - manages edit state and timeline data
+  - `Canvas` - video preview and visual editing surface
+  - `Controls` - playback controls
+  - `Timeline` - multi-track timeline editor
+- **DOM Mounting**: Canvas and Timeline components mounted to container refs using `getElement()` or `mount()` with type assertions.
+- **API Endpoints**:
+  - `GET /api/video-projects/:id/studio-timeline`: Load timeline for editing
+  - `PUT /api/video-projects/:id/studio-timeline`: Save edited timeline
+  - `POST /api/video-projects/:id/render-from-timeline`: Render final video
+- **Features**: Undo/redo, playback preview, zoom controls, save/render workflow.
+
+### Navigation Structure
+- **Sidebar Component**: Collapsible category-based navigation (`client/src/components/sidebar.tsx`).
+- **Categories**:
+  - **Content Production**: Content Factory, Video Projects, Video Assembly
+  - **Quality & Review**: Quality Review, Approval Queue
+  - **Brand Management**: Clients, Brand Guidelines, Brand Files, Brand Control
+  - **System**: Control Tower, Provider Health, Settings
+- **Behavior**: Auto-expand active category, user toggle state preservation, smooth animations.
+
 ### Integrations
-- **Shotstack**: Video assembly and audio hosting.
+- **Shotstack**: Video assembly, audio hosting, and browser-based editing.
 - **Slack**: Webhook notifications.
 - **Buffer**: Social media publishing.
 - **connect-pg-simple**: PostgreSQL session storage.
