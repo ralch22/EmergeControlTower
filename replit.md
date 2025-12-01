@@ -36,7 +36,10 @@ Preferred communication style: Simple, everyday language.
 ### Ingredients to Video System
 - **Schema**: `videoIngredients`, `videoProjects`, `videoScenes`, `videoClips`, `audioTracks` for structured video creation.
 - **Video Provider Orchestration**: Multi-provider fallback (Veo 3.1, Runway, etc.) with priority and automatic retry on failure.
-- **Image Generation**: Primary via Gemini API (`gemini-2.0-flash-exp-image-generation`), fallback to Alibaba Dashscope (Wanx model). No OpenAI DALL-E dependency.
+- **Reference Image Generation**: Automatic scene images generated when creating video projects, with provider fallback chain:
+  1. **Nano Banana Pro** (Gemini `gemini-2.0-flash-exp-image-generation`) - primary, returns base64 data URLs
+  2. **Fal AI Flux Pro** (`fal-ai/flux-pro/v1.1`) - first fallback, returns hosted URLs
+  3. **Alibaba Dashscope** (`wan2.5-t2i-preview`) - second fallback, returns hosted URLs
 - **Enhanced Prompt System**: `buildEnhancedVideoPrompt()` combines visual and narrative context for script-aligned video generation. Includes a force regeneration option.
 - **Voiceover Fallback**: ElevenLabs primary, OpenAI TTS fallback.
 - **Video Assembly**: Shotstack for timeline-based video assembly, audio layering, transitions, and text overlays. Shotstack Ingest API for permanent audio hosting.

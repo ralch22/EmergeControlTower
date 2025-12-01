@@ -869,37 +869,50 @@ export async function registerRoutes(
       let scenesWithImages = parsedScenes;
       if (generateImages) {
         try {
+          const { generateVideoThumbnail } = await import("../01-content-factory/integrations/nano-banana-pro");
+          const { generateImageWithFalFluxPro, isFalConfigured } = await import("../01-content-factory/integrations/fal-ai");
           const { generateSceneImageWithAlibaba, isAlibabaImageConfigured } = await import("../01-content-factory/integrations/alibaba-image");
-          const { generateImageWithFalFluxPro } = await import("../01-content-factory/integrations/fal-ai");
           
           await storage.createActivityLog({
             runId: `video_proj_${projectId}`,
             eventType: 'reference_image_generation_started',
             level: 'info',
-            message: `Generating reference images for ${parsedScenes.length} scenes...`,
-            metadata: JSON.stringify({ projectId, scenesCount: parsedScenes.length }),
+            message: `Generating reference images for ${parsedScenes.length} scenes using Nano Banana Pro...`,
+            metadata: JSON.stringify({ projectId, scenesCount: parsedScenes.length, primaryProvider: 'nano_banana_pro' }),
           });
 
           const imagePromises = parsedScenes.map(async (scene, index) => {
             try {
               let imageUrl: string | undefined;
+              let provider: string = 'none';
               
-              // Try Alibaba first, then Fal AI as fallback
-              if (isAlibabaImageConfigured()) {
-                const result = await generateSceneImageWithAlibaba(scene.visualPrompt, '16:9');
-                if (result.success && result.imageUrl) {
-                  imageUrl = result.imageUrl;
-                }
+              // Priority 1: Nano Banana Pro (Gemini Image Generation) - default
+              const nanoResult = await generateVideoThumbnail(scene.visualPrompt, { resolution: '2K' });
+              if (nanoResult.success && (nanoResult.imageUrl || nanoResult.imageDataUrl)) {
+                imageUrl = nanoResult.imageUrl || nanoResult.imageDataUrl;
+                provider = 'nano_banana_pro';
               }
               
-              // Fallback to Fal AI if Alibaba failed or not configured
-              if (!imageUrl) {
+              // Priority 2: Fal AI Flux Pro - first fallback
+              if (!imageUrl && isFalConfigured()) {
+                console.log(`[VideoProject] Scene ${scene.sceneNumber}: Nano Banana Pro failed, trying Fal AI...`);
                 const falResult = await generateImageWithFalFluxPro(
                   scene.visualPrompt,
                   { width: 1280, height: 720 }
                 );
                 if (falResult.success && falResult.imageUrl) {
                   imageUrl = falResult.imageUrl;
+                  provider = 'fal_ai';
+                }
+              }
+              
+              // Priority 3: Alibaba Dashscope - second fallback
+              if (!imageUrl && isAlibabaImageConfigured()) {
+                console.log(`[VideoProject] Scene ${scene.sceneNumber}: Fal AI failed, trying Alibaba...`);
+                const alibabaResult = await generateSceneImageWithAlibaba(scene.visualPrompt, '16:9');
+                if (alibabaResult.success && alibabaResult.imageUrl) {
+                  imageUrl = alibabaResult.imageUrl;
+                  provider = 'alibaba';
                 }
               }
               
@@ -908,8 +921,17 @@ export async function registerRoutes(
                   runId: `video_proj_${projectId}`,
                   eventType: 'reference_image_generated',
                   level: 'success',
-                  message: `Reference image generated for scene ${scene.sceneNumber}: ${scene.title || 'Untitled'}`,
-                  metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, imageUrl }),
+                  message: `Reference image generated for scene ${scene.sceneNumber}: ${scene.title || 'Untitled'} (${provider})`,
+                  metadata: JSON.stringify({ sceneNumber: scene.sceneNumber, provider, imageUrl: imageUrl.substring(0, 100) }),
+                });
+              } else {
+                console.log(`[VideoProject] Scene ${scene.sceneNumber}: All providers failed`);
+                await storage.createActivityLog({
+                  runId: `video_proj_${projectId}`,
+                  eventType: 'reference_image_all_failed',
+                  level: 'warning',
+                  message: `All image providers failed for scene ${scene.sceneNumber}: ${scene.title || 'Untitled'}`,
+                  metadata: JSON.stringify({ sceneNumber: scene.sceneNumber }),
                 });
               }
               
