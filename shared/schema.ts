@@ -161,6 +161,7 @@ export const videoScenes = pgTable("video_scenes", {
   title: text("title"),
   visualPrompt: text("visual_prompt").notNull(), // prompt for video generation
   voiceoverText: text("voiceover_text"), // text for TTS
+  imageUrl: text("image_url"), // reference image URL for scene
   duration: integer("duration").notNull().default(5), // seconds
   startTime: integer("start_time").notNull().default(0), // position on timeline
   status: text("status").notNull().default("pending"), // pending, generating, ready, failed
