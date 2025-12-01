@@ -327,40 +327,96 @@ export async function generateInfographic(
   const formattedPrompt = formatPromptForProvider(promptContext, 'gemini');
   console.log(`[BrandAssetGenerator] Generating ${type} infographic for client ${clientId}`);
   
-  try {
-    const geminiResult = await generateImageWithGemini(
-      formattedPrompt,
-      'data visualization, infographic design, clean typography'
-    );
-    
-    if (geminiResult.success && geminiResult.imageDataUrl) {
-      const filename = `infographic_${type}_${uuidv4().slice(0, 8)}.png`;
-      const localPath = await saveImageToFile(geminiResult.imageDataUrl, clientId, filename);
+  // Try Gemini first
+  if (!healthMonitor.isProviderQuarantined('gemini_image')) {
+    try {
+      const geminiResult = await generateImageWithGemini(
+        formattedPrompt,
+        'data visualization, infographic design, clean typography'
+      );
       
-      return {
-        success: true,
-        assetType: 'infographic',
-        assets: [{
-          id: uuidv4(),
-          localPath,
-          base64: geminiResult.imageDataUrl,
-          mimeType: 'image/png',
-          dimensions: { width: 1200, height: 1200 },
-          metadata: { type },
-        }],
-        provider: 'gemini',
-        processingTime: Date.now() - startTime,
-      };
+      if (geminiResult.success && geminiResult.imageDataUrl) {
+        const filename = `infographic_${type}_${uuidv4().slice(0, 8)}.png`;
+        const localPath = await saveImageToFile(geminiResult.imageDataUrl, clientId, filename);
+        
+        await healthMonitor.recordRequest('gemini_image', 'image_generation', uuidv4(), {
+          success: true,
+          latencyMs: Date.now() - startTime,
+        });
+        
+        return {
+          success: true,
+          assetType: 'infographic',
+          assets: [{
+            id: uuidv4(),
+            localPath,
+            base64: geminiResult.imageDataUrl,
+            mimeType: 'image/png',
+            dimensions: { width: 1200, height: 1200 },
+            metadata: { type },
+          }],
+          provider: 'gemini',
+          processingTime: Date.now() - startTime,
+        };
+      }
+    } catch (error: any) {
+      console.error('[BrandAssetGenerator] Gemini infographic failed:', error.message);
+      await healthMonitor.recordRequest('gemini_image', 'image_generation', uuidv4(), {
+        success: false,
+        latencyMs: Date.now() - startTime,
+        errorMessage: error.message,
+      });
     }
-  } catch (error: any) {
-    console.error('[BrandAssetGenerator] Infographic generation failed:', error.message);
+  }
+  
+  // Fallback to Fal AI
+  if (!healthMonitor.isProviderQuarantined('fal_flux') && isFalConfigured()) {
+    try {
+      const { generateImageWithFalFluxPro } = await import('../integrations/fal-ai');
+      const falResult = await generateImageWithFalFluxPro(formattedPrompt, {
+        width: 1200,
+        height: 1200,
+      });
+      
+      if (falResult.success && falResult.imageUrl) {
+        const filename = `infographic_${type}_${uuidv4().slice(0, 8)}.png`;
+        const localPath = await downloadAndSaveImage(falResult.imageUrl, clientId, filename);
+        
+        await healthMonitor.recordRequest('fal_flux', 'image_generation', uuidv4(), {
+          success: true,
+          latencyMs: Date.now() - startTime,
+        });
+        
+        return {
+          success: true,
+          assetType: 'infographic',
+          assets: [{
+            id: uuidv4(),
+            url: falResult.imageUrl,
+            localPath,
+            mimeType: 'image/png',
+            dimensions: { width: 1200, height: 1200 },
+            metadata: { type },
+          }],
+          provider: 'fal',
+          processingTime: Date.now() - startTime,
+        };
+      }
+    } catch (error: any) {
+      console.error('[BrandAssetGenerator] Fal infographic failed:', error.message);
+      await healthMonitor.recordRequest('fal_flux', 'image_generation', uuidv4(), {
+        success: false,
+        latencyMs: Date.now() - startTime,
+        errorMessage: error.message,
+      });
+    }
   }
   
   return {
     success: false,
     assetType: 'infographic',
     assets: [],
-    error: 'Failed to generate infographic',
+    error: 'All image providers failed to generate infographic',
     processingTime: Date.now() - startTime,
   };
 }
