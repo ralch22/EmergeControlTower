@@ -6,6 +6,15 @@ import { generateVideoWithVeo2, checkVeo2Status, waitForVeo2Completion } from '.
 import { generateVideoWithVeo31, checkVeo31Status, waitForVeo31Completion, testVeo31Connection } from './veo31';
 import { generateImageWithNanoBananaPro } from './nano-banana-pro';
 import { generateSceneImageWithAlibaba, isAlibabaImageConfigured } from './alibaba-image';
+import { 
+  generateVideoWithFal, 
+  generateVideoWithFalKling, 
+  generateVideoWithFalMinimax,
+  generateImageWithFal,
+  generateImageWithFalFluxPro,
+  isFalConfigured, 
+  testFalConnection 
+} from './fal-ai';
 
 export interface VideoProviderResult {
   success: boolean;
@@ -18,7 +27,7 @@ export interface VideoProviderResult {
   fallbackAttempts?: number;
 }
 
-export type VideoProvider = 'veo31' | 'veo2' | 'runway' | 'wan' | 'pika' | 'luma' | 'kling' | 'hailuo';
+export type VideoProvider = 'veo31' | 'veo2' | 'runway' | 'wan' | 'pika' | 'luma' | 'kling' | 'hailuo' | 'fal' | 'fal_kling' | 'fal_minimax';
 
 interface ProviderConfig {
   name: VideoProvider;
@@ -256,6 +265,87 @@ const providerConfigs: Record<VideoProvider, ProviderConfig> = {
       error: 'Hailuo integration not yet implemented',
     }),
   },
+
+  fal: {
+    name: 'fal',
+    displayName: 'Fal AI (Veo 2)',
+    isConfigured: isFalConfigured,
+    generate: async (prompt, options) => {
+      const result = await generateVideoWithFal(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: options.aspectRatio || '16:9',
+        imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
+      });
+      return { ...result, provider: 'fal' };
+    },
+    checkStatus: async (taskId) => ({
+      success: true,
+      provider: 'fal',
+      taskId,
+      status: 'completed',
+    }),
+    waitForCompletion: async (taskId) => ({
+      success: true,
+      provider: 'fal',
+      taskId,
+      status: 'completed',
+    }),
+  },
+
+  fal_kling: {
+    name: 'fal_kling',
+    displayName: 'Fal AI (Kling)',
+    isConfigured: isFalConfigured,
+    generate: async (prompt, options) => {
+      const result = await generateVideoWithFalKling(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: options.aspectRatio || '16:9',
+        imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
+      });
+      return { ...result, provider: 'fal_kling' };
+    },
+    checkStatus: async (taskId) => ({
+      success: true,
+      provider: 'fal_kling',
+      taskId,
+      status: 'completed',
+    }),
+    waitForCompletion: async (taskId) => ({
+      success: true,
+      provider: 'fal_kling',
+      taskId,
+      status: 'completed',
+    }),
+  },
+
+  fal_minimax: {
+    name: 'fal_minimax',
+    displayName: 'Fal AI (Minimax)',
+    isConfigured: isFalConfigured,
+    generate: async (prompt, options) => {
+      const result = await generateVideoWithFalMinimax(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: options.aspectRatio || '16:9',
+        imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
+      });
+      return { ...result, provider: 'fal_minimax' };
+    },
+    checkStatus: async (taskId) => ({
+      success: true,
+      provider: 'fal_minimax',
+      taskId,
+      status: 'completed',
+    }),
+    waitForCompletion: async (taskId) => ({
+      success: true,
+      provider: 'fal_minimax',
+      taskId,
+      status: 'completed',
+    }),
+  },
 };
 
 export interface EnabledProvider {
@@ -405,7 +495,26 @@ export async function generateUniqueSceneImage(prompt: string): Promise<{
       };
     }
     
-    console.log(`[VideoProvider] Nano Banana Pro failed: ${result.error}, trying Alibaba fallback...`);
+    console.log(`[VideoProvider] Nano Banana Pro failed: ${result.error}, trying next fallback...`);
+  }
+  
+  if (isFalConfigured()) {
+    console.log('[VideoProvider] Trying Fal AI Flux Pro for image generation...');
+    const falResult = await generateImageWithFalFluxPro(prompt, {
+      width: 1280,
+      height: 720,
+      style: 'cinematic',
+    });
+    
+    if (falResult.success && falResult.imageUrl) {
+      console.log('[VideoProvider] Fal AI Flux Pro generated unique scene image');
+      return {
+        success: true,
+        imageUrl: falResult.imageUrl,
+      };
+    }
+    
+    console.log(`[VideoProvider] Fal AI failed: ${falResult.error}, trying Alibaba fallback...`);
   }
   
   if (isAlibabaImageConfigured()) {
@@ -431,7 +540,7 @@ export async function generateUniqueSceneImage(prompt: string): Promise<{
   console.log('[VideoProvider] No image generation providers configured');
   return {
     success: false,
-    error: 'No image providers configured - add Gemini or Alibaba Dashscope keys',
+    error: 'No image providers configured - add Gemini, Fal AI, or Alibaba Dashscope keys',
   };
 }
 
@@ -497,6 +606,13 @@ export async function testProviderConnection(provider: VideoProvider): Promise<{
 
       case 'luma': {
         return { success: true, message: `${config.displayName} key configured`, status: 'working' };
+      }
+
+      case 'fal':
+      case 'fal_kling':
+      case 'fal_minimax': {
+        const result = await testFalConnection();
+        return result;
       }
 
       default:

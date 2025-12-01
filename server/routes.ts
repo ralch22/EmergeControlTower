@@ -2582,9 +2582,9 @@ export function registerVideoIngredientsRoutes(app: Express) {
       const { prompt = "A serene mountain landscape at sunset", provider = "alibaba" } = req.body;
       
       if (provider === "alibaba") {
-        const { generateImageWithAlibaba } = await import("../01-content-factory/integrations/alibaba-image");
+        const { generateSceneImageWithAlibaba } = await import("../01-content-factory/integrations/alibaba-image");
         console.log("[Test] Testing Alibaba image generation...");
-        const result = await generateImageWithAlibaba(prompt, { aspectRatio: "16:9" });
+        const result = await generateSceneImageWithAlibaba(prompt, "16:9");
         return res.json({
           provider: "alibaba",
           ...result,
@@ -2592,14 +2592,22 @@ export function registerVideoIngredientsRoutes(app: Express) {
       } else if (provider === "gemini") {
         const { generateImageWithNanoBananaPro } = await import("../01-content-factory/integrations/nano-banana-pro");
         console.log("[Test] Testing Gemini image generation...");
-        const result = await generateImageWithNanoBananaPro(prompt, { aspectRatio: "16:9" });
+        const result = await generateImageWithNanoBananaPro(prompt, { resolution: "2K" });
         return res.json({
           provider: "gemini",
           ...result,
         });
+      } else if (provider === "fal") {
+        const { generateImageWithFalFluxPro } = await import("../01-content-factory/integrations/fal-ai");
+        console.log("[Test] Testing Fal AI Flux Pro image generation...");
+        const result = await generateImageWithFalFluxPro(prompt, { width: 1280, height: 720 });
+        return res.json({
+          provider: "fal",
+          ...result,
+        });
       }
       
-      res.status(400).json({ error: "Invalid provider. Use 'alibaba' or 'gemini'" });
+      res.status(400).json({ error: "Invalid provider. Use 'alibaba', 'gemini', or 'fal'" });
     } catch (error: any) {
       console.error("[Test] Image generation error:", error);
       res.status(500).json({ error: error.message });
@@ -2698,6 +2706,18 @@ export function registerVideoIngredientsRoutes(app: Express) {
           : 'SHOTSTACK_API_KEY not set',
         remediation: shotstackKey ? undefined :
           'Get API key from https://shotstack.io',
+      };
+
+      // Check Fal AI (Video/Image)
+      const falKey = process.env.FAL_API_KEY;
+      providerStatus['fal_ai'] = {
+        configured: !!falKey,
+        status: falKey ? 'working' : 'not_configured',
+        message: falKey 
+          ? 'Fal AI configured (Veo 2, Kling, Flux Pro)'
+          : 'FAL_API_KEY not set',
+        remediation: falKey ? undefined :
+          'Get API key from https://fal.ai/dashboard',
       };
 
       // Check Anthropic (Content Generation)
