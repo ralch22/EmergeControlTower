@@ -756,7 +756,7 @@ export async function registerRoutes(
         title: "Test Video - AI Future",
         description: "Test video project with 3 sample scenes",
         totalDuration: 15,
-        status: 'draft',
+        status: 'pending',
       });
 
       // Scene 1: AI concept intro
@@ -844,7 +844,7 @@ export async function registerRoutes(
         title: title || sourceContent.title,
         description: `Video project from: ${sourceContent.title}`,
         totalDuration,
-        status: 'draft',
+        status: 'pending',
       });
 
       // Create scenes
