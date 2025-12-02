@@ -49,6 +49,27 @@ The system supports two video production tracks:
 -   **Self-Healing Actions**: Automatic quarantine on hard failures, fallback chain activation, and recovery detection.
 -   **Quarantine Patterns**: Specific error patterns (e.g., "access denied", "quota exceeded") trigger temporary quarantines for providers.
 
+### Cost Control System
+The cost control system prevents runaway API expenses through two mechanisms:
+1.  **Video Approval Gate**: Videos are only generated after content is approved (`approved` or `published` status), preventing automatic generation during content runs.
+2.  **Daily Budget Limiter**: Enforces daily spending limits at both global and provider-specific levels.
+
+**Cost Estimates**:
+-   Veo 3/3.1 video generation: ~$10 per 8-second video (most expensive)
+-   Runway video generation: ~$0.50 per video
+-   Gemini text generation: ~$0.001 per request
+-   Anthropic text generation: ~$0.015 per request
+-   Image generation: ~$0.01-0.05 per image
+
+**API Endpoints**:
+-   `GET /api/cost-control/status` - Current budget status with per-provider breakdown
+-   `POST /api/cost-control/budget` - Set daily budget (global or provider-specific)
+-   `POST /api/cost-control/check-video` - Check if video generation is allowed
+-   `POST /api/cost-control/track` - Record an API cost
+-   `GET /api/cost-control/estimates` - View cost estimates for all providers
+
+**Database Tables**: `api_cost_tracking` (records all API costs), `cost_budgets` (stores daily budget limits)
+
 ### Learning & Feedback System
 -   **Central Learning Engine**: Implements continuous learning through feedback loops.
 -   **Signal Types**: Tracks prompt effectiveness, brand patterns, failure patterns, and success patterns.
