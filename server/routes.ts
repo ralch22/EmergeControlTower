@@ -2526,6 +2526,136 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
     }
   });
 
+  // Generate continuous video using Veo 3 scene extension
+  // This maintains visual consistency by extending the same video across scenes
+  app.post("/api/video/continuous-generate", async (req, res) => {
+    try {
+      const { generateContinuousVideo, estimateContinuousVideoDuration } = await import("../01-content-factory/integrations/veo31");
+      
+      const {
+        scenes,
+        model = 'veo-3.1',
+        aspectRatio = '16:9',
+        generateAudio = true,
+        brandGuidelines,
+      } = req.body;
+
+      if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
+        return res.status(400).json({ 
+          success: false, 
+          error: "scenes is required and must be a non-empty array" 
+        });
+      }
+
+      // Validate each scene has a prompt
+      for (let i = 0; i < scenes.length; i++) {
+        if (!scenes[i]?.prompt || typeof scenes[i].prompt !== 'string') {
+          return res.status(400).json({
+            success: false,
+            error: `Scene ${i + 1} must have a valid prompt string`,
+          });
+        }
+      }
+
+      // Validate model
+      const allowedModels = ['veo-3.0', 'veo-3.1', 'veo-3.1-fast'] as const;
+      const validModel = allowedModels.includes(model) ? model : 'veo-3.1';
+
+      // Validate aspect ratio
+      const validAspectRatio = aspectRatio === '9:16' ? '9:16' : '16:9';
+
+      // Estimate duration
+      const estimatedDuration = estimateContinuousVideoDuration(scenes.length);
+
+      console.log(`[ContinuousVideo API] Starting generation with ${scenes.length} scenes...`);
+      console.log(`[ContinuousVideo API] Model: ${validModel}, Aspect: ${validAspectRatio}`);
+      console.log(`[ContinuousVideo API] Estimated duration: ${estimatedDuration}s`);
+
+      const result = await generateContinuousVideo(
+        scenes.map((s: any) => ({
+          prompt: String(s.prompt).trim().substring(0, 1000),
+          resetRequired: Boolean(s.resetRequired),
+        })),
+        {
+          model: validModel,
+          aspectRatio: validAspectRatio,
+          generateAudio: Boolean(generateAudio),
+          brandGuidelines: brandGuidelines || undefined,
+        }
+      );
+
+      if (result.success) {
+        await storage.createActivityLog({
+          runId: `continuous_video_${Date.now()}`,
+          eventType: 'continuous_video_completed',
+          level: 'success',
+          message: `Continuous video generated with ${result.hopCount} scenes`,
+          metadata: JSON.stringify({
+            videoUrl: result.videoUrl,
+            totalDuration: result.totalDuration,
+            hopCount: result.hopCount,
+            sceneCount: scenes.length,
+            processingTimeMs: result.processingTimeMs,
+          }),
+        });
+      }
+
+      res.json({
+        ...result,
+        estimatedDuration,
+      });
+    } catch (error: any) {
+      console.error('[ContinuousVideo API] Error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message || "Failed to generate continuous video" 
+      });
+    }
+  });
+
+  // Get scene count and duration estimate for continuous video
+  app.get("/api/video/continuous-estimate", (req, res) => {
+    const { sceneCount, targetDuration } = req.query;
+    
+    // Lazy import to avoid circular dependencies
+    import("../01-content-factory/integrations/veo31").then(({ 
+      estimateContinuousVideoDuration, 
+      calculateScenesForDuration 
+    }) => {
+      if (targetDuration) {
+        const seconds = parseInt(String(targetDuration), 10);
+        if (isNaN(seconds) || seconds <= 0) {
+          return res.status(400).json({ error: "targetDuration must be a positive integer" });
+        }
+        const scenesNeeded = calculateScenesForDuration(seconds);
+        const actualDuration = estimateContinuousVideoDuration(scenesNeeded);
+        return res.json({
+          targetDuration: seconds,
+          scenesNeeded,
+          actualDuration,
+          costEstimate: `$${(actualDuration * 0.75).toFixed(2)} with audio`,
+        });
+      }
+      
+      if (sceneCount) {
+        const count = parseInt(String(sceneCount), 10);
+        if (isNaN(count) || count <= 0) {
+          return res.status(400).json({ error: "sceneCount must be a positive integer" });
+        }
+        const duration = estimateContinuousVideoDuration(count);
+        return res.json({
+          sceneCount: count,
+          estimatedDuration: duration,
+          costEstimate: `$${(duration * 0.75).toFixed(2)} with audio`,
+        });
+      }
+      
+      res.status(400).json({ error: "Either sceneCount or targetDuration is required" });
+    }).catch(error => {
+      res.status(500).json({ error: error.message });
+    });
+  });
+
   // ==========================================
   // Unified Full Video Generation (Topic → Final Video)
   // ==========================================

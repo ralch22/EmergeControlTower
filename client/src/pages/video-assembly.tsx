@@ -465,6 +465,336 @@ function QuickVideoGenerator() {
   );
 }
 
+interface ContinuousVideoResult {
+  success: boolean;
+  videoUrl?: string;
+  totalDuration?: number;
+  hopCount?: number;
+  error?: string;
+  processingTimeMs?: number;
+  sceneResults?: Array<{
+    sceneIndex: number;
+    prompt: string;
+    success: boolean;
+    videoUrl?: string;
+    error?: string;
+  }>;
+  estimatedDuration?: number;
+}
+
+interface SceneInput {
+  prompt: string;
+  resetRequired: boolean;
+}
+
+function ContinuousVideoGenerator() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [scenes, setScenes] = useState<SceneInput[]>([{ prompt: "", resetRequired: false }]);
+  const [model, setModel] = useState<'veo-3.0' | 'veo-3.1' | 'veo-3.1-fast'>('veo-3.1');
+  const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('16:9');
+  const [result, setResult] = useState<ContinuousVideoResult | null>(null);
+
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      const validScenes = scenes.filter(s => s.prompt.trim());
+      if (validScenes.length === 0) {
+        throw new Error('At least one scene with a prompt is required');
+      }
+      const res = await fetch('/api/video/continuous-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scenes: validScenes,
+          model,
+          aspectRatio,
+          generateAudio: true,
+        }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to generate video');
+      }
+      return res.json() as Promise<ContinuousVideoResult>;
+    },
+    onSuccess: (data) => {
+      setResult(data);
+    },
+  });
+
+  const addScene = () => {
+    if (scenes.length >= 20) return;
+    setScenes([...scenes, { prompt: "", resetRequired: false }]);
+  };
+
+  const removeScene = (index: number) => {
+    if (scenes.length <= 1) return;
+    setScenes(scenes.filter((_, i) => i !== index));
+  };
+
+  const updateScene = (index: number, field: keyof SceneInput, value: string | boolean) => {
+    const updated = [...scenes];
+    updated[index] = { ...updated[index], [field]: value };
+    setScenes(updated);
+  };
+
+  const handleGenerate = () => {
+    const validScenes = scenes.filter(s => s.prompt.trim());
+    if (validScenes.length === 0) return;
+    setResult(null);
+    generateMutation.mutate();
+  };
+
+  const handleClose = () => {
+    setIsOpen(false);
+    setResult(null);
+  };
+
+  const estimatedDuration = scenes.length === 1 ? 8 : 8 + (scenes.length - 1) * 7;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Card className="bg-gradient-to-br from-emerald-900/30 to-cyan-900/30 border-emerald-500/30 hover:border-emerald-500/50 transition-all cursor-pointer group" data-testid="continuous-video-card">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-4">
+              <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 group-hover:scale-110 transition-transform">
+                <Film className="w-6 h-6 text-white" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  Continuous Video
+                  <Badge className="bg-emerald-500/20 text-emerald-300 border-emerald-500/30">Multi-Scene</Badge>
+                </h3>
+                <p className="text-sm text-zinc-400 mt-1">
+                  Generate long videos with visual consistency by extending scenes sequentially.
+                </p>
+                <div className="flex items-center gap-4 mt-3 text-xs text-zinc-500">
+                  <span className="flex items-center gap-1">
+                    <SkipForward className="w-3 h-3" />
+                    Up to 148s
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Volume2 className="w-3 h-3" />
+                    Native audio
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" />
+                    Visual continuity
+                  </span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl bg-zinc-900 border-zinc-700 max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Film className="w-5 h-5 text-emerald-400" />
+            Continuous Video Generator
+          </DialogTitle>
+          <DialogDescription>
+            Create longer videos with visual consistency. Each scene extends the previous one, maintaining style and characters.
+          </DialogDescription>
+        </DialogHeader>
+
+        {result?.success && result.videoUrl ? (
+          <div className="space-y-4">
+            <div className="rounded-lg overflow-hidden bg-black">
+              <video 
+                src={result.videoUrl} 
+                controls 
+                autoPlay 
+                className="w-full"
+              />
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-4 text-zinc-400">
+                <span className="flex items-center gap-1">
+                  <Clock className="w-4 h-4" />
+                  ~{result.totalDuration}s
+                </span>
+                <span className="flex items-center gap-1">
+                  <Film className="w-4 h-4" />
+                  {result.hopCount} scenes
+                </span>
+                <Badge variant="outline">{model}</Badge>
+              </div>
+              <Button size="sm" variant="outline" asChild>
+                <a href={result.videoUrl} download target="_blank" rel="noopener noreferrer">
+                  <Download className="w-4 h-4 mr-1" />
+                  Download
+                </a>
+              </Button>
+            </div>
+            {result.sceneResults && (
+              <div className="space-y-2 p-3 rounded-lg bg-zinc-800/50">
+                <p className="text-xs text-zinc-400 font-medium">Scene Results:</p>
+                {result.sceneResults.map((scene, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    {scene.success ? (
+                      <CheckCircle className="w-3 h-3 text-green-400" />
+                    ) : (
+                      <XCircle className="w-3 h-3 text-red-400" />
+                    )}
+                    <span className="text-zinc-400">Scene {scene.sceneIndex + 1}:</span>
+                    <span className={scene.success ? 'text-green-400' : 'text-red-400'}>
+                      {scene.success ? 'Success' : scene.error?.substring(0, 50)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {result.processingTimeMs && (
+              <p className="text-xs text-zinc-500 text-center">
+                Generated in {Math.round(result.processingTimeMs / 1000)}s
+              </p>
+            )}
+            <Button onClick={handleClose} className="w-full">
+              Done
+            </Button>
+          </div>
+        ) : result?.error ? (
+          <div className="space-y-4">
+            <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+              <div className="flex items-start gap-3">
+                <XCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-red-400">Generation Failed</p>
+                  <p className="text-sm text-zinc-400 mt-1">{result.error}</p>
+                </div>
+              </div>
+            </div>
+            <Button onClick={() => setResult(null)} variant="outline" className="w-full">
+              Try Again
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Model</Label>
+                <Select value={model} onValueChange={(v) => setModel(v as typeof model)}>
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="continuous-video-model">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="veo-3.1">Veo 3.1 (Recommended)</SelectItem>
+                    <SelectItem value="veo-3.1-fast">Veo 3.1 Fast</SelectItem>
+                    <SelectItem value="veo-3.0">Veo 3.0 (Premium)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Aspect Ratio</Label>
+                <Select value={aspectRatio} onValueChange={(v) => setAspectRatio(v as typeof aspectRatio)}>
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="continuous-video-aspect">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="16:9">16:9 (Landscape)</SelectItem>
+                    <SelectItem value="9:16">9:16 (Portrait)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label>Scenes ({scenes.length}/20)</Label>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={addScene}
+                  disabled={scenes.length >= 20}
+                  className="h-7 text-xs"
+                >
+                  + Add Scene
+                </Button>
+              </div>
+
+              <ScrollArea className="h-[280px] pr-4">
+                <div className="space-y-3">
+                  {scenes.map((scene, index) => (
+                    <div key={index} className="p-3 rounded-lg bg-zinc-800/50 border border-zinc-700 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-zinc-300">
+                          Scene {index + 1}
+                          {index === 0 && <span className="text-xs text-zinc-500 ml-2">(Base - 8s)</span>}
+                          {index > 0 && <span className="text-xs text-zinc-500 ml-2">(Extension - 7s)</span>}
+                        </span>
+                        {scenes.length > 1 && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => removeScene(index)}
+                            className="h-6 w-6 p-0 text-zinc-500 hover:text-red-400"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </Button>
+                        )}
+                      </div>
+                      <Textarea
+                        placeholder="Describe what happens in this scene..."
+                        value={scene.prompt}
+                        onChange={(e) => updateScene(index, 'prompt', e.target.value)}
+                        rows={2}
+                        className="bg-zinc-900 border-zinc-700 text-sm"
+                        data-testid={`continuous-scene-prompt-${index}`}
+                      />
+                      {index > 0 && (
+                        <label className="flex items-center gap-2 text-xs text-zinc-400 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={scene.resetRequired}
+                            onChange={(e) => updateScene(index, 'resetRequired', e.target.checked)}
+                            className="rounded border-zinc-600"
+                          />
+                          Reset visual style (start fresh instead of extending)
+                        </label>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
+
+            <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-xs space-y-1">
+              <p className="flex items-center gap-2 text-emerald-400">
+                <CheckCircle className="w-4 h-4" />
+                Estimated total duration: ~{estimatedDuration} seconds
+              </p>
+              <p className="text-zinc-400">
+                Cost estimate: ~${(estimatedDuration * 0.75).toFixed(2)} with native audio
+              </p>
+            </div>
+
+            <Button 
+              onClick={handleGenerate}
+              disabled={scenes.every(s => !s.prompt.trim()) || generateMutation.isPending}
+              className="w-full bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600"
+              data-testid="continuous-video-generate"
+            >
+              {generateMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Generating... (may take {Math.ceil(estimatedDuration / 8) * 2}-{Math.ceil(estimatedDuration / 8) * 5} min)
+                </>
+              ) : (
+                <>
+                  <Film className="w-4 h-4 mr-2" />
+                  Generate Continuous Video
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ProjectSelector({ projects, selectedId, onSelect }: { 
   projects: VideoProject[]; 
   selectedId: string | null;
@@ -600,12 +930,15 @@ export default function VideoAssemblyPage() {
         {!selectedProjectId ? (
           <div className="space-y-6">
             <div>
-              <h2 className="text-lg font-medium mb-3">Quick Generation</h2>
-              <QuickVideoGenerator />
+              <h2 className="text-lg font-medium mb-3">Video Generation</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <QuickVideoGenerator />
+                <ContinuousVideoGenerator />
+              </div>
             </div>
 
             <div>
-              <h2 className="text-lg font-medium mb-3">Multi-Scene Projects</h2>
+              <h2 className="text-lg font-medium mb-3">Existing Multi-Scene Projects</h2>
               {projectsLoading ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
