@@ -390,18 +390,29 @@ export default function ContentFactoryPage() {
     refetchInterval: 5000,
   });
 
-  const { data: generatedContent = [], isLoading: isLoadingContent } = useQuery<GeneratedContent[]>({
-    queryKey: ["/api/content", selectedClientId],
+  // Content pagination state
+  const [contentPage, setContentPage] = useState(0);
+  const contentLimit = 50;
+
+  const { data: contentData, isLoading: isLoadingContent } = useQuery<{
+    items: GeneratedContent[];
+    pagination: { limit: number; offset: number; total: number; hasMore: boolean };
+  }>({
+    queryKey: ["/api/content", selectedClientId, contentPage],
     queryFn: async () => {
+      const offset = contentPage * contentLimit;
       const url = selectedClientId
-        ? `/api/content?clientId=${selectedClientId}`
-        : "/api/content";
+        ? `/api/content?clientId=${selectedClientId}&limit=${contentLimit}&offset=${offset}`
+        : `/api/content?limit=${contentLimit}&offset=${offset}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch content");
       return res.json();
     },
     refetchInterval: 5000,
   });
+
+  const generatedContent = contentData?.items ?? [];
+  const contentPagination = contentData?.pagination;
 
   const runPipelineMutation = useMutation({
     mutationFn: async (clientId: number) => {
@@ -1392,6 +1403,37 @@ export default function ContentFactoryPage() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+              
+              {/* Pagination Controls */}
+              {contentPagination && contentPagination.total > contentLimit && (
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-zinc-700">
+                  <div className="text-sm text-zinc-400">
+                    Showing {contentPagination.offset + 1}-{Math.min(contentPagination.offset + contentLimit, contentPagination.total)} of {contentPagination.total}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-zinc-600"
+                      onClick={() => setContentPage(p => Math.max(0, p - 1))}
+                      disabled={contentPage === 0}
+                      data-testid="button-content-prev-page"
+                    >
+                      Previous
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-zinc-600"
+                      onClick={() => setContentPage(p => p + 1)}
+                      disabled={!contentPagination.hasMore}
+                      data-testid="button-content-next-page"
+                    >
+                      Next
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>

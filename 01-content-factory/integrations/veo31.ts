@@ -438,7 +438,6 @@ async function checkVertexAIStatus(operationName: string): Promise<Veo31Result> 
 }
 
 async function checkGeminiStatus(operationName: string): Promise<Veo31Result> {
-  // Prefer GEMINI_API_KEY first as it's the validated key
   const apiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
   
   if (!apiKey) {
@@ -449,25 +448,20 @@ async function checkGeminiStatus(operationName: string): Promise<Veo31Result> {
   }
 
   try {
-    // Build URL - use x-goog-api-key header ONLY for authentication (per Google docs)
-    // Do NOT add query param - header auth is sufficient and required
     let url: string;
     if (operationName.startsWith('http')) {
-      // If it's already a full URL, strip any existing key param to avoid conflicts
       const urlObj = new URL(operationName);
-      urlObj.searchParams.delete('key');
+      urlObj.searchParams.set('key', apiKey);
       url = urlObj.toString();
     } else {
-      // Build the operation status URL
-      url = `https://generativelanguage.googleapis.com/v1beta/${operationName}`;
+      url = `https://generativelanguage.googleapis.com/v1beta/${operationName}?key=${apiKey}`;
     }
 
-    console.log(`[Veo3.1] Checking status at: ${url.substring(0, 100)}...`);
+    console.log(`[Veo3.1] Checking status at: ${url.substring(0, 80)}...`);
 
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
       },
     });
 
@@ -755,22 +749,15 @@ export async function generateQuickVideo(
   console.log(`[QuickVideo] Prompt: ${enhancedPrompt.substring(0, 200)}...`);
   console.log(`[QuickVideo] Native audio: enabled`);
 
+  // Try Veo 3.1 first
   const generateResult = await generateVideoWithVeo31(enhancedPrompt, {
     model,
     duration,
     aspectRatio,
-    generateAudio: true, // Always request native audio for quick videos
+    generateAudio: true,
   });
 
-  if (!generateResult.success) {
-    return {
-      success: false,
-      error: generateResult.error,
-      model,
-    };
-  }
-
-  if (generateResult.videoUrl) {
+  if (generateResult.success && generateResult.videoUrl) {
     return {
       success: true,
       videoUrl: generateResult.videoUrl,
@@ -781,35 +768,86 @@ export async function generateQuickVideo(
     };
   }
 
-  if (!generateResult.taskId) {
-    return {
-      success: false,
-      error: 'No task ID received from Veo',
-      model,
-    };
+  if (generateResult.success && generateResult.taskId) {
+    console.log(`[QuickVideo] Waiting for Veo completion: ${generateResult.taskId}`);
+    const completionResult = await waitForVeo31Completion(generateResult.taskId, 600, 15);
+
+    if (completionResult.success && completionResult.videoUrl) {
+      console.log(`[QuickVideo] Video completed: ${completionResult.videoUrl}`);
+      return {
+        success: true,
+        videoUrl: completionResult.videoUrl,
+        duration,
+        hasAudio: completionResult.hasAudio ?? true,
+        model,
+        processingTimeMs: Date.now() - startTime,
+      };
+    }
+    
+    console.log(`[QuickVideo] Veo completion failed: ${completionResult.error}`);
+  } else {
+    console.log(`[QuickVideo] Veo generation failed: ${generateResult.error}`);
   }
 
-  console.log(`[QuickVideo] Waiting for completion: ${generateResult.taskId}`);
-  const completionResult = await waitForVeo31Completion(generateResult.taskId, 600, 15);
+  // Fallback to Runway if Veo fails
+  console.log(`[QuickVideo] Falling back to Runway...`);
+  try {
+    const { generateVideoWithRunway, waitForVideoCompletion } = await import('./runway');
+    
+    if (!process.env.RUNWAY_API_KEY) {
+      return {
+        success: false,
+        error: 'No video providers available. Veo failed and RUNWAY_API_KEY not configured.',
+        model,
+        processingTimeMs: Date.now() - startTime,
+      };
+    }
 
-  if (!completionResult.success || !completionResult.videoUrl) {
+    const runwayResult = await generateVideoWithRunway(enhancedPrompt, {
+      duration: Math.min(duration, 10), // Runway supports up to 10s
+      aspectRatio: aspectRatio as '16:9' | '9:16',
+      model: 'gen4_turbo',
+    });
+
+    if (!runwayResult.success || !runwayResult.taskId) {
+      return {
+        success: false,
+        error: runwayResult.error || 'Runway video generation failed to start',
+        model: 'runway_fallback',
+        processingTimeMs: Date.now() - startTime,
+      };
+    }
+
+    console.log(`[QuickVideo] Waiting for Runway completion: ${runwayResult.taskId}`);
+    const runwayCompletion = await waitForVideoCompletion(runwayResult.taskId, 300, 5);
+
+    if (runwayCompletion.success && runwayCompletion.videoUrl) {
+      console.log(`[QuickVideo] Runway video completed: ${runwayCompletion.videoUrl}`);
+      return {
+        success: true,
+        videoUrl: runwayCompletion.videoUrl,
+        duration: Math.min(duration, 10),
+        hasAudio: false, // Runway doesn't generate native audio like Veo
+        model: 'runway_gen4_turbo',
+        processingTimeMs: Date.now() - startTime,
+      };
+    }
+
     return {
       success: false,
-      error: completionResult.error || 'Video generation failed',
+      error: runwayCompletion.error || 'Runway video generation failed',
+      model: 'runway_fallback',
+      processingTimeMs: Date.now() - startTime,
+    };
+  } catch (runwayError: any) {
+    console.error(`[QuickVideo] Runway fallback error:`, runwayError);
+    return {
+      success: false,
+      error: `All providers failed. Last error: ${runwayError.message || 'Unknown error'}`,
       model,
       processingTimeMs: Date.now() - startTime,
     };
   }
-
-  console.log(`[QuickVideo] Video completed: ${completionResult.videoUrl}`);
-  return {
-    success: true,
-    videoUrl: completionResult.videoUrl,
-    duration,
-    hasAudio: completionResult.hasAudio ?? true,
-    model,
-    processingTimeMs: Date.now() - startTime,
-  };
 }
 
 // ==========================================

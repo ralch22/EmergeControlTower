@@ -32,7 +32,7 @@ export interface VideoProviderResult {
   provider?: string;
   taskId?: string;
   videoUrl?: string;
-  status?: 'pending' | 'processing' | 'completed' | 'failed';
+  status?: 'pending' | 'processing' | 'completed' | 'failed' | 'throttled';
   error?: string;
   imageUrl?: string;
   fallbackAttempts?: number;

@@ -130,8 +130,9 @@ export interface IStorage {
 
   // Generated Content
   getGeneratedContent(runId: string): Promise<GeneratedContentRecord[]>;
-  getGeneratedContentByClient(clientId: number): Promise<GeneratedContentRecord[]>;
-  getAllGeneratedContent(): Promise<GeneratedContentRecord[]>;
+  getGeneratedContentByClient(clientId: number, limit?: number, offset?: number): Promise<GeneratedContentRecord[]>;
+  getAllGeneratedContent(limit?: number, offset?: number): Promise<GeneratedContentRecord[]>;
+  getGeneratedContentCount(clientId?: number): Promise<number>;
   updateGeneratedContentStatus(contentId: string, status: string): Promise<GeneratedContentRecord>;
   createGeneratedContent(content: InsertGeneratedContent): Promise<GeneratedContentRecord>;
 
@@ -491,19 +492,36 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(generatedContent.createdAt));
   }
 
-  async getGeneratedContentByClient(clientId: number): Promise<GeneratedContentRecord[]> {
+  async getGeneratedContentByClient(clientId: number, limit = 50, offset = 0): Promise<GeneratedContentRecord[]> {
     return await db
       .select()
       .from(generatedContent)
       .where(eq(generatedContent.clientId, clientId))
-      .orderBy(desc(generatedContent.createdAt));
+      .orderBy(desc(generatedContent.createdAt))
+      .limit(limit)
+      .offset(offset);
   }
 
-  async getAllGeneratedContent(): Promise<GeneratedContentRecord[]> {
+  async getAllGeneratedContent(limit = 50, offset = 0): Promise<GeneratedContentRecord[]> {
     return await db
       .select()
       .from(generatedContent)
-      .orderBy(desc(generatedContent.createdAt));
+      .orderBy(desc(generatedContent.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async getGeneratedContentCount(clientId?: number): Promise<number> {
+    let query = db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(generatedContent);
+    
+    if (clientId !== undefined) {
+      query = query.where(eq(generatedContent.clientId, clientId)) as typeof query;
+    }
+    
+    const result = await query;
+    return result[0]?.count || 0;
   }
 
   async updateGeneratedContentStatus(contentId: string, status: string): Promise<GeneratedContentRecord> {

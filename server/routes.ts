@@ -1364,15 +1364,22 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
     }
   });
 
-  // Get all generated content
+  // Get all generated content with pagination
   app.get("/api/content", async (req, res) => {
     try {
-      const { clientId } = req.query;
+      const { clientId, limit = '50', offset = '0' } = req.query;
+      const limitNum = Math.min(Math.max(parseInt(String(limit)) || 50, 1), 100);
+      const offsetNum = Math.max(parseInt(String(offset)) || 0, 0);
+      
       let content;
+      let totalCount;
       if (clientId) {
-        content = await storage.getGeneratedContentByClient(Number(clientId));
+        const clientIdNum = Number(clientId);
+        content = await storage.getGeneratedContentByClient(clientIdNum, limitNum, offsetNum);
+        totalCount = await storage.getGeneratedContentCount(clientIdNum);
       } else {
-        content = await storage.getAllGeneratedContent();
+        content = await storage.getAllGeneratedContent(limitNum, offsetNum);
+        totalCount = await storage.getGeneratedContentCount();
       }
       
       // Parse metadata and extract media URLs
@@ -1394,7 +1401,15 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
         };
       });
       
-      res.json(enrichedContent);
+      res.json({
+        items: enrichedContent,
+        pagination: {
+          limit: limitNum,
+          offset: offsetNum,
+          total: totalCount,
+          hasMore: offsetNum + limitNum < totalCount,
+        },
+      });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch content" });
     }
