@@ -598,8 +598,22 @@ function ContinuousVideoGenerator() {
           </DialogDescription>
         </DialogHeader>
 
-        {result?.success && result.videoUrl ? (
+        {result?.videoUrl ? (
           <div className="space-y-4">
+            {/* Partial success warning - show when success is false, regardless of error string */}
+            {!result.success && (
+              <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-yellow-400">Partial Video Generated</p>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      {result.error || 'Some scenes failed to generate. The video contains only successful scenes.'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="rounded-lg overflow-hidden bg-black">
               <video 
                 src={result.videoUrl} 
@@ -619,6 +633,9 @@ function ContinuousVideoGenerator() {
                   {result.hopCount} scenes
                 </span>
                 <Badge variant="outline">{model}</Badge>
+                {!result.success && (
+                  <Badge variant="outline" className="border-yellow-500/50 text-yellow-400">Partial</Badge>
+                )}
               </div>
               <Button size="sm" variant="outline" asChild>
                 <a href={result.videoUrl} download target="_blank" rel="noopener noreferrer">
@@ -634,12 +651,14 @@ function ContinuousVideoGenerator() {
                   <div key={i} className="flex items-center gap-2 text-xs">
                     {scene.success ? (
                       <CheckCircle className="w-3 h-3 text-green-400" />
+                    ) : scene.error?.includes('Skipped') ? (
+                      <SkipForward className="w-3 h-3 text-zinc-500" />
                     ) : (
                       <XCircle className="w-3 h-3 text-red-400" />
                     )}
                     <span className="text-zinc-400">Scene {scene.sceneIndex + 1}:</span>
-                    <span className={scene.success ? 'text-green-400' : 'text-red-400'}>
-                      {scene.success ? 'Success' : scene.error?.substring(0, 50)}
+                    <span className={scene.success ? 'text-green-400' : scene.error?.includes('Skipped') ? 'text-zinc-500' : 'text-red-400'}>
+                      {scene.success ? 'Success' : scene.error?.substring(0, 60)}
                     </span>
                   </div>
                 ))}

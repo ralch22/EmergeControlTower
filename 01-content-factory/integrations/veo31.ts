@@ -449,11 +449,14 @@ async function checkGeminiStatus(operationName: string): Promise<Veo31Result> {
   }
 
   try {
-    // Build URL - use x-goog-api-key header for authentication (per Google docs)
+    // Build URL - use x-goog-api-key header ONLY for authentication (per Google docs)
+    // Do NOT add query param - header auth is sufficient and required
     let url: string;
     if (operationName.startsWith('http')) {
-      // If it's already a full URL, append key if not present
-      url = operationName.includes('key=') ? operationName : `${operationName}?key=${apiKey}`;
+      // If it's already a full URL, strip any existing key param to avoid conflicts
+      const urlObj = new URL(operationName);
+      urlObj.searchParams.delete('key');
+      url = urlObj.toString();
     } else {
       // Build the operation status URL
       url = `https://generativelanguage.googleapis.com/v1beta/${operationName}`;
@@ -686,6 +689,8 @@ export interface SceneExtensionConfig {
   generateAudio?: boolean;
   brandGuidelines?: BrandGuidelines;
   maxHops?: number; // Max 20 for Veo 3.1
+  maxRetries?: number; // Max retries per scene (default: 2)
+  retryDelayMs?: number; // Base delay between retries (default: 5000ms)
 }
 
 export interface SceneDefinition {
@@ -1022,11 +1027,23 @@ export async function extendVideoWithVeo31(
 }
 
 /**
+ * Helper to sleep for a specified time with exponential backoff
+ */
+async function sleepWithBackoff(baseDelayMs: number, attempt: number): Promise<void> {
+  const delayMs = baseDelayMs * Math.pow(2, attempt); // Exponential: 5s, 10s, 20s, etc.
+  console.log(`[ContinuousVideo] Waiting ${delayMs / 1000}s before retry...`);
+  await new Promise(resolve => setTimeout(resolve, delayMs));
+}
+
+/**
  * Generate a continuous video by creating a base clip and extending it
  * for each scene in the script. Maintains visual consistency across scenes.
  * 
+ * Uses retry logic with exponential backoff for failed scenes. If all retries
+ * exhaust for any scene, the chain halts and returns the last successful clip.
+ * 
  * @param scenes - Array of scene definitions with prompts
- * @param config - Extension configuration (model, aspect ratio, etc.)
+ * @param config - Extension configuration (model, aspect ratio, retries, etc.)
  * @returns Continuous video result with final video URL
  */
 export async function generateContinuousVideo(
@@ -1045,6 +1062,8 @@ export async function generateContinuousVideo(
   }
 
   const maxHops = Math.min(config.maxHops || MAX_EXTENSION_HOPS, MAX_EXTENSION_HOPS);
+  const maxRetries = config.maxRetries ?? 2; // Default 2 retries (3 total attempts)
+  const retryDelayMs = config.retryDelayMs ?? 5000; // Default 5 second base delay
   
   if (scenes.length > maxHops) {
     console.warn(`[ContinuousVideo] Scene count (${scenes.length}) exceeds max hops (${maxHops}). Will process first ${maxHops} scenes.`);
@@ -1053,90 +1072,121 @@ export async function generateContinuousVideo(
   const scenesToProcess = scenes.slice(0, maxHops);
   let currentVideoUrl: string | null = null;
   let hopCount = 0;
+  let chainBroken = false;
+  let breakReason: string | undefined;
 
   console.log(`[ContinuousVideo] Starting continuous generation with ${scenesToProcess.length} scenes...`);
   console.log(`[ContinuousVideo] Model: ${config.model || 'veo-3.1'}, Aspect: ${config.aspectRatio || '16:9'}`);
+  console.log(`[ContinuousVideo] Retry config: ${maxRetries} retries, ${retryDelayMs}ms base delay`);
 
   for (let i = 0; i < scenesToProcess.length; i++) {
     const scene = scenesToProcess[i];
     const isFirstScene = i === 0;
     const shouldReset = scene.resetRequired || isFirstScene;
+    
+    let sceneSuccess = false;
+    let lastError: string | undefined;
+    let attemptCount = 0;
 
     console.log(`[ContinuousVideo] Processing scene ${i + 1}/${scenesToProcess.length}: ${scene.prompt.substring(0, 80)}...`);
 
-    try {
-      let result: Veo31Result;
-
-      if (shouldReset || !currentVideoUrl) {
-        // Generate fresh base video for first scene or reset scenes
-        console.log(`[ContinuousVideo] Generating base video for scene ${i + 1}...`);
-        result = await generateVideoWithVeo31(scene.prompt, {
-          model: config.model,
-          aspectRatio: config.aspectRatio,
-          generateAudio: config.generateAudio ?? true,
-          brandGuidelines: config.brandGuidelines,
-          duration: 8, // Use longest duration for base
-        });
-      } else {
-        // Extend from previous video
-        console.log(`[ContinuousVideo] Extending video for scene ${i + 1} from: ${currentVideoUrl}`);
-        result = await extendVideoWithVeo31(currentVideoUrl, scene.prompt, config);
+    // Retry loop for this scene
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      attemptCount++;
+      
+      if (attempt > 0) {
+        console.log(`[ContinuousVideo] Retry ${attempt}/${maxRetries} for scene ${i + 1}...`);
+        await sleepWithBackoff(retryDelayMs, attempt - 1);
       }
 
-      if (!result.success) {
+      try {
+        let result: Veo31Result;
+
+        if (shouldReset || !currentVideoUrl) {
+          console.log(`[ContinuousVideo] Generating base video for scene ${i + 1} (attempt ${attemptCount})...`);
+          result = await generateVideoWithVeo31(scene.prompt, {
+            model: config.model,
+            aspectRatio: config.aspectRatio,
+            generateAudio: config.generateAudio ?? true,
+            brandGuidelines: config.brandGuidelines,
+            duration: 8,
+          });
+        } else {
+          console.log(`[ContinuousVideo] Extending video for scene ${i + 1} (attempt ${attemptCount}) from: ${currentVideoUrl.substring(0, 60)}...`);
+          result = await extendVideoWithVeo31(currentVideoUrl, scene.prompt, config);
+        }
+
+        if (!result.success) {
+          lastError = result.error || 'Generation failed';
+          console.warn(`[ContinuousVideo] Scene ${i + 1} attempt ${attemptCount} failed: ${lastError}`);
+          continue; // Try next attempt
+        }
+
+        // Wait for completion if we got a task ID
+        let finalResult = result;
+        if (result.taskId && !result.videoUrl) {
+          console.log(`[ContinuousVideo] Waiting for scene ${i + 1} completion (attempt ${attemptCount})...`);
+          finalResult = await waitForVeo31Completion(
+            result.taskId,
+            EXTENSION_MAX_WAIT,
+            EXTENSION_POLL_INTERVAL
+          );
+        }
+
+        if (!finalResult.success || !finalResult.videoUrl) {
+          lastError = finalResult.error || 'No video URL returned after completion';
+          console.warn(`[ContinuousVideo] Scene ${i + 1} completion attempt ${attemptCount} failed: ${lastError}`);
+          continue; // Try next attempt
+        }
+
+        // Success! Update current video URL for next extension
+        currentVideoUrl = finalResult.videoUrl;
+        hopCount++;
+        sceneSuccess = true;
+
         sceneResults.push({
           sceneIndex: i,
           prompt: scene.prompt,
-          success: false,
-          error: result.error,
+          success: true,
+          videoUrl: currentVideoUrl,
         });
-        console.error(`[ContinuousVideo] Scene ${i + 1} failed: ${result.error}`);
-        continue; // Try next scene
+
+        console.log(`[ContinuousVideo] Scene ${i + 1} completed after ${attemptCount} attempt(s): ${currentVideoUrl.substring(0, 60)}...`);
+        break; // Exit retry loop on success
+
+      } catch (error: any) {
+        lastError = error.message || 'Unknown error';
+        console.warn(`[ContinuousVideo] Scene ${i + 1} attempt ${attemptCount} threw error: ${lastError}`);
+        // Continue to next retry attempt
       }
+    }
 
-      // Wait for completion if we got a task ID
-      let finalResult = result;
-      if (result.taskId && !result.videoUrl) {
-        console.log(`[ContinuousVideo] Waiting for scene ${i + 1} completion...`);
-        finalResult = await waitForVeo31Completion(
-          result.taskId,
-          EXTENSION_MAX_WAIT,
-          EXTENSION_POLL_INTERVAL
-        );
-      }
-
-      if (!finalResult.success || !finalResult.videoUrl) {
-        sceneResults.push({
-          sceneIndex: i,
-          prompt: scene.prompt,
-          success: false,
-          error: finalResult.error || 'No video URL returned',
-        });
-        console.error(`[ContinuousVideo] Scene ${i + 1} completion failed: ${finalResult.error}`);
-        continue;
-      }
-
-      // Update current video URL for next extension
-      currentVideoUrl = finalResult.videoUrl;
-      hopCount++;
-
-      sceneResults.push({
-        sceneIndex: i,
-        prompt: scene.prompt,
-        success: true,
-        videoUrl: currentVideoUrl,
-      });
-
-      console.log(`[ContinuousVideo] Scene ${i + 1} completed: ${currentVideoUrl}`);
-
-    } catch (error: any) {
-      console.error(`[ContinuousVideo] Scene ${i + 1} error:`, error);
+    // If scene failed after all retries, halt the chain
+    if (!sceneSuccess) {
+      chainBroken = true;
+      breakReason = `Scene ${i + 1} failed after ${attemptCount} attempts: ${lastError}`;
+      
       sceneResults.push({
         sceneIndex: i,
         prompt: scene.prompt,
         success: false,
-        error: error.message || 'Unknown error',
+        error: `Failed after ${attemptCount} attempts: ${lastError}`,
       });
+
+      console.error(`[ContinuousVideo] Chain broken at scene ${i + 1}! ${breakReason}`);
+      console.log(`[ContinuousVideo] Halting generation. Returning last successful clip.`);
+      
+      // Mark remaining scenes as skipped
+      for (let j = i + 1; j < scenesToProcess.length; j++) {
+        sceneResults.push({
+          sceneIndex: j,
+          prompt: scenesToProcess[j].prompt,
+          success: false,
+          error: 'Skipped - previous scene failed',
+        });
+      }
+      
+      break; // Exit the scene loop
     }
   }
 
@@ -1146,7 +1196,7 @@ export async function generateContinuousVideo(
   if (!lastSuccessful) {
     return {
       success: false,
-      error: 'All scenes failed to generate',
+      error: breakReason || 'All scenes failed to generate',
       sceneResults,
       processingTimeMs: Date.now() - startTime,
     };
@@ -1157,18 +1207,19 @@ export async function generateContinuousVideo(
   const extensionDuration = (hopCount - 1) * EXTENSION_DURATION_SECONDS;
   const totalDuration = baseDuration + Math.max(0, extensionDuration);
 
-  console.log(`[ContinuousVideo] Generation complete!`);
+  console.log(`[ContinuousVideo] Generation ${chainBroken ? 'partially complete (chain broken)' : 'complete'}!`);
   console.log(`[ContinuousVideo] Final video: ${lastSuccessful.videoUrl}`);
   console.log(`[ContinuousVideo] Successful scenes: ${successfulScenes.length}/${scenesToProcess.length}`);
   console.log(`[ContinuousVideo] Total duration: ~${totalDuration}s`);
 
   return {
-    success: true,
+    success: !chainBroken, // Only fully successful if no chain break
     videoUrl: lastSuccessful.videoUrl,
     totalDuration,
     hopCount,
     sceneResults,
     processingTimeMs: Date.now() - startTime,
+    error: chainBroken ? breakReason : undefined,
   };
 }
 
