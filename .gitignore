@@ -6,3 +6,4 @@ vite.config.ts.*
 *.tar.gz
 # Sensitive credentials
 attached_assets/*.json
+start.sh
