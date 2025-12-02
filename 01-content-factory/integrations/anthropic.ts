@@ -65,4 +65,61 @@ export async function generateWithClaudeStreaming(
   return fullResponse;
 }
 
+export interface VisionContent {
+  type: "image";
+  source: {
+    type: "base64";
+    media_type: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+    data: string;
+  };
+}
+
+export interface TextContent {
+  type: "text";
+  text: string;
+}
+
+export type MessageContent = VisionContent | TextContent;
+
+export async function generateWithClaudeVision(
+  systemPrompt: string,
+  userPrompt: string,
+  images: Array<{ base64: string; mediaType?: "image/jpeg" | "image/png" | "image/gif" | "image/webp" }>,
+  options: {
+    maxTokens?: number;
+    temperature?: number;
+  } = {}
+): Promise<string> {
+  const { maxTokens = 4096, temperature = 0.3 } = options;
+
+  const content: MessageContent[] = [];
+
+  for (const image of images) {
+    const mediaType = image.mediaType || (image.base64.startsWith("/9j/") ? "image/jpeg" : "image/png");
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: mediaType,
+        data: image.base64,
+      },
+    });
+  }
+
+  content.push({
+    type: "text",
+    text: userPrompt,
+  });
+
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-5",
+    max_tokens: maxTokens,
+    system: systemPrompt,
+    messages: [{ role: "user", content }],
+  });
+
+  const textBlock = response.content.find((block) => block.type === "text");
+  return textBlock?.text || "";
+}
+
 export { anthropic };

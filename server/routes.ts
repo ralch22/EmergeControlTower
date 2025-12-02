@@ -7204,6 +7204,215 @@ export function registerVideoIngredientsRoutes(app: Express) {
     }
   });
 
+  // ==================== VISUAL QA ENDPOINTS ====================
+  // Brand visual compliance validation for images and videos
+
+  // Validate a single visual asset (image or video scene) against brand guidelines
+  app.post("/api/visual-qa/validate", async (req, res) => {
+    try {
+      const { assetType, assetUrl, assetBase64, sceneDescription, clientId, requireVisualContent = true } = req.body;
+
+      if (!assetType || (!assetUrl && !assetBase64 && !sceneDescription)) {
+        return res.status(400).json({ 
+          error: "assetType and either assetUrl, assetBase64, or sceneDescription are required" 
+        });
+      }
+
+      // Fetch client brand profile
+      let brandProfile = null;
+      if (clientId) {
+        const client = await storage.getClient(clientId);
+        if (client?.brandProfile) {
+          brandProfile = client.brandProfile;
+        }
+      }
+
+      if (!brandProfile) {
+        return res.status(400).json({ 
+          error: "Client brand profile not found. Please configure brand guidelines first." 
+        });
+      }
+
+      const { validateVisualAsset } = await import("../01-content-factory/services/visual-qa");
+      const result = await validateVisualAsset({
+        assetType,
+        assetUrl,
+        assetBase64,
+        sceneDescription,
+        brandProfile,
+        requireVisualContent,
+      });
+
+      if (!result.success) {
+        return res.json({
+          success: false,
+          validationFailed: true,
+          failureReason: result.error,
+          clientId,
+          assetType,
+          requiresRework: true,
+        });
+      }
+
+      res.json({
+        success: true,
+        result: result.data,
+        clientId,
+        assetType,
+        analysisMode: result.data?.detailedFeedback?.startsWith("[LIMITED ANALYSIS") ? "text" : "vision",
+      });
+    } catch (error: any) {
+      console.error("[VisualQA] Validation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Validate an entire video project against brand guidelines
+  app.post("/api/visual-qa/validate-project/:projectId", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { requireVisualContent = true } = req.body;
+
+      const project = await storage.getVideoProject(projectId);
+      if (!project) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      // Fetch client brand profile
+      const client = await storage.getClient(project.clientId);
+      if (!client?.brandProfile) {
+        return res.status(400).json({ 
+          error: "Client brand profile not found. Please configure brand guidelines first." 
+        });
+      }
+
+      // Get all scenes for this project
+      const scenes = await storage.getVideoScenesByProject(projectId);
+
+      const projectScenes = scenes.map(s => ({
+        sceneNumber: s.sceneNumber,
+        visualPrompt: s.visualPrompt || undefined,
+        thumbnailUrl: s.thumbnailUrl || undefined,
+      }));
+
+      const { validateVideoProject } = await import("../01-content-factory/services/visual-qa");
+      const result = await validateVideoProject(projectScenes, client.brandProfile, { requireVisualContent });
+
+      if (!result.success) {
+        return res.json({
+          success: false,
+          validationFailed: true,
+          failureReason: result.error,
+          projectId,
+          clientId: project.clientId,
+          requiresRework: true,
+        });
+      }
+
+      // Convert Map to object for JSON serialization
+      const sceneResultsObj: Record<number, any> = {};
+      if (result.data?.sceneResults) {
+        for (const [key, value] of result.data.sceneResults) {
+          sceneResultsObj[key] = value;
+        }
+      }
+
+      res.json({
+        success: true,
+        projectId,
+        clientId: project.clientId,
+        overallPassed: result.data?.overallPassed,
+        overallScore: result.data?.overallScore,
+        sceneResults: sceneResultsObj,
+        aggregateFeedback: result.data?.aggregateFeedback,
+        scenesValidated: scenes.length,
+        scenesWithoutVisualContent: result.data?.scenesWithoutVisualContent || [],
+      });
+    } catch (error: any) {
+      console.error("[VisualQA] Project validation error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Run visual QA gate check (pass/fail with specific criteria)
+  app.post("/api/visual-qa/gate-check", async (req, res) => {
+    try {
+      const { assetType, assetUrl, assetBase64, sceneDescription, clientId, requireVisualContent = true, allowTextOnlyFallback = false } = req.body;
+
+      if (!assetType || (!assetUrl && !assetBase64 && !sceneDescription)) {
+        return res.status(400).json({ 
+          error: "assetType and either assetUrl, assetBase64, or sceneDescription are required" 
+        });
+      }
+
+      // Fetch client brand profile
+      let brandProfile = null;
+      if (clientId) {
+        const client = await storage.getClient(clientId);
+        if (client?.brandProfile) {
+          brandProfile = client.brandProfile;
+        }
+      }
+
+      if (!brandProfile) {
+        return res.status(400).json({ 
+          error: "Client brand profile not found. Please configure brand guidelines first." 
+        });
+      }
+
+      const { runVisualQAGate, buildVisualQAGateCriteria } = await import("../01-content-factory/services/visual-qa");
+      
+      const criteria = buildVisualQAGateCriteria(brandProfile);
+      const gateResult = await runVisualQAGate(
+        assetType,
+        { url: assetUrl, base64: assetBase64, description: sceneDescription },
+        brandProfile,
+        { requireVisualContent, allowTextOnlyFallback }
+      );
+
+      res.json({
+        success: true,
+        gatePassed: gateResult.passed,
+        gateFailureReasons: gateResult.gateFailureReasons,
+        analysisType: gateResult.analysisType,
+        criteria,
+        result: gateResult.result,
+        clientId,
+        assetType,
+      });
+    } catch (error: any) {
+      console.error("[VisualQA] Gate check error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get visual QA gate criteria for a client
+  app.get("/api/visual-qa/criteria/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+
+      const client = await storage.getClient(clientId);
+      if (!client?.brandProfile) {
+        return res.status(400).json({ 
+          error: "Client brand profile not found. Please configure brand guidelines first." 
+        });
+      }
+
+      const { buildVisualQAGateCriteria } = await import("../01-content-factory/services/visual-qa");
+      const criteria = buildVisualQAGateCriteria(client.brandProfile);
+
+      res.json({
+        clientId,
+        clientName: client.name,
+        criteria,
+        hasBrandProfile: true,
+      });
+    } catch (error: any) {
+      console.error("[VisualQA] Criteria error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ==================== RUNWAY API ENDPOINTS ====================
   // Full Runway API integration with all available models
 

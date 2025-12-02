@@ -129,3 +129,16 @@ export interface QAResult {
     toneMatch?: 'strong' | 'moderate' | 'weak';
   };
 }
+
+export type { 
+  VisualQAResult, 
+  VisualQARequest,
+} from "../services/visual-qa";
+
+export { 
+  validateVisualAsset,
+  validateVideoProject,
+  validateImageBatch,
+  runVisualQAGate,
+  buildVisualQAGateCriteria,
+} from "../services/visual-qa";
