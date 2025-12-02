@@ -1339,3 +1339,57 @@ export const brandLearningPatterns = pgTable("brand_learning_patterns", {
 export const insertBrandLearningPatternSchema = createInsertSchema(brandLearningPatterns).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertBrandLearningPattern = z.infer<typeof insertBrandLearningPatternSchema>;
 export type BrandLearningPattern = typeof brandLearningPatterns.$inferSelect;
+
+// WordPress Publishing Configurations - Per-client WordPress GraphQL endpoints
+export const wordpressConfigs = pgTable("wordpress_configs", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").notNull().unique(),
+  endpointUrl: text("endpoint_url").notNull(), // e.g., https://example.com/graphql
+  authType: text("auth_type").notNull().default("basic"), // basic, jwt, application_password
+  username: text("username"), // For basic/app password auth
+  // API key/password stored as encrypted secret reference (not plaintext)
+  credentialSecretKey: text("credential_secret_key"), // References a secret in env/secrets
+  jwtToken: text("jwt_token"), // For JWT auth (should also be stored securely)
+  siteTitle: text("site_title"), // Cached site title from test connection
+  defaultPostStatus: text("default_post_status").notNull().default("publish"), // draft, pending, publish
+  defaultAuthorId: integer("default_author_id"), // WordPress user ID for posts
+  defaultCategoryIds: jsonb("default_category_ids").$type<number[]>(),
+  autoPublishEnabled: boolean("auto_publish_enabled").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  lastSyncAt: timestamp("last_sync_at"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertWordpressConfigSchema = createInsertSchema(wordpressConfigs).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWordpressConfig = z.infer<typeof insertWordpressConfigSchema>;
+export type WordpressConfig = typeof wordpressConfigs.$inferSelect;
+
+// WordPress Published Posts - Track content published to WordPress
+export const wordpressPublishedPosts = pgTable("wordpress_published_posts", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").notNull(),
+  contentId: text("content_id").notNull(), // References generatedContent.contentId
+  wordpressPostId: integer("wordpress_post_id").notNull(),
+  wordpressPostUrl: text("wordpress_post_url").notNull(),
+  wordpressStatus: text("wordpress_status").notNull(), // draft, pending, publish
+  title: text("title").notNull(),
+  publishedAt: timestamp("published_at"),
+  syncStatus: text("sync_status").notNull().default("synced"), // synced, pending_update, failed
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertWordpressPublishedPostSchema = createInsertSchema(wordpressPublishedPosts).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertWordpressPublishedPost = z.infer<typeof insertWordpressPublishedPostSchema>;
+export type WordpressPublishedPost = typeof wordpressPublishedPosts.$inferSelect;
+
+// Request schema for publishing content to WordPress
+export const publishToWordpressRequestSchema = z.object({
+  contentId: z.string(),
+  status: z.enum(["draft", "pending", "publish"]).default("publish"),
+  categoryIds: z.array(z.number()).optional(),
+  tagIds: z.array(z.number()).optional(),
+});
