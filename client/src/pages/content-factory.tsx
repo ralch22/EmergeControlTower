@@ -70,6 +70,8 @@ import {
   Trash2,
   Edit,
   Settings2,
+  Globe,
+  ExternalLink,
 } from "lucide-react";
 
 type Client = {
@@ -152,6 +154,16 @@ const statusConfig: Record<string, { color: string; icon: React.ReactNode; label
     color: "bg-red-500/20 text-red-400 border-red-500/30",
     icon: <XCircle className="w-3 h-3" />,
     label: "Rejected",
+  },
+  published: {
+    color: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+    icon: <Globe className="w-3 h-3" />,
+    label: "Published",
+  },
+  publish_failed: {
+    color: "bg-red-500/20 text-red-400 border-red-500/30",
+    icon: <XCircle className="w-3 h-3" />,
+    label: "Publish Failed",
   },
 };
 
@@ -395,6 +407,17 @@ export default function ContentFactoryPage() {
     refetchInterval: 30000,
   });
 
+  const { data: wordpressConfigs = [] } = useQuery<{ clientId: number }[]>({
+    queryKey: ["/api/wordpress-configs"],
+    queryFn: async () => {
+      const res = await fetch("/api/wordpress-configs");
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+
+  const clientsWithWordPress = new Set(wordpressConfigs.map(c => c.clientId));
+
   const { data: contentRuns = [], isLoading: isLoadingRuns } = useQuery<ContentRun[]>({
     queryKey: ["/api/content-runs"],
     queryFn: async () => {
@@ -537,6 +560,38 @@ export default function ContentFactoryPage() {
     onError: (error: Error) => {
       toast({
         title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const publishToWordPressMutation = useMutation({
+    mutationFn: async ({ contentId, status }: { contentId: string; status?: string }) => {
+      const res = await fetch("/api/wordpress/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contentId, status }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to publish to WordPress");
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+      toast({
+        title: "Published to WordPress",
+        description: "Blog post has been published successfully",
+      });
+      if (data.postUrl) {
+        window.open(data.postUrl, '_blank');
+      }
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Publishing Failed",
         description: error.message,
         variant: "destructive",
       });
@@ -1518,6 +1573,30 @@ export default function ContentFactoryPage() {
                               Create Video
                             </Button>
                           )}
+                          {(content.status === "approved" || content.status === "publish_failed") && content.type === "blog" && clientsWithWordPress.has(content.clientId) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-2 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                publishToWordPressMutation.mutate({
+                                  contentId: content.contentId,
+                                });
+                              }}
+                              disabled={publishToWordPressMutation.isPending}
+                              data-testid={`button-publish-wp-${content.contentId}`}
+                            >
+                              <Globe className="w-3 h-3 mr-1" />
+                              {content.status === "publish_failed" ? "Retry Publish" : "Publish"}
+                            </Button>
+                          )}
+                          {content.status === "published" && (
+                            <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/30">
+                              <ExternalLink className="w-3 h-3 mr-1" />
+                              Live
+                            </Badge>
+                          )}
                           {content.qaScore && (
                             <Badge variant="outline" className="text-xs">
                               QA: {content.qaScore}%
@@ -1608,6 +1687,29 @@ export default function ContentFactoryPage() {
                             <Film className="w-3 h-3 mr-1" />
                             Create Video
                           </Button>
+                        )}
+                        {(content.status === "approved" || content.status === "publish_failed") && content.type === "blog" && clientsWithWordPress.has(content.clientId) && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+                            onClick={() =>
+                              publishToWordPressMutation.mutate({
+                                contentId: content.contentId,
+                              })
+                            }
+                            disabled={publishToWordPressMutation.isPending}
+                            data-testid={`button-publish-wp-list-${content.contentId}`}
+                          >
+                            <Globe className="w-3 h-3 mr-1" />
+                            {content.status === "publish_failed" ? "Retry" : "Publish"}
+                          </Button>
+                        )}
+                        {content.status === "published" && (
+                          <Badge variant="outline" className="text-xs text-emerald-400 border-emerald-500/30">
+                            <ExternalLink className="w-3 h-3 mr-1" />
+                            Live
+                          </Badge>
                         )}
                       </div>
                     );

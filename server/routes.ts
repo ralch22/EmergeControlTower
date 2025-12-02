@@ -1306,7 +1306,18 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
 
       // Publish
       const wpStatus = status === 'draft' ? 'DRAFT' : status === 'pending' ? 'PENDING' : 'PUBLISH';
-      const result = await publisher.publishPost(content, { status: wpStatus });
+      
+      let result;
+      try {
+        result = await publisher.publishPost(content, { status: wpStatus });
+      } catch (publishError: any) {
+        console.error("WordPress publish error:", publishError);
+        await storage.updateGeneratedContentStatus(contentId, 'publish_failed');
+        return res.status(500).json({
+          success: false,
+          error: publishError.message || "WordPress publishing failed",
+        });
+      }
 
       if (result.success && result.postId && result.postUrl) {
         // Record the published post
@@ -1324,6 +1335,9 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
         // Update content status
         await storage.updateGeneratedContentStatus(contentId, 'published');
 
+        // Log the publish action
+        console.log(`[WordPress] Published content ${contentId} to ${result.postUrl}`);
+
         res.json({
           success: true,
           postId: result.postId,
@@ -1331,6 +1345,8 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
           message: "Content published to WordPress successfully"
         });
       } else {
+        // Mark as publish_failed
+        await storage.updateGeneratedContentStatus(contentId, 'publish_failed');
         res.status(500).json({
           success: false,
           error: result.error || "Failed to publish to WordPress"

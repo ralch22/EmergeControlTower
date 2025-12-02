@@ -407,6 +407,43 @@ export class WordPressPublisher {
       if (!parsed.pathname.includes('graphql')) {
         return { valid: false, error: 'URL does not appear to be a GraphQL endpoint (should contain "graphql" in path)' };
       }
+
+      const hostname = parsed.hostname.toLowerCase();
+      
+      if (hostname === 'localhost' || 
+          hostname === '127.0.0.1' ||
+          hostname === '::1' ||
+          hostname === '[::1]' ||
+          hostname.startsWith('192.168.') ||
+          hostname.startsWith('10.') ||
+          hostname.startsWith('172.16.') ||
+          hostname.startsWith('172.17.') ||
+          hostname.startsWith('172.18.') ||
+          hostname.startsWith('172.19.') ||
+          hostname.startsWith('172.2') ||
+          hostname.startsWith('172.3') ||
+          hostname.startsWith('169.254.') ||
+          hostname.startsWith('fc00:') ||
+          hostname.startsWith('fd') ||
+          hostname.startsWith('fe80:') ||
+          hostname.endsWith('.local') ||
+          hostname.endsWith('.internal') ||
+          hostname.endsWith('.localhost') ||
+          hostname.endsWith('.localdomain') ||
+          hostname.endsWith('.lan') ||
+          hostname.endsWith('.home.arpa') ||
+          hostname === '0.0.0.0' ||
+          /^(\[)?::[^\]]*(\])?$/.test(hostname)) {
+        return { valid: false, error: 'Internal/private network addresses are not allowed' };
+      }
+
+      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)) {
+        return { valid: false, error: 'IP addresses are not allowed for WordPress endpoints - use a domain name' };
+      }
+
+      if (/^\[.*\]$/.test(hostname)) {
+        return { valid: false, error: 'IPv6 addresses are not allowed for WordPress endpoints - use a domain name' };
+      }
       
       return { valid: true };
     } catch {
