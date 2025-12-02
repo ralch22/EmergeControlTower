@@ -1,98 +1,83 @@
 # Emerge Digital Control Tower
 
 ## Overview
-The Emerge Digital Control Tower is a full-stack web application serving as an agency master dashboard. Its core purpose is to track business metrics, manage business units, monitor phase changes, streamline approval workflows, and handle alerts. The application automates content generation, aiming for 40-60 client-ready content pieces daily across various formats, leveraging a modern React frontend with shadcn/ui and an Express backend with a PostgreSQL database. The business vision is to significantly scale content production and management efficiently.
+The Emerge Digital Control Tower is an AI content factory designed to automate the generation of 40-60 client-ready content pieces daily. Its purpose is to provide an agency master dashboard for tracking business metrics, managing clients, and streamlining approval workflows. Key capabilities include multi-provider orchestration, dual video workflows (Veo 3 continuous and Runway+Shotstack parallel), WordPress publishing integration, and comprehensive quality assurance with self-learning mechanisms.
 
 ## User Preferences
 Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-### Core Design Principles
-The system emphasizes fast builds (Vite, esbuild), consistent UI (shadcn/ui), type-safety (TypeScript, Zod, Drizzle ORM), and a robust, self-healing AI provider system. It integrates a sophisticated content factory for automated content generation and a comprehensive video production pipeline.
+### Three-Tier Runtime Architecture
+The system employs a three-tier architecture:
+-   **Frontend**: React + Vite for the user interface, utilizing TanStack Query, shadcn/ui, and Tailwind CSS.
+-   **Backend**: Express + Drizzle for RESTful APIs and WebSockets, bundled with esbuild.
+-   **Data/Orchestration**: PostgreSQL (Neon) for data storage via Drizzle ORM, and a Python Orchestrator (LangGraph) for content generation pipelines.
 
-### Frontend
--   **Technology**: React 18+ (TypeScript), Vite, shadcn/ui (Radix UI), Tailwind CSS v4, Alpine.js.
--   **State Management**: TanStack Query for server state, React Hook Form with Zod for validation.
--   **UI/UX**: Dark mode, Inter font, custom Vite plugins for Replit tooling and meta image generation.
--   **Navigation**: Collapsible sidebar with categories: Content Production, Quality & Review, Brand Management, System.
+### Frontend Layer
+-   **Technology**: React 18+ (TypeScript), Vite, shadcn/ui (Radix UI), Tailwind CSS v4.
+-   **State Management**: TanStack Query for server state, React Hook Form with Zod for form validation.
+-   **UI/UX**: Dark mode default, Inter font, collapsible sidebar navigation.
+-   **Navigation Categories**: Content Production, Quality & Review, Brand Management, System.
 
-### Backend
+### Backend Layer
 -   **Technology**: Express.js (TypeScript, ESM mode).
 -   **API**: RESTful, JSON format, Zod validation, centralized error handling.
--   **Build**: Bundled with esbuild for reduced cold start times.
+-   **WebSocket**: Provides real-time video generation progress updates.
 
-### Data Storage
--   **Database**: PostgreSQL via Neon serverless driver (WebSocket, connection pooling).
+### Data Storage Layer
+-   **Database**: PostgreSQL via Neon serverless driver.
 -   **ORM**: Drizzle ORM for type-safe queries and migrations.
--   **Data Models**: KPIs, Pods, Phase Changes, Approval Queue, Alerts, content generation-specific schemas (e.g., video ingredients).
--   **Abstraction**: `IStorage` interface with `DatabaseStorage` implementation.
+-   **Schema**: Over 40 tables managing KPIs, clients, content, video projects, quality metrics, and learning data.
 
-### Brand Consistency System
--   **Reference Assets**: Logo URLs and website URLs serve as brand consistency anchors for all generated content.
--   **Website URL Integration**: The import-guidelines endpoint saves websiteUrl to client records; all content generation agents include website URL as a brand reference in their prompts.
--   **Reference-Constrained Prompts**: Image and video generation agents use logo references when available to ensure brand-consistent visual output.
--   **EnrichedClientBrief**: Extended client brief type includes websiteUrl and full brand profile for comprehensive prompt context.
+### Content Generation Pipeline
+The pipeline orchestrates the creation of various content types:
+-   **Agents**: Topic Agent, Brand Brief, Dual-Path Router, Blog Agent, Social Agent, Ad Copy Agent, Video Script Agent, Image Generator.
+-   **Content Types**: Blog Posts, Social Media posts, Ad Copy, Video Scripts, Images.
+-   **QA Agent**: Performs brand compliance checks, forbidden words scans, quality scoring (1-10), and CTA alignment verification.
+-   **Publishing Layer**: Integrates with WordPress GraphQL, Buffer (Social), and an Approval Queue.
+-   **Content Status Lifecycle**: `draft → pending_review → approved → published` with `rejected` and `publish_failed` states.
 
-### Content Generation Systems
--   **Content Factory (Python LangGraph)**:
-    -   Orchestrates parallel content generation (topic, blog, social, adcopy, video, QA, publish) via a LangGraph StateGraph pipeline.
-    -   Utilizes specialized agents (Topic, Blog, Social, Ad Copy, Video, QA).
-    -   Integrates with dashboard for KPI updates and approval queue.
--   **Single Content Generation (Quick Create)**:
-    -   Generates individual content pieces on-demand through a dedicated API endpoint (`/api/content/generate-single`).
-    -   Supports various content types with intelligent text generation fallback (Claude → DeepSeek → Llama → Mistral).
--   **Ingredients to Video System**:
-    -   Manages structured video creation (videoIngredients, videoProjects, videoScenes, videoClips, audioTracks).
-    -   Multi-provider orchestration for video, reference image generation (Nano Banana Pro, Fal AI Flux Pro, Alibaba Dashscope), and voiceover (ElevenLabs, OpenAI TTS).
-    -   Video assembly via Shotstack for timeline-based editing.
--   **Unified Video Orchestrator**:
-    -   Handles full video generation workflow from topic to final assembly (`/api/video/generate-full`).
-    -   Includes text generation fallback and auto-retry system with exponential backoff for failed scenes.
+### Dual Video Production System
+The system supports two video production tracks:
+1.  **Continuous Veo 3 Pipeline (Python-based)**: For high-quality cinematic video, utilizing Google Vertex AI Veo 3.1 with sequential processing, rate limiting, and retry logic.
+2.  **Parallel Runway + Shotstack Pipeline (TypeScript-based)**: For high-volume bulk video, using Runway Gen4 Turbo/Aleph models for parallel scene generation and Shotstack for assembly.
+-   **Route Selection**: A Dual-Path Router selects the appropriate track based on `quality_max`, `balanced`, or `efficiency_max` criteria, influenced by client tier, content priority, budget, deadlines, historical performance, and learning signals.
 
-### AI Provider Management
--   **ML Self-Healing Provider System**: Monitors real-time provider status, latency, cost, and success rates. Uses ML-based routing for optimal provider selection, rate limit detection, and error pattern learning. Prioritizes free tiers.
--   **Quality-Aware Optimization System**: Combines operational health with quality metrics (user ratings, objective metrics like resolution, brand compliance) for intelligent provider routing. Supports quality tiers (draft, production, cinematic_4k) with configurable weighting. UI for quality reviews and feedback loop.
--   **Provider Status API**: `GET /api/providers/status` provides health checks and remediation steps for all external providers.
+### AI Provider System
+-   **Provider Health Monitor**: Real-time monitoring of AI provider success rates, latency, costs, and rate limits.
+-   **Self-Healing Actions**: Automatic quarantine on hard failures, fallback chain activation, and recovery detection.
+-   **Quarantine Patterns**: Specific error patterns (e.g., "access denied", "quota exceeded") trigger temporary quarantines for providers.
+
+### Learning & Feedback System
+-   **Central Learning Engine**: Implements continuous learning through feedback loops.
+-   **Signal Types**: Tracks prompt effectiveness, brand patterns, failure patterns, and success patterns.
+-   **Quality Feedback Sources**: QA Agent Review (automated scoring), User Ratings (manual feedback), and Automated Metrics (resolution, brand compliance).
+
+### WordPress Publishing Integration
+-   **Security Model**: Strict SSRF protection (blocking IP addresses, internal ranges, requiring HTTPS and GraphQL path).
+-   **Publishing Flow**: Validates URLs, tests connections, authenticates, converts content to HTML, and creates posts via GraphQL mutation.
 
 ## External Dependencies
 
-### Database & ORM
--   **Neon**: Serverless PostgreSQL.
--   **Drizzle ORM**: Type-safe ORM.
--   **@neondatabase/serverless**: Neon driver.
+### AI & Generation
+-   **Anthropic**: Claude Sonnet 4.5 (text)
+-   **Google AI**: Gemini 1.5 Flash (text), Veo 2/3 (video), Imagen (image)
+-   **Adobe Firefly**: Image generation
+-   **OpenRouter**: DeepSeek R1, Llama 4, Qwen 3, Mistral (various models)
+-   **ElevenLabs**: Text-to-speech
+-   **Runway API**: Gen3/Gen4 (video, images, audio)
+-   **Fal AI**: Flux Pro (images), Kling, MiniMax (video)
+-   **Alibaba Dashscope**: Image generation
 
-### UI & Styling
--   **shadcn/ui**: Component library.
--   **Radix UI**: UI primitives.
--   **Tailwind CSS**: Utility-first CSS.
--   **Lucide React**: Icons.
--   **cmdk**: Command palette.
--   **Embla Carousel**: Carousel.
--   **date-fns**: Date utility.
+### Video Assembly
+-   **Shotstack**: Timeline-based video assembly
 
-### Form Validation & State
--   **Zod**: Runtime type validation.
--   **drizzle-zod**: Zod schema from Drizzle.
--   **React Hook Form**: Form management.
--   **TanStack Query**: Server state.
+### Publishing
+-   **WordPress GraphQL**: Blog publishing
+-   **Buffer**: Social media scheduling
+-   **Slack**: Webhook notifications
 
-### AI & Content Generation
--   **Anthropic**: Claude Sonnet 4.5.
--   **Google AI**: Gemini 1.5 Flash, image generation models.
--   **Adobe Firefly**: Professional image generation.
--   **OpenRouter**: Unified AI gateway (DeepSeek R1, Llama 4, Qwen 3, Mistral).
--   **ElevenLabs**: Text-to-speech.
--   **Runway API**: Video, image, audio generation (various models for video, image, and ElevenLabs integrations for audio).
--   **Midjourney (via Replicate)**: Image generation.
--   **Alibaba Dashscope**: Image generation.
-
-### Integrations
--   **Shotstack**: Video assembly, audio hosting, browser-based editing (SDK: `@shotstack/shotstack-studio`).
--   **Slack**: Webhook notifications.
--   **Buffer**: Social media publishing.
-
-### Development Tools
--   **Vite**: Frontend build.
--   **TypeScript**: Language.
--   **esbuild**: Backend bundling.
+### Infrastructure
+-   **Neon**: Serverless PostgreSQL
+-   **Drizzle ORM**: Type-safe database access
