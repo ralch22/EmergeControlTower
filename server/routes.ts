@@ -4451,6 +4451,281 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
     }
   });
 
+  // ==========================================
+  // LEARNING ENGINE API ENDPOINTS
+  // ==========================================
+
+  // Get learning engine statistics
+  app.get("/api/learning/stats", async (req, res) => {
+    try {
+      const { getLearningStats } = await import('../01-content-factory/services/central-learning-engine');
+      const stats = await getLearningStats();
+      res.json(stats);
+    } catch (error: any) {
+      console.error('[Learning] Failed to get stats:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get learning recommendations
+  app.get("/api/learning/recommendations", async (req, res) => {
+    try {
+      const clientId = req.query.clientId ? parseInt(req.query.clientId as string) : undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 10;
+      
+      const { getLearningRecommendations } = await import('../01-content-factory/services/central-learning-engine');
+      const recommendations = await getLearningRecommendations(clientId, limit);
+      res.json(recommendations);
+    } catch (error: any) {
+      console.error('[Learning] Failed to get recommendations:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Submit quality feedback
+  app.post("/api/learning/feedback", async (req, res) => {
+    try {
+      const { submitFeedback } = await import('../01-content-factory/services/central-learning-engine');
+      const feedbackId = await submitFeedback(req.body);
+      res.json({ success: true, feedbackId });
+    } catch (error: any) {
+      console.error('[Learning] Failed to submit feedback:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Record a generation run
+  app.post("/api/learning/generation-run", async (req, res) => {
+    try {
+      const { recordGenerationRun } = await import('../01-content-factory/services/central-learning-engine');
+      const runId = await recordGenerationRun(req.body);
+      res.json({ success: true, runId });
+    } catch (error: any) {
+      console.error('[Learning] Failed to record generation run:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Complete a generation run
+  app.put("/api/learning/generation-run/:runId", async (req, res) => {
+    try {
+      const { completeGenerationRun } = await import('../01-content-factory/services/central-learning-engine');
+      await completeGenerationRun(req.params.runId, req.body);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('[Learning] Failed to complete generation run:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get brand patterns for a client
+  app.get("/api/learning/brand-patterns/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const { getBrandPatterns } = await import('../01-content-factory/services/central-learning-engine');
+      const patterns = await getBrandPatterns(clientId);
+      res.json(patterns);
+    } catch (error: any) {
+      console.error('[Learning] Failed to get brand patterns:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Record a brand learning pattern
+  app.post("/api/learning/brand-pattern", async (req, res) => {
+    try {
+      const { recordBrandPattern } = await import('../01-content-factory/services/central-learning-engine');
+      await recordBrandPattern(req.body);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('[Learning] Failed to record brand pattern:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ==========================================
+  // DUAL-PATH ROUTING API ENDPOINTS
+  // ==========================================
+
+  // Determine optimal route for content generation
+  app.post("/api/routing/determine", async (req, res) => {
+    try {
+      const { determineRoute } = await import('../01-content-factory/services/dual-path-router');
+      const decision = determineRoute(req.body);
+      res.json(decision);
+    } catch (error: any) {
+      console.error('[Routing] Failed to determine route:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get provider recommendations for a route
+  app.get("/api/routing/providers", async (req, res) => {
+    try {
+      const route = (req.query.route as string) || 'balanced';
+      const contentType = (req.query.contentType as string) || 'blog';
+      
+      const { getProviderRecommendations } = await import('../01-content-factory/services/dual-path-router');
+      const recommendations = getProviderRecommendations(
+        route as 'quality_max' | 'efficiency_max' | 'balanced',
+        contentType
+      );
+      res.json(recommendations);
+    } catch (error: any) {
+      console.error('[Routing] Failed to get provider recommendations:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ==========================================
+  // BRAND INTELLIGENCE API ENDPOINTS
+  // ==========================================
+
+  // Analyze brand assets for a client
+  app.get("/api/brand-intelligence/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const { analyzeBrandAssets } = await import('../01-content-factory/services/brand-intelligence-service');
+      const report = await analyzeBrandAssets(clientId);
+      res.json(report);
+    } catch (error: any) {
+      console.error('[BrandIntelligence] Failed to analyze assets:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Extract brand info from website
+  app.post("/api/brand-intelligence/extract-website", async (req, res) => {
+    try {
+      const { websiteUrl } = req.body;
+      if (!websiteUrl) {
+        return res.status(400).json({ error: 'websiteUrl is required' });
+      }
+      
+      const { extractFromWebsite } = await import('../01-content-factory/services/brand-intelligence-service');
+      const extracted = await extractFromWebsite(websiteUrl);
+      res.json(extracted);
+    } catch (error: any) {
+      console.error('[BrandIntelligence] Failed to extract from website:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Generate brand-aware system prompt
+  app.get("/api/brand-intelligence/:clientId/system-prompt", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const contentType = (req.query.contentType as string) || 'blog';
+      
+      const { generateBrandSystemPrompt } = await import('../01-content-factory/services/brand-intelligence-service');
+      const prompt = await generateBrandSystemPrompt(
+        clientId,
+        contentType as 'video' | 'blog' | 'social' | 'ad_copy' | 'image'
+      );
+      res.json({ prompt });
+    } catch (error: any) {
+      console.error('[BrandIntelligence] Failed to generate system prompt:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Validate content against brand guidelines
+  app.post("/api/brand-intelligence/:clientId/validate", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const { content, contentType } = req.body;
+      
+      if (!content) {
+        return res.status(400).json({ error: 'content is required' });
+      }
+      
+      const { validateAgainstBrand } = await import('../01-content-factory/services/brand-intelligence-service');
+      const validation = await validateAgainstBrand(
+        clientId,
+        content,
+        contentType || 'blog'
+      );
+      res.json(validation);
+    } catch (error: any) {
+      console.error('[BrandIntelligence] Failed to validate content:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get brand reference anchors
+  app.get("/api/brand-intelligence/:clientId/anchors", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const { getBrandReferenceAnchors } = await import('../01-content-factory/services/brand-intelligence-service');
+      const anchors = await getBrandReferenceAnchors(clientId);
+      res.json(anchors);
+    } catch (error: any) {
+      console.error('[BrandIntelligence] Failed to get anchors:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ==========================================
+  // BRAND-AWARE PROMPT ENGINE ENDPOINTS
+  // ==========================================
+
+  // Inject brand intelligence into a prompt
+  app.post("/api/prompts/enhance", async (req, res) => {
+    try {
+      const { prompt, clientId, contentType, format, targetPlatform } = req.body;
+      
+      if (!prompt || !clientId) {
+        return res.status(400).json({ error: 'prompt and clientId are required' });
+      }
+      
+      const { buildEnrichedBrief } = await import('../01-content-factory/services/brand-intelligence-service');
+      const { injectBrandIntelligence } = await import('../01-content-factory/services/brand-aware-prompt-engine');
+      
+      const brief = await buildEnrichedBrief(parseInt(clientId));
+      const enhanced = injectBrandIntelligence(prompt, brief, {
+        contentType: contentType || 'blog',
+        format,
+        targetPlatform,
+      });
+      
+      res.json(enhanced);
+    } catch (error: any) {
+      console.error('[PromptEngine] Failed to enhance prompt:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Transform scenes for Veo 3 extension
+  app.post("/api/prompts/veo3-transform", async (req, res) => {
+    try {
+      const { scenes, clientId, cinematicStyle, colorGrading, motionStyle } = req.body;
+      
+      if (!scenes || !Array.isArray(scenes)) {
+        return res.status(400).json({ error: 'scenes array is required' });
+      }
+      
+      const { transformToVeo3Prompts } = await import('../01-content-factory/services/veo3-prompt-transformer');
+      
+      let brandBrief;
+      if (clientId) {
+        const { buildEnrichedBrief } = await import('../01-content-factory/services/brand-intelligence-service');
+        brandBrief = await buildEnrichedBrief(parseInt(clientId));
+      }
+      
+      const transformed = transformToVeo3Prompts(scenes, {
+        brandBrief,
+        cinematicStyle,
+        colorGrading,
+        motionStyle,
+      });
+      
+      res.json(transformed);
+    } catch (error: any) {
+      console.error('[PromptEngine] Failed to transform for Veo 3:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return httpServer;
 }
 

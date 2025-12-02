@@ -1149,3 +1149,193 @@ export const runwayConcurrentTasks = pgTable("runway_concurrent_tasks", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   lastCheckedAt: timestamp("last_checked_at"),
 });
+
+// ==========================================
+// LEARNING MODEL TABLES - Central Intelligence System
+// ==========================================
+
+// Prompt Templates - Stores successful prompt patterns
+export const promptTemplates = pgTable("prompt_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  category: text("category").notNull(), // video_scene, blog_intro, social_hook, ad_copy, etc.
+  templateType: text("template_type").notNull(), // establishing, extension, transition, cta
+  template: text("template").notNull(), // The prompt template with {placeholders}
+  variables: text("variables").array(), // List of variables in the template
+  brandCompatibility: text("brand_compatibility").array(), // Brand archetypes this works for
+  industryFit: text("industry_fit").array(), // Industries this works well for
+  avgQualityScore: decimal("avg_quality_score", { precision: 4, scale: 2 }),
+  usageCount: integer("usage_count").notNull().default(0),
+  successRate: decimal("success_rate", { precision: 5, scale: 4 }),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPromptTemplateSchema = createInsertSchema(promptTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPromptTemplate = z.infer<typeof insertPromptTemplateSchema>;
+export type PromptTemplate = typeof promptTemplates.$inferSelect;
+
+// Generation Runs - Tracks every content generation with full lineage
+export const generationRuns = pgTable("generation_runs", {
+  id: serial("id").primaryKey(),
+  runId: text("run_id").notNull().unique(),
+  clientId: integer("client_id").notNull(),
+  contentType: text("content_type").notNull(), // blog, social, video, ad_copy, image
+  contentId: text("content_id"), // Reference to the generated content
+  route: text("route").notNull(), // quality_max, efficiency_max
+  promptTemplateId: integer("prompt_template_id"),
+  inputPrompt: text("input_prompt").notNull(),
+  finalPrompt: text("final_prompt").notNull(), // After brand injection
+  brandElements: jsonb("brand_elements").$type<Record<string, unknown>>(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  status: text("status").notNull().default("pending"), // pending, processing, completed, failed
+  outputUrl: text("output_url"),
+  qualityScore: decimal("quality_score", { precision: 4, scale: 2 }),
+  brandConsistencyScore: decimal("brand_consistency_score", { precision: 4, scale: 2 }),
+  processingTimeMs: integer("processing_time_ms"),
+  costUsd: decimal("cost_usd", { precision: 10, scale: 4 }),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertGenerationRunSchema = createInsertSchema(generationRuns).omit({ id: true, createdAt: true });
+export type InsertGenerationRun = z.infer<typeof insertGenerationRunSchema>;
+export type GenerationRun = typeof generationRuns.$inferSelect;
+
+// Quality Feedback - Captures feedback from QA, users, and automated metrics
+export const qualityFeedback = pgTable("quality_feedback", {
+  id: serial("id").primaryKey(),
+  generationRunId: integer("generation_run_id").notNull(),
+  feedbackType: text("feedback_type").notNull(), // qa_review, user_rating, auto_metric
+  source: text("source").notNull(), // qa_agent, user_ui, brand_checker, resolution_check
+  overallScore: decimal("overall_score", { precision: 4, scale: 2 }),
+  brandAlignmentScore: decimal("brand_alignment_score", { precision: 4, scale: 2 }),
+  technicalQualityScore: decimal("technical_quality_score", { precision: 4, scale: 2 }),
+  creativityScore: decimal("creativity_score", { precision: 4, scale: 2 }),
+  feedback: text("feedback"),
+  issues: text("issues").array(),
+  suggestions: text("suggestions").array(),
+  isApproved: boolean("is_approved"),
+  reviewedBy: text("reviewed_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertQualityFeedbackSchema = createInsertSchema(qualityFeedback).omit({ id: true, createdAt: true });
+export type InsertQualityFeedback = z.infer<typeof insertQualityFeedbackSchema>;
+export type QualityFeedback = typeof qualityFeedback.$inferSelect;
+
+// Learning Signals - Derived insights from feedback that drive improvements
+export const learningSignals = pgTable("learning_signals", {
+  id: serial("id").primaryKey(),
+  signalType: text("signal_type").notNull(), // prompt_effectiveness, brand_pattern, failure_pattern, success_pattern
+  category: text("category").notNull(), // video, blog, social, etc.
+  pattern: text("pattern").notNull(), // The identified pattern or insight
+  confidence: decimal("confidence", { precision: 5, scale: 4 }).notNull(),
+  sampleSize: integer("sample_size").notNull(),
+  clientId: integer("client_id"), // null for global signals
+  industryId: text("industry_id"), // null for cross-industry signals
+  brandArchetype: text("brand_archetype"), // null for cross-archetype signals
+  impact: jsonb("impact").$type<{
+    qualityDelta: number;
+    costDelta: number;
+    speedDelta: number;
+  }>(),
+  recommendation: text("recommendation"),
+  isActionable: boolean("is_actionable").notNull().default(true),
+  appliedCount: integer("applied_count").notNull().default(0),
+  lastAppliedAt: timestamp("last_applied_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"),
+});
+
+export const insertLearningSignalSchema = createInsertSchema(learningSignals).omit({ id: true, createdAt: true });
+export type InsertLearningSignal = z.infer<typeof insertLearningSignalSchema>;
+export type LearningSignal = typeof learningSignals.$inferSelect;
+
+// Prompt Effectiveness - Tracks how well specific prompts perform per context
+export const promptEffectiveness = pgTable("prompt_effectiveness", {
+  id: serial("id").primaryKey(),
+  promptHash: text("prompt_hash").notNull(), // Hash of the prompt for deduplication
+  promptSnippet: text("prompt_snippet").notNull(), // First 500 chars
+  category: text("category").notNull(),
+  clientId: integer("client_id"),
+  industry: text("industry"),
+  brandArchetype: text("brand_archetype"),
+  totalUses: integer("total_uses").notNull().default(0),
+  avgQualityScore: decimal("avg_quality_score", { precision: 4, scale: 2 }),
+  avgBrandScore: decimal("avg_brand_score", { precision: 4, scale: 2 }),
+  approvalRate: decimal("approval_rate", { precision: 5, scale: 4 }),
+  avgProcessingTimeMs: integer("avg_processing_time_ms"),
+  avgCostUsd: decimal("avg_cost_usd", { precision: 10, scale: 4 }),
+  lastUsedAt: timestamp("last_used_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPromptEffectivenessSchema = createInsertSchema(promptEffectiveness).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPromptEffectiveness = z.infer<typeof insertPromptEffectivenessSchema>;
+export type PromptEffectiveness = typeof promptEffectiveness.$inferSelect;
+
+// Learning Adjustment type for tracking signal-based route modifications
+export interface LearningAdjustmentJSON {
+  signalId: number;
+  signalType: string;
+  adjustmentType: 'route_upgrade' | 'route_downgrade' | 'provider_override' | 'quality_boost';
+  originalValue: string;
+  adjustedValue: string;
+  confidence: number;
+}
+
+// Route Decisions - Tracks quality vs efficiency routing decisions with learning attribution
+export const routeDecisions = pgTable("route_decisions", {
+  id: serial("id").primaryKey(),
+  generationRunId: integer("generation_run_id").notNull(),
+  clientId: integer("client_id").notNull(),
+  contentType: text("content_type").notNull(),
+  selectedRoute: text("selected_route").notNull(), // quality_max, efficiency_max, balanced
+  routeReason: text("route_reason").notNull(),
+  factors: jsonb("factors").$type<{
+    clientTier: string;
+    budget: string;
+    deadline: boolean;
+    contentPriority: string;
+    previousQuality: number;
+  }>(),
+  // Learning adjustments applied to this decision (for feedback loop attribution)
+  learningAdjustments: jsonb("learning_adjustments").$type<LearningAdjustmentJSON[]>(),
+  expectedQuality: decimal("expected_quality", { precision: 4, scale: 2 }),
+  expectedCost: decimal("expected_cost", { precision: 10, scale: 4 }),
+  expectedTimeMs: integer("expected_time_ms"),
+  actualQuality: decimal("actual_quality", { precision: 4, scale: 2 }),
+  actualCost: decimal("actual_cost", { precision: 10, scale: 4 }),
+  actualTimeMs: integer("actual_time_ms"),
+  wasCorrectDecision: boolean("was_correct_decision"),
+  completedAt: timestamp("completed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertRouteDecisionSchema = createInsertSchema(routeDecisions).omit({ id: true, createdAt: true });
+export type InsertRouteDecision = z.infer<typeof insertRouteDecisionSchema>;
+export type RouteDecision = typeof routeDecisions.$inferSelect;
+
+// Brand Learning Patterns - Stores learned patterns per brand/client
+export const brandLearningPatterns = pgTable("brand_learning_patterns", {
+  id: serial("id").primaryKey(),
+  clientId: integer("client_id").notNull(),
+  patternType: text("pattern_type").notNull(), // visual_style, tone_success, content_format, color_usage
+  patternName: text("pattern_name").notNull(),
+  patternData: jsonb("pattern_data").$type<Record<string, unknown>>().notNull(),
+  confidence: decimal("confidence", { precision: 5, scale: 4 }).notNull(),
+  sampleCount: integer("sample_count").notNull(),
+  avgImpact: decimal("avg_impact", { precision: 5, scale: 4 }),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertBrandLearningPatternSchema = createInsertSchema(brandLearningPatterns).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertBrandLearningPattern = z.infer<typeof insertBrandLearningPatternSchema>;
+export type BrandLearningPattern = typeof brandLearningPatterns.$inferSelect;
