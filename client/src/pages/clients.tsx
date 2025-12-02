@@ -67,14 +67,19 @@ export default function ClientsPage() {
     },
   });
 
-  const { data: allContent = [] } = useQuery<GeneratedContent[]>({
+  const { data: contentData } = useQuery<{
+    items: GeneratedContent[];
+    pagination: { total: number };
+  }>({
     queryKey: ["/api/content"],
     queryFn: async () => {
-      const res = await fetch("/api/content");
+      const res = await fetch("/api/content?limit=1000");
       if (!res.ok) throw new Error("Failed to fetch content");
       return res.json();
     },
   });
+  
+  const allContent = contentData?.items || [];
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof newClient) => {
