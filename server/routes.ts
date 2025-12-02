@@ -572,6 +572,33 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
     }
   });
 
+  // Update a client
+  app.patch("/api/clients/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const updates = req.body;
+      
+      // Only allow certain fields to be updated
+      const allowedFields = ['name', 'industry', 'brandVoice', 'targetAudience', 'keywords', 'contentGoals'];
+      const filteredUpdates: Record<string, any> = {};
+      
+      for (const field of allowedFields) {
+        if (updates[field] !== undefined) {
+          filteredUpdates[field] = updates[field];
+        }
+      }
+      
+      if (Object.keys(filteredUpdates).length === 0) {
+        return res.status(400).json({ error: "No valid fields to update" });
+      }
+      
+      const client = await storage.updateClient(id, filteredUpdates);
+      res.json(client);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update client" });
+    }
+  });
+
   // ===== BRAND ASSET GENERATION ROUTES =====
 
   // Generate mood board for a client
@@ -1412,6 +1439,27 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch content" });
+    }
+  });
+
+  // Clear all generated content (optionally by client)
+  app.delete("/api/content", async (req, res) => {
+    try {
+      const { clientId } = req.query;
+      const result = await storage.clearGeneratedContent(
+        clientId ? Number(clientId) : undefined
+      );
+      
+      // Also clear content runs
+      const runsResult = await storage.clearContentRuns();
+      
+      res.json({ 
+        message: `Cleared ${result.deletedCount} content items and ${runsResult.deletedCount} runs`,
+        contentDeleted: result.deletedCount,
+        runsDeleted: runsResult.deletedCount,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to clear content" });
     }
   });
 

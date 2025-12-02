@@ -17,7 +17,19 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
 import { Textarea } from "@/components/ui/textarea";
@@ -55,6 +67,9 @@ import {
   Sparkles,
   Mail,
   Megaphone,
+  Trash2,
+  Edit,
+  Settings2,
 } from "lucide-react";
 
 type Client = {
@@ -586,6 +601,114 @@ export default function ContentFactoryPage() {
     });
   };
 
+  // Clear content mutation
+  const clearContentMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/content", { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to clear content");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/content"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/content-runs"] });
+      setContentPage(0);
+      toast({
+        title: "Content Cleared",
+        description: data.message,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete client mutation
+  const deleteClientMutation = useMutation({
+    mutationFn: async (clientId: number) => {
+      const res = await fetch(`/api/clients/${clientId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete client");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      setSelectedClientId("");
+      toast({
+        title: "Client Deleted",
+        description: "Client has been removed",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Edit client state
+  const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    industry: "",
+    brandVoice: "",
+    targetAudience: "",
+    keywords: "",
+    contentGoals: "",
+  });
+
+  // Update client mutation
+  const updateClientMutation = useMutation({
+    mutationFn: async (data: { id: number; updates: Partial<Client> }) => {
+      const res = await fetch(`/api/clients/${data.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data.updates),
+      });
+      if (!res.ok) throw new Error("Failed to update client");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/clients"] });
+      setEditingClient(null);
+      toast({
+        title: "Client Updated",
+        description: "Client details saved successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleEditClient = (client: Client) => {
+    setEditingClient(client);
+    setEditForm({
+      name: client.name,
+      industry: client.industry,
+      brandVoice: client.brandVoice,
+      targetAudience: client.targetAudience,
+      keywords: client.keywords || "",
+      contentGoals: client.contentGoals || "",
+    });
+  };
+
+  const handleSaveClient = () => {
+    if (!editingClient) return;
+    updateClientMutation.mutate({
+      id: editingClient.id,
+      updates: editForm,
+    });
+  };
+
   const selectedClient = clients.find((c) => c.id.toString() === selectedClientId);
   const runningRuns = contentRuns.filter((r) => r.status === "running").length;
   const completedRuns = contentRuns.filter((r) => r.status === "completed").length;
@@ -749,12 +872,59 @@ export default function ContentFactoryPage() {
 
               {selectedClient && (
                 <div className="flex-1 p-3 bg-zinc-800/50 rounded-lg border border-zinc-700">
-                  <p className="text-sm text-zinc-300">
-                    <span className="text-zinc-500">Target:</span> {selectedClient.targetAudience}
-                  </p>
-                  <p className="text-sm text-zinc-300 mt-1">
-                    <span className="text-zinc-500">Voice:</span> {selectedClient.brandVoice}
-                  </p>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <p className="text-sm text-zinc-300">
+                        <span className="text-zinc-500">Target:</span> {selectedClient.targetAudience}
+                      </p>
+                      <p className="text-sm text-zinc-300 mt-1">
+                        <span className="text-zinc-500">Voice:</span> {selectedClient.brandVoice}
+                      </p>
+                    </div>
+                    <div className="flex gap-1 ml-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-zinc-400 hover:text-cyan-400"
+                        onClick={() => handleEditClient(selectedClient)}
+                        data-testid="button-edit-client"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-zinc-400 hover:text-red-400"
+                            data-testid="button-delete-client"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent className="bg-zinc-900 border-zinc-700">
+                          <AlertDialogHeader>
+                            <AlertDialogTitle className="text-white">Delete Client?</AlertDialogTitle>
+                            <AlertDialogDescription className="text-zinc-400">
+                              This will permanently delete "{selectedClient.name}" and cannot be undone. Content associated with this client will not be deleted.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700">
+                              Cancel
+                            </AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-red-600 hover:bg-red-500"
+                              onClick={() => deleteClientMutation.mutate(selectedClient.id)}
+                              data-testid="button-confirm-delete-client"
+                            >
+                              Delete Client
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1002,6 +1172,45 @@ export default function ContentFactoryPage() {
                   Generated Content Library
                 </CardTitle>
                 <div className="flex items-center gap-2">
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-red-600 text-red-400 hover:bg-red-600/20"
+                        disabled={clearContentMutation.isPending}
+                        data-testid="button-clear-content"
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        Clear All
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="bg-zinc-900 border-zinc-700">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="text-white">Clear All Content?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-zinc-400">
+                          This will permanently delete all generated content and run history. This action cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700">
+                          Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-red-600 hover:bg-red-500"
+                          onClick={() => clearContentMutation.mutate()}
+                          data-testid="button-confirm-clear"
+                        >
+                          {clearContentMutation.isPending ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-4 h-4 mr-2" />
+                          )}
+                          Clear All Content
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                   <Button
                     variant="ghost"
                     size="icon"
@@ -1553,6 +1762,95 @@ export default function ContentFactoryPage() {
               )}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Client Dialog */}
+      <Dialog open={!!editingClient} onOpenChange={(open) => !open && setEditingClient(null)}>
+        <DialogContent className="bg-zinc-900 border-zinc-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Settings2 className="w-5 h-5 text-cyan-400" />
+              Edit Client
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label className="text-zinc-400">Name</Label>
+              <Input
+                value={editForm.name}
+                onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                className="bg-zinc-800 border-zinc-700 text-white"
+                data-testid="input-edit-client-name"
+              />
+            </div>
+            <div>
+              <Label className="text-zinc-400">Industry</Label>
+              <Input
+                value={editForm.industry}
+                onChange={(e) => setEditForm({ ...editForm, industry: e.target.value })}
+                className="bg-zinc-800 border-zinc-700 text-white"
+                data-testid="input-edit-client-industry"
+              />
+            </div>
+            <div>
+              <Label className="text-zinc-400">Brand Voice</Label>
+              <Textarea
+                value={editForm.brandVoice}
+                onChange={(e) => setEditForm({ ...editForm, brandVoice: e.target.value })}
+                className="bg-zinc-800 border-zinc-700 text-white min-h-[80px]"
+                data-testid="input-edit-client-voice"
+              />
+            </div>
+            <div>
+              <Label className="text-zinc-400">Target Audience</Label>
+              <Textarea
+                value={editForm.targetAudience}
+                onChange={(e) => setEditForm({ ...editForm, targetAudience: e.target.value })}
+                className="bg-zinc-800 border-zinc-700 text-white min-h-[80px]"
+                data-testid="input-edit-client-audience"
+              />
+            </div>
+            <div>
+              <Label className="text-zinc-400">Keywords (comma-separated)</Label>
+              <Input
+                value={editForm.keywords}
+                onChange={(e) => setEditForm({ ...editForm, keywords: e.target.value })}
+                className="bg-zinc-800 border-zinc-700 text-white"
+                data-testid="input-edit-client-keywords"
+              />
+            </div>
+            <div>
+              <Label className="text-zinc-400">Content Goals</Label>
+              <Textarea
+                value={editForm.contentGoals}
+                onChange={(e) => setEditForm({ ...editForm, contentGoals: e.target.value })}
+                className="bg-zinc-800 border-zinc-700 text-white min-h-[80px]"
+                data-testid="input-edit-client-goals"
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setEditingClient(null)}
+              className="border-zinc-700 text-zinc-300"
+              data-testid="button-cancel-edit"
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-cyan-600 hover:bg-cyan-500"
+              onClick={handleSaveClient}
+              disabled={updateClientMutation.isPending}
+              data-testid="button-save-client"
+            >
+              {updateClientMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : null}
+              Save Changes
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

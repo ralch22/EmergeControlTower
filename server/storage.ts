@@ -135,6 +135,7 @@ export interface IStorage {
   getGeneratedContentCount(clientId?: number): Promise<number>;
   updateGeneratedContentStatus(contentId: string, status: string): Promise<GeneratedContentRecord>;
   createGeneratedContent(content: InsertGeneratedContent): Promise<GeneratedContentRecord>;
+  clearGeneratedContent(clientId?: number): Promise<{ deletedCount: number }>;
 
   // Video Projects
   getVideoProjects(): Promise<VideoProject[]>;
@@ -545,6 +546,16 @@ export class DatabaseStorage implements IStorage {
   async createGeneratedContent(insertContent: InsertGeneratedContent): Promise<GeneratedContentRecord> {
     const [content] = await db.insert(generatedContent).values(insertContent).returning();
     return content;
+  }
+
+  async clearGeneratedContent(clientId?: number): Promise<{ deletedCount: number }> {
+    let result;
+    if (clientId !== undefined) {
+      result = await db.delete(generatedContent).where(eq(generatedContent.clientId, clientId));
+    } else {
+      result = await db.delete(generatedContent);
+    }
+    return { deletedCount: result.rowCount || 0 };
   }
 
   // Video Projects
