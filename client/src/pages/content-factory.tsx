@@ -1574,7 +1574,7 @@ export default function ContentFactoryPage() {
                               Create Video
                             </Button>
                           )}
-                          {(content.status === "approved" || content.status === "publish_failed") && content.type === "blog" && (
+                          {content.type === "blog" && content.status !== "published" && (
                             <Button
                               size="sm"
                               variant="outline"
@@ -1687,7 +1687,7 @@ export default function ContentFactoryPage() {
                             Create Video
                           </Button>
                         )}
-                        {(content.status === "approved" || content.status === "publish_failed") && content.type === "blog" && (
+                        {content.type === "blog" && content.status !== "published" && (
                           <Button
                             size="sm"
                             variant="outline"
