@@ -667,6 +667,45 @@ export interface QuickVideoOptions {
   brandName?: string;
 }
 
+// ==========================================
+// Scene Extension Types & Configuration
+// ==========================================
+
+export interface SceneExtensionConfig {
+  model?: Veo3Model;
+  aspectRatio?: '16:9' | '9:16';
+  generateAudio?: boolean;
+  brandGuidelines?: BrandGuidelines;
+  maxHops?: number; // Max 20 for Veo 3.1
+}
+
+export interface SceneDefinition {
+  prompt: string;
+  durationSeconds?: number; // 7 seconds per hop for Veo 3.1
+  resetRequired?: boolean; // If true, start fresh instead of extending
+}
+
+export interface ContinuousVideoResult {
+  success: boolean;
+  videoUrl?: string;
+  totalDuration?: number;
+  hopCount?: number;
+  error?: string;
+  processingTimeMs?: number;
+  sceneResults?: Array<{
+    sceneIndex: number;
+    prompt: string;
+    success: boolean;
+    videoUrl?: string;
+    error?: string;
+  }>;
+}
+
+const EXTENSION_DURATION_SECONDS = 7; // Veo 3.1 fixed extension duration
+const MAX_EXTENSION_HOPS = 20; // Up to 148 seconds total
+const EXTENSION_POLL_INTERVAL = 15; // seconds
+const EXTENSION_MAX_WAIT = 600; // 10 minutes per extension
+
 export interface QuickVideoResult {
   success: boolean;
   videoUrl?: string;
@@ -757,4 +796,389 @@ export async function generateQuickVideo(
     model,
     processingTimeMs: Date.now() - startTime,
   };
+}
+
+// ==========================================
+// Scene Extension Functions
+// ==========================================
+
+/**
+ * Extend an existing Veo-generated video with a new prompt.
+ * The model uses the last 1-2 seconds of the source video for continuity.
+ * Each extension adds ~7 seconds (Veo 3.1).
+ */
+async function extendVideoWithVertexAI(
+  sourceVideoUrl: string,
+  prompt: string,
+  options: SceneExtensionConfig
+): Promise<Veo31Result> {
+  const accessToken = await getVertexAIAccessToken();
+  
+  if (!accessToken) {
+    return {
+      success: false,
+      error: "Failed to get Vertex AI access token for extension",
+    };
+  }
+
+  const projectId = getProjectId();
+  const location = getLocation();
+  const selectedModel = options.model || 'veo-3.1';
+  const modelId = VEO_VERTEX_MODEL_IDS[selectedModel];
+
+  const {
+    aspectRatio = '16:9',
+    generateAudio = true,
+    brandGuidelines,
+  } = options;
+  
+  const brandEnhancedPrompt = buildBrandEnhancedPrompt(prompt, brandGuidelines);
+  const enhancedPrompt = sanitizeForVeo(brandEnhancedPrompt);
+
+  console.log(`[Veo-Extend-Vertex] Extending video with Vertex AI...`);
+  console.log(`[Veo-Extend-Vertex] Source: ${sourceVideoUrl}`);
+  console.log(`[Veo-Extend-Vertex] Prompt: ${enhancedPrompt.substring(0, 150)}...`);
+
+  const requestBody = {
+    instances: [{
+      prompt: enhancedPrompt,
+      video: {
+        gcsUri: sourceVideoUrl,
+        mimeType: 'video/mp4',
+      },
+    }],
+    parameters: {
+      aspectRatio: aspectRatio === '9:16' ? '9:16' : '16:9',
+      sampleCount: 1,
+      durationSeconds: EXTENSION_DURATION_SECONDS,
+      generateAudio: generateAudio,
+    },
+  };
+
+  try {
+    const endpoint = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelId}:predictLongRunning`;
+    
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[Veo-Extend-Vertex] API error:", response.status, errorText);
+      return {
+        success: false,
+        error: `Vertex AI extension error: ${response.status} - ${errorText.substring(0, 200)}`,
+      };
+    }
+
+    const result = await response.json();
+    
+    if (result.name) {
+      console.log(`[Veo-Extend-Vertex] Extension operation started: ${result.name}`);
+      return {
+        success: true,
+        taskId: result.name,
+        status: 'processing',
+        hasAudio: generateAudio,
+      };
+    }
+
+    return {
+      success: false,
+      error: "Unexpected response format from Vertex AI extension",
+    };
+  } catch (error: any) {
+    console.error("[Veo-Extend-Vertex] Error:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to start Vertex AI video extension",
+    };
+  }
+}
+
+async function extendVideoWithGeminiAPI(
+  sourceVideoUrl: string,
+  prompt: string,
+  options: SceneExtensionConfig
+): Promise<Veo31Result> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.AI_INTEGRATIONS_GEMINI_API_KEY;
+  
+  if (!apiKey) {
+    return {
+      success: false,
+      error: "GEMINI_API_KEY not configured for Veo 3.1 extension",
+    };
+  }
+
+  const {
+    aspectRatio = '16:9',
+    generateAudio = true,
+    brandGuidelines,
+  } = options;
+  
+  const enhancedPrompt = buildBrandEnhancedPrompt(prompt, brandGuidelines);
+  const selectedModel = options.model || 'veo-3.1';
+  const modelId = VEO_MODEL_IDS[selectedModel];
+
+  console.log(`[Veo-Extend-Gemini] Extending video with Gemini API...`);
+  console.log(`[Veo-Extend-Gemini] Source: ${sourceVideoUrl}`);
+  console.log(`[Veo-Extend-Gemini] Prompt: ${enhancedPrompt.substring(0, 150)}...`);
+
+  const requestBody = {
+    instances: [{
+      prompt: enhancedPrompt,
+      video: {
+        uri: sourceVideoUrl,
+        mimeType: 'video/mp4',
+      },
+    }],
+    parameters: {
+      aspectRatio: aspectRatio === '9:16' ? '9:16' : '16:9',
+      sampleCount: 1,
+      durationSeconds: EXTENSION_DURATION_SECONDS,
+      generateAudio: generateAudio,
+    },
+  };
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:predictLongRunning?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("[Veo-Extend-Gemini] API error:", response.status, errorText);
+      return {
+        success: false,
+        error: `Veo 3.1 extension error: ${response.status} - ${errorText.substring(0, 200)}`,
+      };
+    }
+
+    const result = await response.json();
+    
+    if (result.name) {
+      console.log(`[Veo-Extend-Gemini] Extension operation started: ${result.name}`);
+      return {
+        success: true,
+        taskId: result.name,
+        status: 'processing',
+        hasAudio: generateAudio,
+      };
+    }
+
+    return {
+      success: false,
+      error: "Unexpected response format from Gemini API extension",
+    };
+  } catch (error: any) {
+    console.error("[Veo-Extend-Gemini] Error:", error);
+    return {
+      success: false,
+      error: error.message || "Failed to start Gemini API video extension",
+    };
+  }
+}
+
+/**
+ * Extend an existing video with a new scene prompt.
+ * Automatically selects Vertex AI or Gemini API based on configuration.
+ */
+export async function extendVideoWithVeo31(
+  sourceVideoUrl: string,
+  prompt: string,
+  options: SceneExtensionConfig = {}
+): Promise<Veo31Result> {
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    console.log('[Veo-Extend] Trying Vertex AI extension...');
+    const vertexResult = await extendVideoWithVertexAI(sourceVideoUrl, prompt, options);
+    if (vertexResult.success) {
+      return vertexResult;
+    }
+    console.log('[Veo-Extend] Vertex AI failed, trying Gemini API...');
+  }
+
+  return extendVideoWithGeminiAPI(sourceVideoUrl, prompt, options);
+}
+
+/**
+ * Generate a continuous video by creating a base clip and extending it
+ * for each scene in the script. Maintains visual consistency across scenes.
+ * 
+ * @param scenes - Array of scene definitions with prompts
+ * @param config - Extension configuration (model, aspect ratio, etc.)
+ * @returns Continuous video result with final video URL
+ */
+export async function generateContinuousVideo(
+  scenes: SceneDefinition[],
+  config: SceneExtensionConfig = {}
+): Promise<ContinuousVideoResult> {
+  const startTime = Date.now();
+  const sceneResults: ContinuousVideoResult['sceneResults'] = [];
+  
+  if (!scenes.length) {
+    return {
+      success: false,
+      error: 'No scenes provided',
+      sceneResults: [],
+    };
+  }
+
+  const maxHops = Math.min(config.maxHops || MAX_EXTENSION_HOPS, MAX_EXTENSION_HOPS);
+  
+  if (scenes.length > maxHops) {
+    console.warn(`[ContinuousVideo] Scene count (${scenes.length}) exceeds max hops (${maxHops}). Will process first ${maxHops} scenes.`);
+  }
+
+  const scenesToProcess = scenes.slice(0, maxHops);
+  let currentVideoUrl: string | null = null;
+  let hopCount = 0;
+
+  console.log(`[ContinuousVideo] Starting continuous generation with ${scenesToProcess.length} scenes...`);
+  console.log(`[ContinuousVideo] Model: ${config.model || 'veo-3.1'}, Aspect: ${config.aspectRatio || '16:9'}`);
+
+  for (let i = 0; i < scenesToProcess.length; i++) {
+    const scene = scenesToProcess[i];
+    const isFirstScene = i === 0;
+    const shouldReset = scene.resetRequired || isFirstScene;
+
+    console.log(`[ContinuousVideo] Processing scene ${i + 1}/${scenesToProcess.length}: ${scene.prompt.substring(0, 80)}...`);
+
+    try {
+      let result: Veo31Result;
+
+      if (shouldReset || !currentVideoUrl) {
+        // Generate fresh base video for first scene or reset scenes
+        console.log(`[ContinuousVideo] Generating base video for scene ${i + 1}...`);
+        result = await generateVideoWithVeo31(scene.prompt, {
+          model: config.model,
+          aspectRatio: config.aspectRatio,
+          generateAudio: config.generateAudio ?? true,
+          brandGuidelines: config.brandGuidelines,
+          duration: 8, // Use longest duration for base
+        });
+      } else {
+        // Extend from previous video
+        console.log(`[ContinuousVideo] Extending video for scene ${i + 1} from: ${currentVideoUrl}`);
+        result = await extendVideoWithVeo31(currentVideoUrl, scene.prompt, config);
+      }
+
+      if (!result.success) {
+        sceneResults.push({
+          sceneIndex: i,
+          prompt: scene.prompt,
+          success: false,
+          error: result.error,
+        });
+        console.error(`[ContinuousVideo] Scene ${i + 1} failed: ${result.error}`);
+        continue; // Try next scene
+      }
+
+      // Wait for completion if we got a task ID
+      let finalResult = result;
+      if (result.taskId && !result.videoUrl) {
+        console.log(`[ContinuousVideo] Waiting for scene ${i + 1} completion...`);
+        finalResult = await waitForVeo31Completion(
+          result.taskId,
+          EXTENSION_MAX_WAIT,
+          EXTENSION_POLL_INTERVAL
+        );
+      }
+
+      if (!finalResult.success || !finalResult.videoUrl) {
+        sceneResults.push({
+          sceneIndex: i,
+          prompt: scene.prompt,
+          success: false,
+          error: finalResult.error || 'No video URL returned',
+        });
+        console.error(`[ContinuousVideo] Scene ${i + 1} completion failed: ${finalResult.error}`);
+        continue;
+      }
+
+      // Update current video URL for next extension
+      currentVideoUrl = finalResult.videoUrl;
+      hopCount++;
+
+      sceneResults.push({
+        sceneIndex: i,
+        prompt: scene.prompt,
+        success: true,
+        videoUrl: currentVideoUrl,
+      });
+
+      console.log(`[ContinuousVideo] Scene ${i + 1} completed: ${currentVideoUrl}`);
+
+    } catch (error: any) {
+      console.error(`[ContinuousVideo] Scene ${i + 1} error:`, error);
+      sceneResults.push({
+        sceneIndex: i,
+        prompt: scene.prompt,
+        success: false,
+        error: error.message || 'Unknown error',
+      });
+    }
+  }
+
+  const successfulScenes = sceneResults.filter(r => r.success);
+  const lastSuccessful = successfulScenes[successfulScenes.length - 1];
+
+  if (!lastSuccessful) {
+    return {
+      success: false,
+      error: 'All scenes failed to generate',
+      sceneResults,
+      processingTimeMs: Date.now() - startTime,
+    };
+  }
+
+  // Calculate total duration: base (8s) + extensions (7s each)
+  const baseDuration = 8;
+  const extensionDuration = (hopCount - 1) * EXTENSION_DURATION_SECONDS;
+  const totalDuration = baseDuration + Math.max(0, extensionDuration);
+
+  console.log(`[ContinuousVideo] Generation complete!`);
+  console.log(`[ContinuousVideo] Final video: ${lastSuccessful.videoUrl}`);
+  console.log(`[ContinuousVideo] Successful scenes: ${successfulScenes.length}/${scenesToProcess.length}`);
+  console.log(`[ContinuousVideo] Total duration: ~${totalDuration}s`);
+
+  return {
+    success: true,
+    videoUrl: lastSuccessful.videoUrl,
+    totalDuration,
+    hopCount,
+    sceneResults,
+    processingTimeMs: Date.now() - startTime,
+  };
+}
+
+/**
+ * Helper function to calculate estimated duration for a multi-scene video.
+ */
+export function estimateContinuousVideoDuration(sceneCount: number): number {
+  if (sceneCount <= 0) return 0;
+  if (sceneCount === 1) return 8; // Base clip is 8 seconds
+  // First scene: 8s, each additional: 7s
+  return 8 + (sceneCount - 1) * EXTENSION_DURATION_SECONDS;
+}
+
+/**
+ * Helper function to calculate the number of scenes needed for a target duration.
+ */
+export function calculateScenesForDuration(targetSeconds: number): number {
+  if (targetSeconds <= 0) return 0;
+  if (targetSeconds <= 8) return 1;
+  // First scene: 8s, each additional: 7s
+  return 1 + Math.ceil((targetSeconds - 8) / EXTENSION_DURATION_SECONDS);
 }
