@@ -449,13 +449,22 @@ async function checkGeminiStatus(operationName: string): Promise<Veo31Result> {
   }
 
   try {
-    const url = operationName.startsWith('http') 
-      ? operationName 
-      : `https://generativelanguage.googleapis.com/v1beta/${operationName}?key=${apiKey}`;
+    // Build URL - use x-goog-api-key header for authentication (per Google docs)
+    let url: string;
+    if (operationName.startsWith('http')) {
+      // If it's already a full URL, append key if not present
+      url = operationName.includes('key=') ? operationName : `${operationName}?key=${apiKey}`;
+    } else {
+      // Build the operation status URL
+      url = `https://generativelanguage.googleapis.com/v1beta/${operationName}`;
+    }
+
+    console.log(`[Veo3.1] Checking status at: ${url.substring(0, 100)}...`);
 
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
       },
     });
 
