@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto';
 import { generateTextWithFallback } from './text-generation';
+import type { BrandProfileJSON } from '../../shared/schema';
 
 function generateId(): string {
   return randomBytes(8).toString('hex');
@@ -8,10 +9,59 @@ import { healthMonitor } from './provider-health-monitor';
 import type { QualityTier } from '../../shared/schema';
 import type { IStorage } from '../../server/storage';
 
+// Helper to build brand visual context for video prompts
+function buildBrandVisualContext(brandProfile: BrandProfileJSON | null): string {
+  if (!brandProfile?.visual) return '';
+  
+  const visual = brandProfile.visual;
+  const parts: string[] = [];
+  
+  // Color palette - check darkMode first, fallback to lightMode
+  const colorPalette = visual.colorPalette?.darkMode || visual.colorPalette?.lightMode;
+  if (colorPalette) {
+    const colorList: string[] = [];
+    if (colorPalette.background?.hex) colorList.push(`background: ${colorPalette.background.hex}`);
+    if (colorPalette.accent?.hex) colorList.push(`accent: ${colorPalette.accent.hex}`);
+    if (colorPalette.textPrimary?.hex) colorList.push(`text: ${colorPalette.textPrimary.hex}`);
+    if (colorList.length > 0) {
+      parts.push(`Brand Colors: ${colorList.join(', ')}`);
+    }
+  }
+  
+  // Visual style
+  if (visual.visualStyle) {
+    if (visual.visualStyle.aesthetic?.length) {
+      parts.push(`Visual Aesthetic: ${visual.visualStyle.aesthetic.join(', ')}`);
+    }
+    if (visual.visualStyle.moodKeywords?.length) {
+      parts.push(`Mood: ${visual.visualStyle.moodKeywords.join(', ')}`);
+    }
+    if (visual.visualStyle.motifs?.length) {
+      parts.push(`Visual Motifs: ${visual.visualStyle.motifs.join(', ')}`);
+    }
+    if (visual.visualStyle.patterns?.length) {
+      parts.push(`Patterns: ${visual.visualStyle.patterns.join(', ')}`);
+    }
+  }
+  
+  // Cinematic guidelines
+  if (visual.cinematicGuidelines) {
+    const cine = visual.cinematicGuidelines;
+    if (cine.motionStyle) parts.push(`Motion Style: ${cine.motionStyle}`);
+    if (cine.colorGrading) parts.push(`Color Grading: ${cine.colorGrading}`);
+    if (cine.pacing) parts.push(`Pacing: ${cine.pacing}`);
+    if (cine.transitionStyle) parts.push(`Transitions: ${cine.transitionStyle}`);
+  }
+  
+  return parts.length > 0 ? `\n\n**Brand Visual Guidelines:**\n${parts.join('\n')}` : '';
+}
+
 export interface FullVideoRequest {
   topic: string;
+  clientId?: number;
   clientName?: string;
   brandVoice?: string;
+  brandProfile?: BrandProfileJSON | null;
   targetAudience?: string;
   duration?: number;
   format?: 'short' | 'medium' | 'long';
@@ -53,31 +103,36 @@ export async function generateVideoScriptFromTopic(
   const {
     clientName = 'Client',
     brandVoice = 'professional and engaging',
+    brandProfile = null,
     targetAudience = 'business professionals',
     duration = 60,
     format = 'short',
     style = 'mixed',
   } = options;
 
+  // Build brand visual context from profile
+  const brandVisualContext = buildBrandVisualContext(brandProfile);
+
   const userPrompt = `Create a video script for ${clientName}.
 
 **Topic:** ${topic}
 **Target Audience:** ${targetAudience}
 **Brand Voice:** ${brandVoice}
+${brandVisualContext}
 
 **Video Requirements:**
 - Duration: ${duration} seconds
 - Format: ${format} (${format === 'short' ? '15-60s' : format === 'medium' ? '1-3 min' : '3-10 min'})
 - Style: ${style}
 
-Create a complete video script. Output ONLY valid JSON with this exact structure:
+Create a complete video script. IMPORTANT: All visual descriptions MUST incorporate the brand visual guidelines above (colors, motifs, aesthetic, mood). Output ONLY valid JSON with this exact structure:
 {
   "hook": "Opening line that hooks viewers (first 3 seconds)",
   "scenes": [
     {
       "sceneNumber": 1,
       "duration": 5,
-      "visualDescription": "Detailed description of what appears on screen",
+      "visualDescription": "Detailed description incorporating brand colors, motifs, and aesthetic",
       "voiceover": "What is said during this scene",
       "textOverlay": "Optional text shown on screen"
     }
@@ -135,11 +190,40 @@ export async function createVideoProjectFromScript(
     const targetResolution = options.targetResolution || 
       (qualityTier === 'cinematic_4k' ? '4k' : '1080p');
     
+    // Build brand visual suffix to append to visual prompts
+    const brandProfile = options.brandProfile;
+    let brandVisualSuffix = '';
+    if (brandProfile?.visual) {
+      const parts: string[] = [];
+      // Check darkMode first, fallback to lightMode for colors
+      const colorPalette = brandProfile.visual.colorPalette?.darkMode || brandProfile.visual.colorPalette?.lightMode;
+      if (colorPalette?.accent?.hex) {
+        parts.push(`Use accent color ${colorPalette.accent.hex}`);
+      }
+      if (colorPalette?.background?.hex) {
+        parts.push(`Background tone: ${colorPalette.background.hex}`);
+      }
+      if (brandProfile.visual.visualStyle?.aesthetic?.length) {
+        parts.push(`Style: ${brandProfile.visual.visualStyle.aesthetic.join(', ')}`);
+      }
+      if (brandProfile.visual.visualStyle?.motifs?.length) {
+        parts.push(`Include motifs: ${brandProfile.visual.visualStyle.motifs.join(', ')}`);
+      }
+      if (brandProfile.visual.cinematicGuidelines?.colorGrading) {
+        parts.push(`Color grading: ${brandProfile.visual.cinematicGuidelines.colorGrading}`);
+      }
+      if (parts.length > 0) {
+        brandVisualSuffix = ` BRAND REQUIREMENTS: ${parts.join('. ')}.`;
+      }
+    }
+    
     const metadata = {
       autoGenerated: true,
       topic: options.topic,
+      clientId: options.clientId,
       clientName: options.clientName,
       brandVoice: options.brandVoice,
+      brandProfileId: brandProfile ? 'cached' : undefined,
       aspectRatio: options.aspectRatio || '16:9',
       enableAutoRetry: options.enableAutoRetry !== false,
       maxRetries: options.maxRetries || 3,
@@ -150,7 +234,7 @@ export async function createVideoProjectFromScript(
     
     await storage.createVideoProject({
       projectId,
-      clientId: 1,
+      clientId: options.clientId || 1,
       title,
       description: JSON.stringify(metadata),
       status: 'draft',
@@ -162,13 +246,26 @@ export async function createVideoProjectFromScript(
     for (const scene of script.scenes || []) {
       const sceneId = `scene_${projectId}_${scene.sceneNumber}`;
       
+      // Build visual prompt with brand guidelines - always include brand context
+      let enhancedVisualPrompt: string;
+      if (scene.visualDescription) {
+        // Append brand requirements to existing description
+        enhancedVisualPrompt = scene.visualDescription + brandVisualSuffix;
+      } else if (brandVisualSuffix) {
+        // No description but have brand context - create minimal prompt with brand requirements
+        enhancedVisualPrompt = `Scene ${scene.sceneNumber} visual.${brandVisualSuffix}`;
+      } else {
+        // No description and no brand context - use fallback
+        enhancedVisualPrompt = `Scene ${scene.sceneNumber} visual. Professional, modern style.`;
+      }
+      
       await storage.createVideoScene({
         sceneId,
         projectId,
         sceneNumber: scene.sceneNumber,
         title: `Scene ${scene.sceneNumber}`,
         duration: scene.duration || 5,
-        visualPrompt: scene.visualDescription,
+        visualPrompt: enhancedVisualPrompt,
         voiceoverText: scene.voiceover,
         status: 'pending',
       });

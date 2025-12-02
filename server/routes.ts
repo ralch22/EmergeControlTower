@@ -3148,6 +3148,7 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
       
       const {
         topic,
+        clientId,
         clientName,
         brandVoice,
         targetAudience,
@@ -3164,10 +3165,26 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
         return res.status(400).json({ error: "topic is required" });
       }
 
+      // Fetch brand profile for visual consistency if clientId provided
+      let brandProfile = null;
+      if (clientId) {
+        try {
+          const client = await storage.getClient(clientId);
+          if (client?.brandProfile) {
+            brandProfile = client.brandProfile;
+            console.log(`[VideoRoute] Using brand profile for client ${clientId}`);
+          }
+        } catch (e) {
+          console.warn(`[VideoRoute] Could not fetch brand profile for client ${clientId}`);
+        }
+      }
+
       const result = await generateFullVideoFromTopic({
         topic,
+        clientId,
         clientName,
         brandVoice,
+        brandProfile,
         targetAudience,
         duration,
         format,
