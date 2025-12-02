@@ -7,6 +7,7 @@ import {
   buildReferenceConstrainedImagePrompt,
   getEffectiveCTA,
   getBrandMandatoryCTA,
+  getMandatoryCTAFromBasicBrief,
   hasReferenceAsset
 } from "../services/brand-brief";
 
@@ -61,7 +62,7 @@ export async function generateAdCopy(
     
     const mandatoryCta = isEnriched 
       ? getBrandMandatoryCTA(enrichedBrief)
-      : (brief.websiteUrl ? `Visit ${brief.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : brief.contentGoals?.[0] || `Learn more about ${brief.clientName}`);
+      : getMandatoryCTAFromBasicBrief(brief.clientName, brief.websiteUrl);
     const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];
     const preferredCtas = isEnriched ? enrichedBrief.textual.callToActions : [];
     

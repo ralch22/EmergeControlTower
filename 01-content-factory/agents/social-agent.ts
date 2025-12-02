@@ -7,6 +7,7 @@ import {
   buildReferenceConstrainedImagePrompt,
   getEffectiveCTA,
   getBrandMandatoryCTA,
+  getMandatoryCTAFromBasicBrief,
   hasReferenceAsset
 } from "../services/brand-brief";
 
@@ -64,7 +65,7 @@ export async function generateSocialPost(
     
     const mandatoryCta = isEnriched 
       ? getBrandMandatoryCTA(enrichedBrief)
-      : (brief.websiteUrl ? `Visit ${brief.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : `Learn more about ${brief.clientName}`);
+      : getMandatoryCTAFromBasicBrief(brief.clientName, brief.websiteUrl);
     const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];
     
     const userPrompt = `Create a ${platform.toUpperCase()} post for ${brief.clientName}.

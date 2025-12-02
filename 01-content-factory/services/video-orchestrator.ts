@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto';
 import { generateTextWithFallback } from './text-generation';
 import type { BrandProfileJSON } from '../../shared/schema';
-import { composeBrandBrief, getBrandMandatoryCTA, buildBrandClosingContext, type EnrichedClientBrief } from './brand-brief';
+import { composeBrandBrief, getBrandMandatoryCTA, getMandatoryCTAFromBasicBrief, buildBrandClosingContext, type EnrichedClientBrief } from './brand-brief';
 
 function generateId(): string {
   return randomBytes(8).toString('hex');
@@ -10,23 +10,45 @@ import { healthMonitor } from './provider-health-monitor';
 import type { QualityTier } from '../../shared/schema';
 import type { IStorage } from '../../server/storage';
 
-function extractBrandCTA(brandProfile: BrandProfileJSON | null, clientName: string, websiteUrl?: string): string {
-  if (brandProfile?.textual?.callToActions?.length) {
-    return brandProfile.textual.callToActions[0];
-  }
+function composeBriefFromProfile(brandProfile: BrandProfileJSON | null, clientName: string, websiteUrl?: string): EnrichedClientBrief | null {
+  if (!brandProfile) return null;
   
-  if (websiteUrl) {
-    const cleanUrl = websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    return `Visit ${cleanUrl}`;
-  }
+  const mockClient = {
+    clientName,
+    industry: brandProfile.textual?.industry || 'general',
+    brandVoice: brandProfile.textual?.archetype || 'professional',
+    targetAudience: brandProfile.textual?.targetAudience?.demographics || 'general audience',
+    keywords: '',
+    contentGoals: '',
+    brandProfile,
+    websiteUrl: websiteUrl || null,
+  };
   
-  return `Learn more about ${clientName}`;
+  return composeBrandBrief(mockClient);
 }
 
-function buildBrandClosingContextFromProfile(brandProfile: BrandProfileJSON | null, clientName: string, websiteUrl?: string): string {
+function getOrchMandatoryCTA(brandProfile: BrandProfileJSON | null, clientName: string, websiteUrl?: string): string {
+  const mockBrief = composeBriefFromProfile(brandProfile, clientName, websiteUrl);
+  if (mockBrief) {
+    return getBrandMandatoryCTA(mockBrief);
+  }
+  
+  return getMandatoryCTAFromBasicBrief(
+    clientName, 
+    websiteUrl, 
+    brandProfile?.textual?.callToActions
+  );
+}
+
+function getOrchBrandClosingContext(brandProfile: BrandProfileJSON | null, clientName: string, websiteUrl?: string): string {
+  const mockBrief = composeBriefFromProfile(brandProfile, clientName, websiteUrl);
+  if (mockBrief) {
+    return buildBrandClosingContext(mockBrief);
+  }
+  
   const brandName = brandProfile?.textual?.brandName?.primary || clientName;
   const tagline = brandProfile?.textual?.tagline?.primary;
-  const cta = extractBrandCTA(brandProfile, clientName, websiteUrl);
+  const cta = getOrchMandatoryCTA(brandProfile, clientName, websiteUrl);
   const websiteDisplay = websiteUrl?.replace(/^https?:\/\//, '').replace(/\/$/, '');
   
   let closing = `Brand Name: ${brandName}`;
@@ -140,8 +162,8 @@ export async function generateVideoScriptFromTopic(
   } = options;
 
   const brandVisualContext = buildBrandVisualContext(brandProfile);
-  const mandatoryCta = extractBrandCTA(brandProfile, clientName, websiteUrl);
-  const brandClosingContext = buildBrandClosingContextFromProfile(brandProfile, clientName, websiteUrl);
+  const mandatoryCta = getOrchMandatoryCTA(brandProfile, clientName, websiteUrl);
+  const brandClosingContext = getOrchBrandClosingContext(brandProfile, clientName, websiteUrl);
 
   const userPrompt = `Create a video script for ${clientName}.
 

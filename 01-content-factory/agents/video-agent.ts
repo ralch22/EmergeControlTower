@@ -10,6 +10,7 @@ import {
   buildReferenceConstrainedVideoPrompt,
   getEffectiveCTA,
   getBrandMandatoryCTA,
+  getMandatoryCTAFromBasicBrief,
   buildBrandClosingContext,
   hasReferenceAsset,
   getReferenceAssetUrl
@@ -199,7 +200,7 @@ export async function generateVideoScript(
     
     const mandatoryCta = isEnriched 
       ? getBrandMandatoryCTA(enrichedBrief)
-      : (brief.websiteUrl ? `Visit ${brief.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : `Learn more about ${brief.clientName}`);
+      : getMandatoryCTAFromBasicBrief(brief.clientName, brief.websiteUrl);
     
     const userPrompt = `Create a video script for ${brief.clientName}.
 

@@ -445,7 +445,18 @@ export function getBrandMandatoryCTA(brief: EnrichedClientBrief, overrideCta?: s
     return `Visit ${cleanUrl}`;
   }
   
-  return `Learn more about ${brandName}`;
+  return `Discover ${brandName}`;
+}
+
+export function getMandatoryCTAFromBasicBrief(clientName: string, websiteUrl?: string | null, callToActions?: string[]): string {
+  if (callToActions && callToActions.length > 0) return callToActions[0];
+  
+  if (websiteUrl) {
+    const cleanUrl = websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    return `Visit ${cleanUrl}`;
+  }
+  
+  return `Discover ${clientName}`;
 }
 
 export function getBrandWebsiteDisplay(brief: EnrichedClientBrief): string | undefined {
