@@ -389,6 +389,7 @@ export default function ContentFactoryPage() {
   const [selectedContentType, setSelectedContentType] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [viewingContent, setViewingContent] = useState<GeneratedContent | null>(null);
+  const [publishPreviewContent, setPublishPreviewContent] = useState<GeneratedContent | null>(null);
   
   // Quick Create state
   const [quickCreateClientId, setQuickCreateClientId] = useState<string>("");
@@ -1573,22 +1574,20 @@ export default function ContentFactoryPage() {
                               Create Video
                             </Button>
                           )}
-                          {(content.status === "approved" || content.status === "publish_failed") && content.type === "blog" && clientsWithWordPress.has(content.clientId) && (
+                          {(content.status === "approved" || content.status === "publish_failed") && content.type === "blog" && (
                             <Button
                               size="sm"
                               variant="outline"
                               className="h-7 px-2 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                publishToWordPressMutation.mutate({
-                                  contentId: content.contentId,
-                                });
+                                setPublishPreviewContent(content);
                               }}
                               disabled={publishToWordPressMutation.isPending}
                               data-testid={`button-publish-wp-${content.contentId}`}
                             >
-                              <Globe className="w-3 h-3 mr-1" />
-                              {content.status === "publish_failed" ? "Retry Publish" : "Publish"}
+                              <Eye className="w-3 h-3 mr-1" />
+                              Preview & Publish
                             </Button>
                           )}
                           {content.status === "published" && (
@@ -1688,21 +1687,17 @@ export default function ContentFactoryPage() {
                             Create Video
                           </Button>
                         )}
-                        {(content.status === "approved" || content.status === "publish_failed") && content.type === "blog" && clientsWithWordPress.has(content.clientId) && (
+                        {(content.status === "approved" || content.status === "publish_failed") && content.type === "blog" && (
                           <Button
                             size="sm"
                             variant="outline"
                             className="h-7 px-2 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
-                            onClick={() =>
-                              publishToWordPressMutation.mutate({
-                                contentId: content.contentId,
-                              })
-                            }
+                            onClick={() => setPublishPreviewContent(content)}
                             disabled={publishToWordPressMutation.isPending}
                             data-testid={`button-publish-wp-list-${content.contentId}`}
                           >
-                            <Globe className="w-3 h-3 mr-1" />
-                            {content.status === "publish_failed" ? "Retry" : "Publish"}
+                            <Eye className="w-3 h-3 mr-1" />
+                            Preview & Publish
                           </Button>
                         )}
                         {content.status === "published" && (
@@ -1953,6 +1948,123 @@ export default function ContentFactoryPage() {
               Save Changes
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Publish Preview Dialog */}
+      <Dialog open={publishPreviewContent !== null} onOpenChange={(open) => !open && setPublishPreviewContent(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] bg-zinc-900 border-zinc-700">
+          {publishPreviewContent && (
+            <>
+              <DialogHeader>
+                <div className="flex items-center gap-3">
+                  <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30">
+                    <FileText className="w-3 h-3 mr-1" />
+                    Blog Article
+                  </Badge>
+                  <Badge className={statusConfig[publishPreviewContent.status]?.color || statusConfig.draft.color}>
+                    {statusConfig[publishPreviewContent.status]?.icon || statusConfig.draft.icon}
+                    <span className="ml-1">{statusConfig[publishPreviewContent.status]?.label || "Draft"}</span>
+                  </Badge>
+                </div>
+                <DialogTitle className="text-xl text-white mt-2">{publishPreviewContent.title}</DialogTitle>
+                <p className="text-sm text-zinc-400 mt-1">
+                  Client: {clients.find(c => c.id === publishPreviewContent.clientId)?.name || 'Unknown'}
+                </p>
+              </DialogHeader>
+              
+              <ScrollArea className="max-h-[50vh] mt-4">
+                <div className="space-y-4">
+                  {(() => {
+                    const metadata = publishPreviewContent.metadata 
+                      ? (typeof publishPreviewContent.metadata === 'string' 
+                        ? JSON.parse(publishPreviewContent.metadata) 
+                        : publishPreviewContent.metadata)
+                      : {};
+                    const imageUrl = metadata?.imageDataUrl;
+                    
+                    return imageUrl ? (
+                      <div className="rounded-lg overflow-hidden border border-zinc-700">
+                        <img 
+                          src={imageUrl} 
+                          alt={`${publishPreviewContent.title} - Featured Image`}
+                          className="w-full h-auto max-h-64 object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).style.display = 'none';
+                          }}
+                        />
+                        <div className="bg-zinc-800/50 px-3 py-1.5 text-xs text-zinc-400 flex items-center gap-1">
+                          <ImageIcon className="w-3 h-3" />
+                          Featured Image
+                        </div>
+                      </div>
+                    ) : null;
+                  })()}
+                  <div className="prose prose-invert prose-sm max-w-none">
+                    <div className="whitespace-pre-wrap text-zinc-300 text-sm leading-relaxed bg-zinc-800/30 p-4 rounded-lg border border-zinc-700">
+                      {publishPreviewContent.content}
+                    </div>
+                  </div>
+                </div>
+              </ScrollArea>
+
+              <div className="mt-6 pt-4 border-t border-zinc-700">
+                {!clientsWithWordPress.has(publishPreviewContent.clientId) ? (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 mb-4">
+                    <div className="flex items-center gap-2 text-amber-400 mb-2">
+                      <Globe className="w-4 h-4" />
+                      <span className="font-medium">WordPress Not Configured</span>
+                    </div>
+                    <p className="text-sm text-zinc-400 mb-3">
+                      To publish this article, you need to configure WordPress for this client first.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-amber-500/50 text-amber-400 hover:bg-amber-500/20"
+                      onClick={() => {
+                        setPublishPreviewContent(null);
+                        setLocation('/clients');
+                      }}
+                      data-testid="button-configure-wp"
+                    >
+                      <Settings2 className="w-4 h-4 mr-2" />
+                      Configure WordPress
+                    </Button>
+                  </div>
+                ) : null}
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    className="border-zinc-700 text-zinc-300"
+                    onClick={() => setPublishPreviewContent(null)}
+                    data-testid="button-cancel-publish"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-500"
+                    onClick={() => {
+                      publishToWordPressMutation.mutate({
+                        contentId: publishPreviewContent.contentId,
+                      });
+                      setPublishPreviewContent(null);
+                    }}
+                    disabled={publishToWordPressMutation.isPending || !clientsWithWordPress.has(publishPreviewContent.clientId)}
+                    data-testid="button-confirm-publish"
+                  >
+                    {publishToWordPressMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    ) : (
+                      <Globe className="w-4 h-4 mr-2" />
+                    )}
+                    {publishPreviewContent.status === "publish_failed" ? "Retry Publish to WordPress" : "Publish to WordPress"}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>
