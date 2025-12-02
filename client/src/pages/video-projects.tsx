@@ -58,6 +58,7 @@ type VideoProjectApiResponse = {
     sceneId: string;
     status: string;
     videoUrl?: string;
+    permanentVideoUrl?: string;
   }>;
   audioTracks: Array<{
     trackId: string;
@@ -90,6 +91,7 @@ type VideoProject = {
     sceneId: string;
     status: string;
     videoUrl?: string;
+    permanentVideoUrl?: string;
   }>;
   audioTracks: Array<{
     trackId: string;
@@ -166,11 +168,20 @@ const voiceStyles = [
   { value: "calm", label: "Calm" },
 ];
 
-function getProxiedUrl(url: string | undefined | null): string {
-  if (!url) return '';
-  if (url.includes('generativelanguage.googleapis.com')) {
-    return `/api/video-proxy?url=${encodeURIComponent(url)}`;
+function getVideoUrl(clip: { videoUrl?: string; permanentVideoUrl?: string } | undefined | null): string {
+  if (!clip) return '';
+  if (clip.permanentVideoUrl) {
+    return clip.permanentVideoUrl;
   }
+  if (!clip.videoUrl) return '';
+  if (clip.videoUrl.includes('generativelanguage.googleapis.com')) {
+    return `/api/video-proxy?url=${encodeURIComponent(clip.videoUrl)}`;
+  }
+  return clip.videoUrl;
+}
+
+function getAudioUrl(url: string | undefined | null): string {
+  if (!url) return '';
   return url;
 }
 
@@ -1331,7 +1342,7 @@ export default function VideoProjectsPage() {
                                           sceneId: scene.sceneId,
                                           title: `${scene.title} - Video`,
                                           type: 'video',
-                                          url: getProxiedUrl(clip.videoUrl)
+                                          url: getVideoUrl(clip)
                                         });
                                       }}
                                       data-testid={`button-play-video-${scene.sceneId}`}
@@ -1356,7 +1367,7 @@ export default function VideoProjectsPage() {
                                           sceneId: scene.sceneId,
                                           title: `${scene.title} - Audio`,
                                           type: 'audio',
-                                          url: getProxiedUrl(audio.audioUrl)
+                                          url: getAudioUrl(audio.audioUrl)
                                         });
                                       }}
                                       data-testid={`button-play-audio-${scene.sceneId}`}
@@ -1404,7 +1415,7 @@ export default function VideoProjectsPage() {
                                       className="w-full rounded-lg bg-black border border-green-400/30"
                                       data-testid={`video-inline-${scene.sceneId}`}
                                     >
-                                      <source src={getProxiedUrl(clip.videoUrl)} type="video/mp4" />
+                                      <source src={getVideoUrl(clip)} type="video/mp4" />
                                       Your browser does not support the video tag.
                                     </video>
                                   </div>
