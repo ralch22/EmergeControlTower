@@ -433,6 +433,40 @@ export function getEffectiveCTA(brief: EnrichedClientBrief, overrideCta?: string
   return undefined;
 }
 
+export function getBrandMandatoryCTA(brief: EnrichedClientBrief, overrideCta?: string): string {
+  if (overrideCta) return overrideCta;
+  if (brief.textual.callToActions.length > 0) return brief.textual.callToActions[0];
+  
+  const brandName = brief.textual.brandName || brief.clientName;
+  const websiteUrl = brief.websiteUrl;
+  
+  if (websiteUrl) {
+    const cleanUrl = websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    return `Visit ${cleanUrl}`;
+  }
+  
+  return `Learn more about ${brandName}`;
+}
+
+export function getBrandWebsiteDisplay(brief: EnrichedClientBrief): string | undefined {
+  if (!brief.websiteUrl) return undefined;
+  return brief.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+}
+
+export function buildBrandClosingContext(brief: EnrichedClientBrief): string {
+  const brandName = brief.textual.brandName || brief.clientName;
+  const tagline = brief.textual.tagline;
+  const cta = getBrandMandatoryCTA(brief);
+  const websiteDisplay = getBrandWebsiteDisplay(brief);
+  
+  let closing = `Brand Name: ${brandName}`;
+  if (tagline) closing += `\nTagline: "${tagline}"`;
+  if (websiteDisplay) closing += `\nWebsite: ${websiteDisplay}`;
+  closing += `\nCall-to-Action: "${cta}"`;
+  
+  return closing;
+}
+
 export function buildImagePromptEnrichment(brief: EnrichedClientBrief, basePrompt: string): string {
   const v = brief.visual;
   

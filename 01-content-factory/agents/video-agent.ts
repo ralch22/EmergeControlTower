@@ -9,6 +9,8 @@ import {
   buildSystemPromptSuffix,
   buildReferenceConstrainedVideoPrompt,
   getEffectiveCTA,
+  getBrandMandatoryCTA,
+  buildBrandClosingContext,
   hasReferenceAsset,
   getReferenceAssetUrl
 } from "../services/brand-brief";
@@ -189,8 +191,15 @@ export async function generateVideoScript(
       ? buildVideoSystemPrompt(enrichedBrief)
       : `${BASE_SYSTEM_PROMPT}${brief.websiteUrl ? ` Use ${brief.websiteUrl} as a reference for brand style and tone.` : ''}`;
     
-    const effectiveCta = isEnriched ? getEffectiveCTA(enrichedBrief) : undefined;
     const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];
+    
+    const brandClosingContext = isEnriched 
+      ? buildBrandClosingContext(enrichedBrief)
+      : `Brand Name: ${brief.clientName}${brief.websiteUrl ? `\nWebsite: ${brief.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : ''}`;
+    
+    const mandatoryCta = isEnriched 
+      ? getBrandMandatoryCTA(enrichedBrief)
+      : (brief.websiteUrl ? `Visit ${brief.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : `Learn more about ${brief.clientName}`);
     
     const userPrompt = `Create a video script for ${brief.clientName}.
 
@@ -202,6 +211,9 @@ ${brandTextualContext}
 
 ${brandVisualContext}
 
+**Brand Closing Information (MUST USE EXACTLY):**
+${brandClosingContext}
+
 **Video Requirements:**
 - Duration: ${duration} seconds
 - Format: ${format} (${format === 'short' ? '15-60s' : format === 'medium' ? '1-3 min' : '3-10 min'})
@@ -211,13 +223,16 @@ IMPORTANT: All visual descriptions MUST incorporate the brand visual style, colo
 ${isEnriched ? `Use ${enrichedBrief.visual.cinematicMotionStyle} motion and ${enrichedBrief.visual.cinematicPacing} pacing.` : ''}
 ${forbiddenWords.length ? `\nNEVER use these words in voiceover: ${forbiddenWords.join(', ')}` : ''}
 
+CRITICAL: The call-to-action MUST be exactly: "${mandatoryCta}"
+DO NOT make up a different CTA, website URL, or brand name. Use ONLY the brand information provided above.
+
 Create a complete video script with:
 1. Hook (first 3 seconds to stop scrolling) - address ${isEnriched ? enrichedBrief.textual.audiencePainPoints[0] || 'audience challenge' : 'key pain point'}
 2. Scene-by-scene breakdown (following brand visual style)
 3. Visual descriptions for each scene incorporating brand colors, motifs, and aesthetic
 4. Voiceover/dialogue script in ${isEnriched ? enrichedBrief.textual.archetype : 'brand'} voice
 5. Text overlays suggestions (using brand typography style)
-6. Call-to-action${effectiveCta ? `: "${effectiveCta}"` : ''}
+6. Call-to-action: "${mandatoryCta}"
 
 Output as JSON:
 {
@@ -231,7 +246,7 @@ Output as JSON:
       "textOverlay": "Optional text on screen"
     }
   ],
-  "callToAction": "${effectiveCta || 'Final CTA'}",
+  "callToAction": "${mandatoryCta}",
   "duration": ${duration},
   "voiceoverText": "Full voiceover script combined"
 }`;

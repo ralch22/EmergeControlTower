@@ -6,6 +6,7 @@ import {
   buildSystemPromptSuffix,
   buildReferenceConstrainedImagePrompt,
   getEffectiveCTA,
+  getBrandMandatoryCTA,
   hasReferenceAsset
 } from "../services/brand-brief";
 
@@ -58,7 +59,9 @@ export async function generateAdCopy(
       ? buildAdCopySystemPrompt(enrichedBrief, platform)
       : `You are a direct-response copywriter. Create high-converting ad copy for ${brief.clientName}.${brief.websiteUrl ? ` Use ${brief.websiteUrl} as a reference for brand style and tone.` : ''}`;
     
-    const effectiveCta = isEnriched ? getEffectiveCTA(enrichedBrief) : brief.contentGoals?.[0];
+    const mandatoryCta = isEnriched 
+      ? getBrandMandatoryCTA(enrichedBrief)
+      : (brief.websiteUrl ? `Visit ${brief.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : brief.contentGoals?.[0] || `Learn more about ${brief.clientName}`);
     const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];
     const preferredCtas = isEnriched ? enrichedBrief.textual.callToActions : [];
     
@@ -93,7 +96,7 @@ Create ${config.variations} variations with different angles:
 Each variation must:
 - Match the ${isEnriched ? enrichedBrief.textual.archetype : 'professional'} brand personality
 - Use ${isEnriched ? enrichedBrief.textual.toneDescription : 'brand-appropriate'} tone
-${effectiveCta ? `- Drive toward CTA: "${effectiveCta}"` : '- Include compelling CTA'}
+- Drive toward CTA: "${mandatoryCta}" (use this EXACTLY, do not make up a different CTA)
 
 Format output as JSON:
 {
@@ -180,7 +183,7 @@ Format output as JSON:
       title: `${topic.title} - Ad Copy`,
       content: JSON.stringify(adData, null, 2),
       metadata: {
-        callToAction: effectiveCta || 'Learn More',
+        callToAction: mandatoryCta,
         imageDataUrl,
       },
       status: 'draft',

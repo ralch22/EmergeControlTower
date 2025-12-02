@@ -6,6 +6,7 @@ import {
   buildSystemPromptSuffix,
   buildReferenceConstrainedImagePrompt,
   getEffectiveCTA,
+  getBrandMandatoryCTA,
   hasReferenceAsset
 } from "../services/brand-brief";
 
@@ -43,7 +44,9 @@ export async function generateBlogPost(
       ? buildBlogSystemPrompt(enrichedBrief)
       : `You are an expert content writer. Write in the brand voice: ${brief.brandVoice}. Target audience: ${brief.targetAudience}.${brief.websiteUrl ? ` Use ${brief.websiteUrl} as a reference for brand style and tone.` : ''}`;
     
-    const effectiveCta = isEnriched ? getEffectiveCTA(enrichedBrief) : undefined;
+    const mandatoryCta = isEnriched 
+      ? getBrandMandatoryCTA(enrichedBrief)
+      : (brief.websiteUrl ? `Visit ${brief.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : `Learn more about ${brief.clientName}`);
     const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];
     
     const userPrompt = `Write a comprehensive blog post for ${brief.clientName}.
@@ -55,12 +58,15 @@ export async function generateBlogPost(
 
 ${brandContext}
 
+**MANDATORY Call-to-Action:** "${mandatoryCta}"
+DO NOT make up a different CTA, website URL, or brand name. Use the CTA above EXACTLY.
+
 REQUIREMENTS:
 1. Attention-grabbing headline that speaks to audience pain points
 2. Hook introduction (2-3 sentences) that resonates with ${isEnriched ? enrichedBrief.textual.audienceDemographics : brief.targetAudience}
 3. 4-6 main sections with H2 headers
 4. Practical takeaways aligned with brand values
-5. Strong conclusion with CTA${effectiveCta ? `: "${effectiveCta}"` : ''}
+5. Strong conclusion with CTA: "${mandatoryCta}"
 ${forbiddenWords.length ? `6. NEVER use these words: ${forbiddenWords.join(', ')}` : ''}
 
 Format in Markdown. Make it scannable with bullet points where appropriate.

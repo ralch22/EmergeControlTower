@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import { generateTextWithFallback } from './text-generation';
 import type { BrandProfileJSON } from '../../shared/schema';
+import { composeBrandBrief, getBrandMandatoryCTA, buildBrandClosingContext, type EnrichedClientBrief } from './brand-brief';
 
 function generateId(): string {
   return randomBytes(8).toString('hex');
@@ -8,6 +9,33 @@ function generateId(): string {
 import { healthMonitor } from './provider-health-monitor';
 import type { QualityTier } from '../../shared/schema';
 import type { IStorage } from '../../server/storage';
+
+function extractBrandCTA(brandProfile: BrandProfileJSON | null, clientName: string, websiteUrl?: string): string {
+  if (brandProfile?.textual?.callToActions?.length) {
+    return brandProfile.textual.callToActions[0];
+  }
+  
+  if (websiteUrl) {
+    const cleanUrl = websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    return `Visit ${cleanUrl}`;
+  }
+  
+  return `Learn more about ${clientName}`;
+}
+
+function buildBrandClosingContextFromProfile(brandProfile: BrandProfileJSON | null, clientName: string, websiteUrl?: string): string {
+  const brandName = brandProfile?.textual?.brandName?.primary || clientName;
+  const tagline = brandProfile?.textual?.tagline?.primary;
+  const cta = extractBrandCTA(brandProfile, clientName, websiteUrl);
+  const websiteDisplay = websiteUrl?.replace(/^https?:\/\//, '').replace(/\/$/, '');
+  
+  let closing = `Brand Name: ${brandName}`;
+  if (tagline) closing += `\nTagline: "${tagline}"`;
+  if (websiteDisplay) closing += `\nWebsite: ${websiteDisplay}`;
+  closing += `\nCall-to-Action: "${cta}"`;
+  
+  return closing;
+}
 
 // Helper to build brand visual context for video prompts
 function buildBrandVisualContext(brandProfile: BrandProfileJSON | null): string {
@@ -98,7 +126,7 @@ IMPORTANT: Output ONLY valid JSON, no markdown formatting or explanation.`;
 
 export async function generateVideoScriptFromTopic(
   topic: string,
-  options: Partial<FullVideoRequest> = {}
+  options: Partial<FullVideoRequest> & { websiteUrl?: string } = {}
 ): Promise<{ success: boolean; script?: any; error?: string; provider?: string }> {
   const {
     clientName = 'Client',
@@ -108,10 +136,12 @@ export async function generateVideoScriptFromTopic(
     duration = 60,
     format = 'short',
     style = 'mixed',
+    websiteUrl,
   } = options;
 
-  // Build brand visual context from profile
   const brandVisualContext = buildBrandVisualContext(brandProfile);
+  const mandatoryCta = extractBrandCTA(brandProfile, clientName, websiteUrl);
+  const brandClosingContext = buildBrandClosingContextFromProfile(brandProfile, clientName, websiteUrl);
 
   const userPrompt = `Create a video script for ${clientName}.
 
@@ -120,10 +150,16 @@ export async function generateVideoScriptFromTopic(
 **Brand Voice:** ${brandVoice}
 ${brandVisualContext}
 
+**Brand Closing Information (MUST USE EXACTLY):**
+${brandClosingContext}
+
 **Video Requirements:**
 - Duration: ${duration} seconds
 - Format: ${format} (${format === 'short' ? '15-60s' : format === 'medium' ? '1-3 min' : '3-10 min'})
 - Style: ${style}
+
+CRITICAL: The call-to-action MUST be exactly: "${mandatoryCta}"
+DO NOT make up a different CTA, website URL, or brand name. Use ONLY the brand information provided above.
 
 Create a complete video script. IMPORTANT: All visual descriptions MUST incorporate the brand visual guidelines above (colors, motifs, aesthetic, mood). Output ONLY valid JSON with this exact structure:
 {
@@ -137,7 +173,7 @@ Create a complete video script. IMPORTANT: All visual descriptions MUST incorpor
       "textOverlay": "Optional text shown on screen"
     }
   ],
-  "callToAction": "Final CTA",
+  "callToAction": "${mandatoryCta}",
   "duration": ${duration},
   "voiceoverText": "Complete voiceover script for entire video"
 }`;

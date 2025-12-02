@@ -6,6 +6,7 @@ import {
   buildSystemPromptSuffix,
   buildReferenceConstrainedImagePrompt,
   getEffectiveCTA,
+  getBrandMandatoryCTA,
   hasReferenceAsset
 } from "../services/brand-brief";
 
@@ -61,7 +62,9 @@ export async function generateSocialPost(
       ? buildSocialSystemPrompt(enrichedBrief, platform)
       : `You are a social media content expert. Create content in the brand voice: ${brief.brandVoice}.${brief.websiteUrl ? ` Use ${brief.websiteUrl} as a reference for brand style and tone.` : ''}`;
     
-    const effectiveCta = isEnriched ? getEffectiveCTA(enrichedBrief) : undefined;
+    const mandatoryCta = isEnriched 
+      ? getBrandMandatoryCTA(enrichedBrief)
+      : (brief.websiteUrl ? `Visit ${brief.websiteUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')}` : `Learn more about ${brief.clientName}`);
     const forbiddenWords = isEnriched ? enrichedBrief.textual.forbiddenWords : [];
     
     const userPrompt = `Create a ${platform.toUpperCase()} post for ${brief.clientName}.
@@ -77,11 +80,14 @@ ${brandContext}
 - Style: ${config.style}
 - Platform tone: ${config.tone}
 
+**MANDATORY Call-to-Action:** "${mandatoryCta}"
+DO NOT make up a different CTA, website URL, or brand name. Use the CTA above EXACTLY.
+
 Create a highly engaging post that:
 1. Opens with a hook that stops scrolling and speaks to ${isEnriched ? enrichedBrief.textual.audienceDemographics : brief.targetAudience}
 2. Delivers value or insight aligned with brand personality (${isEnriched ? enrichedBrief.textual.archetype : 'professional'})
 3. Maintains ${isEnriched ? `${enrichedBrief.textual.toneDescription} tone` : 'brand voice'}
-4. ${effectiveCta ? `Ends with CTA: "${effectiveCta}"` : 'Ends with engagement prompt or CTA'}
+4. Ends with CTA: "${mandatoryCta}"
 5. Includes appropriate hashtags
 ${forbiddenWords.length ? `6. NEVER use: ${forbiddenWords.join(', ')}` : ''}
 
