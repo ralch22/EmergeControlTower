@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { WordPressConfigDialog } from "@/components/wordpress-config-dialog";
 import {
   Users,
   Building2,
@@ -23,6 +24,7 @@ import {
   Play,
   Loader2,
   FileText,
+  Globe,
 } from "lucide-react";
 
 type Client = {
@@ -49,6 +51,7 @@ export default function ClientsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [wpConfigClient, setWpConfigClient] = useState<{ id: number; name: string } | null>(null);
   const [newClient, setNewClient] = useState({
     name: "",
     industry: "",
@@ -468,24 +471,36 @@ export default function ClientsPage() {
                       </div>
                     )}
 
-                    <Button
-                      onClick={() => runContentFactoryMutation.mutate(client.id)}
-                      disabled={isRunning}
-                      className="w-full bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400"
-                      data-testid={`button-run-factory-${client.id}`}
-                    >
-                      {isRunning ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                          Starting...
-                        </>
-                      ) : (
-                        <>
-                          <Play className="w-4 h-4 mr-2" />
-                          Run Content Factory
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => runContentFactoryMutation.mutate(client.id)}
+                        disabled={isRunning}
+                        className="flex-1 bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400"
+                        data-testid={`button-run-factory-${client.id}`}
+                      >
+                        {isRunning ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                            Starting...
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-4 h-4 mr-2" />
+                            Run Factory
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        onClick={() => setWpConfigClient({ id: client.id, name: client.name })}
+                        className="border-zinc-600 hover:border-cyan-500/50 hover:bg-cyan-500/10"
+                        title="Configure WordPress Publishing"
+                        data-testid={`button-wp-config-${client.id}`}
+                      >
+                        <Globe className="w-4 h-4" />
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               );
@@ -493,6 +508,17 @@ export default function ClientsPage() {
           </div>
         )}
       </div>
+
+      {wpConfigClient && (
+        <WordPressConfigDialog
+          clientId={wpConfigClient.id}
+          clientName={wpConfigClient.name}
+          open={!!wpConfigClient}
+          onOpenChange={(open) => {
+            if (!open) setWpConfigClient(null);
+          }}
+        />
+      )}
     </div>
   );
 }
