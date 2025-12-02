@@ -27,7 +27,22 @@ export interface Veo31Options {
   imageUrl?: string;
   imageBase64?: string;
   brandGuidelines?: BrandGuidelines;
+  model?: 'veo-3.0' | 'veo-3.1' | 'veo-3.1-fast';
 }
+
+export type Veo3Model = 'veo-3.0' | 'veo-3.1' | 'veo-3.1-fast';
+
+const VEO_MODEL_IDS: Record<Veo3Model, string> = {
+  'veo-3.0': 'veo-3.0-generate-preview',
+  'veo-3.1': 'veo-3.1-generate-preview', 
+  'veo-3.1-fast': 'veo-3.1-fast-generate-preview',
+};
+
+const VEO_VERTEX_MODEL_IDS: Record<Veo3Model, string> = {
+  'veo-3.0': 'veo-3.0-generate-preview',
+  'veo-3.1': 'veo-3.1-generate-preview',
+  'veo-3.1-fast': 'veo-3.1-fast-generate-preview',
+};
 
 function buildBrandEnhancedPrompt(basePrompt: string, guidelines?: BrandGuidelines): string {
   if (!guidelines) return basePrompt;
@@ -64,7 +79,8 @@ async function generateWithVertexAI(
 
   const projectId = getProjectId();
   const location = getLocation();
-  const modelId = 'veo-001';
+  const selectedModel = options.model || 'veo-3.1';
+  const modelId = VEO_VERTEX_MODEL_IDS[selectedModel];
 
   const {
     aspectRatio = '16:9',
@@ -86,6 +102,7 @@ async function generateWithVertexAI(
 
   console.log(`[Veo-Vertex] Starting video generation with Vertex AI...`);
   console.log(`[Veo-Vertex] Project: ${projectId}, Location: ${location}`);
+  console.log(`[Veo-Vertex] generateAudio: ${generateAudio}`);
   console.log(`[Veo-Vertex] Prompt: ${enhancedPrompt.substring(0, 150)}...`);
 
   const requestBody: any = {
@@ -96,6 +113,7 @@ async function generateWithVertexAI(
       aspectRatio: validAspectRatio,
       sampleCount: 1,
       durationSeconds: snappedDuration,
+      generateAudio: generateAudio,
     },
   };
 
@@ -209,11 +227,14 @@ async function generateWithGeminiAPI(
     Math.abs(curr - duration) < Math.abs(prev - duration) ? curr : prev
   );
 
-  const modelId = 'veo-3.1-generate-preview';
+  const selectedModel = options.model || 'veo-3.1';
+  const modelId = VEO_MODEL_IDS[selectedModel];
   const isImageToVideo = !!(imageUrl || imageBase64);
 
-  console.log(`[Veo3.1] Starting ${isImageToVideo ? 'image-to-video' : 'text-to-video'} generation...`);
-  console.log(`[Veo3.1] Prompt: ${enhancedPrompt.substring(0, 150)}...`);
+  console.log(`[Veo3] Starting ${isImageToVideo ? 'image-to-video' : 'text-to-video'} generation with ${selectedModel}...`);
+  console.log(`[Veo3] Model ID: ${modelId}`);
+  console.log(`[Veo3] generateAudio: ${generateAudio}`);
+  console.log(`[Veo3] Prompt: ${enhancedPrompt.substring(0, 150)}...`);
 
   const requestBody: any = {
     instances: [{
@@ -223,6 +244,7 @@ async function generateWithGeminiAPI(
       aspectRatio: validAspectRatio,
       sampleCount: 1,
       durationSeconds: snappedDuration,
+      generateAudio: generateAudio,
     },
   };
 
@@ -635,4 +657,104 @@ export async function generateImageToVideoWithVeo31(
     ...options,
     imageBase64,
   });
+}
+
+export interface QuickVideoOptions {
+  model?: Veo3Model;
+  duration?: 4 | 6 | 8;
+  aspectRatio?: '16:9' | '9:16';
+  style?: string;
+  brandName?: string;
+}
+
+export interface QuickVideoResult {
+  success: boolean;
+  videoUrl?: string;
+  duration?: number;
+  hasAudio?: boolean;
+  model?: string;
+  error?: string;
+  processingTimeMs?: number;
+}
+
+export async function generateQuickVideo(
+  prompt: string,
+  options: QuickVideoOptions = {}
+): Promise<QuickVideoResult> {
+  const startTime = Date.now();
+  const {
+    model = 'veo-3.1-fast',
+    duration = 8,
+    aspectRatio = '16:9',
+    style,
+    brandName,
+  } = options;
+
+  let enhancedPrompt = prompt;
+  if (style) {
+    enhancedPrompt += `. Style: ${style}`;
+  }
+  if (brandName) {
+    enhancedPrompt += `. Brand: ${brandName}`;
+  }
+
+  console.log(`[QuickVideo] Starting single-shot generation with ${model}...`);
+  console.log(`[QuickVideo] Prompt: ${enhancedPrompt.substring(0, 200)}...`);
+  console.log(`[QuickVideo] Native audio: enabled`);
+
+  const generateResult = await generateVideoWithVeo31(enhancedPrompt, {
+    model,
+    duration,
+    aspectRatio,
+    generateAudio: true, // Always request native audio for quick videos
+  });
+
+  if (!generateResult.success) {
+    return {
+      success: false,
+      error: generateResult.error,
+      model,
+    };
+  }
+
+  if (generateResult.videoUrl) {
+    return {
+      success: true,
+      videoUrl: generateResult.videoUrl,
+      duration,
+      hasAudio: true,
+      model,
+      processingTimeMs: Date.now() - startTime,
+    };
+  }
+
+  if (!generateResult.taskId) {
+    return {
+      success: false,
+      error: 'No task ID received from Veo',
+      model,
+    };
+  }
+
+  console.log(`[QuickVideo] Waiting for completion: ${generateResult.taskId}`);
+  const completionResult = await waitForVeo31Completion(generateResult.taskId, 600, 15);
+
+  if (!completionResult.success || !completionResult.videoUrl) {
+    return {
+      success: false,
+      error: completionResult.error || 'Video generation failed',
+      model,
+      processingTimeMs: Date.now() - startTime,
+    };
+  }
+
+  console.log(`[QuickVideo] Video completed: ${completionResult.videoUrl}`);
+  return {
+    success: true,
+    videoUrl: completionResult.videoUrl,
+    duration,
+    hasAudio: completionResult.hasAudio ?? true,
+    model,
+    processingTimeMs: Date.now() - startTime,
+  };
 }

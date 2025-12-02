@@ -2455,6 +2455,78 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
   });
 
   // ==========================================
+  // Quick Single-Shot Video Generation (Veo 3)
+  // ==========================================
+  
+  // Generate a single video with native audio - no multi-scene, no Shotstack
+  app.post("/api/video/quick-generate", async (req, res) => {
+    try {
+      const { generateQuickVideo } = await import("../01-content-factory/integrations/veo31");
+      
+      const {
+        prompt,
+        model = 'veo-3.1-fast',
+        duration = 8,
+        aspectRatio = '16:9',
+        style,
+        brandName,
+      } = req.body;
+
+      if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+        return res.status(400).json({ success: false, error: "prompt is required and must be a non-empty string" });
+      }
+
+      const allowedModels = ['veo-3.0', 'veo-3.1', 'veo-3.1-fast'] as const;
+      const validModel = allowedModels.includes(model) ? model : 'veo-3.1-fast';
+
+      const allowedDurations: readonly [4, 6, 8] = [4, 6, 8];
+      const durationNum = Number(duration);
+      const validDuration: 4 | 6 | 8 = (allowedDurations as readonly number[]).includes(durationNum) 
+        ? (durationNum as 4 | 6 | 8) 
+        : 8;
+
+      const validAspectRatio = aspectRatio === '9:16' ? '9:16' : '16:9';
+
+      const sanitizedStyle = typeof style === 'string' ? style.substring(0, 200) : undefined;
+      const sanitizedBrandName = typeof brandName === 'string' ? brandName.substring(0, 100) : undefined;
+
+      console.log(`[QuickVideo API] Starting generation: ${prompt.substring(0, 100)}...`);
+      console.log(`[QuickVideo API] Model: ${validModel}, Duration: ${validDuration}s, Aspect: ${validAspectRatio}`);
+
+      const result = await generateQuickVideo(prompt.trim(), {
+        model: validModel,
+        duration: validDuration,
+        aspectRatio: validAspectRatio,
+        style: sanitizedStyle,
+        brandName: sanitizedBrandName,
+      });
+
+      if (result.success) {
+        await storage.createActivityLog({
+          runId: `quick_video_${Date.now()}`,
+          eventType: 'quick_video_completed',
+          level: 'success',
+          message: `Quick video generated successfully with ${model}`,
+          metadata: JSON.stringify({
+            videoUrl: result.videoUrl,
+            duration: result.duration,
+            hasAudio: result.hasAudio,
+            processingTimeMs: result.processingTimeMs,
+          }),
+        });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error('[QuickVideo API] Error:', error);
+      res.status(500).json({ 
+        success: false, 
+        error: error.message || "Failed to generate quick video" 
+      });
+    }
+  });
+
+  // ==========================================
   // Unified Full Video Generation (Topic → Final Video)
   // ==========================================
   

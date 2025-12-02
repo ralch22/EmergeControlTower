@@ -6,12 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   Film, Play, Pause, RefreshCw, CheckCircle, XCircle, Clock, 
   AlertTriangle, Download, ChevronLeft, Video, Mic, Image,
-  Zap, SkipForward, Loader2, ExternalLink, Wand2
+  Zap, SkipForward, Loader2, ExternalLink, Wand2, Sparkles, Volume2
 } from "lucide-react";
 
 const ShotstackStudio = lazy(() => import("@/components/ShotstackStudio"));
@@ -205,6 +209,262 @@ function SceneCard({ scene, onRetry }: { scene: SceneStatus; onRetry?: () => voi
   );
 }
 
+interface QuickVideoResult {
+  success: boolean;
+  videoUrl?: string;
+  duration?: number;
+  hasAudio?: boolean;
+  model?: string;
+  error?: string;
+  processingTimeMs?: number;
+}
+
+function QuickVideoGenerator() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState<'veo-3.0' | 'veo-3.1' | 'veo-3.1-fast'>('veo-3.1-fast');
+  const [duration, setDuration] = useState<4 | 6 | 8>(8);
+  const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>('16:9');
+  const [style, setStyle] = useState("");
+  const [result, setResult] = useState<QuickVideoResult | null>(null);
+
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/video/quick-generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          model,
+          duration,
+          aspectRatio,
+          style: style || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to generate video');
+      }
+      return res.json() as Promise<QuickVideoResult>;
+    },
+    onSuccess: (data) => {
+      setResult(data);
+    },
+  });
+
+  const handleGenerate = () => {
+    if (!prompt.trim()) return;
+    setResult(null);
+    generateMutation.mutate();
+  };
+
+  const handleClose = () => {
+    setIsOpen(false);
+    setResult(null);
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Card className="bg-gradient-to-br from-violet-900/30 to-cyan-900/30 border-violet-500/30 hover:border-violet-500/50 transition-all cursor-pointer group" data-testid="quick-video-card">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-4">
+              <div className="p-3 rounded-xl bg-gradient-to-br from-violet-500 to-cyan-500 group-hover:scale-110 transition-transform">
+                <Sparkles className="w-6 h-6 text-white" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  Quick Video with Veo 3
+                  <Badge className="bg-violet-500/20 text-violet-300 border-violet-500/30">New</Badge>
+                </h3>
+                <p className="text-sm text-zinc-400 mt-1">
+                  Generate a single 8-second video with native audio. No multi-scene assembly needed.
+                </p>
+                <div className="flex items-center gap-4 mt-3 text-xs text-zinc-500">
+                  <span className="flex items-center gap-1">
+                    <Volume2 className="w-3 h-3" />
+                    Built-in audio
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Zap className="w-3 h-3" />
+                    Single shot
+                  </span>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg bg-zinc-900 border-zinc-700">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-violet-400" />
+            Quick Video Generator
+          </DialogTitle>
+          <DialogDescription>
+            Generate a single video clip with native audio using Google Veo 3. No multi-scene complexity.
+          </DialogDescription>
+        </DialogHeader>
+
+        {result?.success && result.videoUrl ? (
+          <div className="space-y-4">
+            <div className="rounded-lg overflow-hidden bg-black">
+              <video 
+                src={result.videoUrl} 
+                controls 
+                autoPlay 
+                className="w-full"
+              />
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <div className="flex items-center gap-4 text-zinc-400">
+                <span className="flex items-center gap-1">
+                  <Clock className="w-4 h-4" />
+                  {result.duration}s
+                </span>
+                {result.hasAudio && (
+                  <span className="flex items-center gap-1 text-green-400">
+                    <Volume2 className="w-4 h-4" />
+                    Has audio
+                  </span>
+                )}
+                <Badge variant="outline">{result.model}</Badge>
+              </div>
+              <Button size="sm" variant="outline" asChild>
+                <a href={result.videoUrl} download target="_blank" rel="noopener noreferrer">
+                  <Download className="w-4 h-4 mr-1" />
+                  Download
+                </a>
+              </Button>
+            </div>
+            {result.processingTimeMs && (
+              <p className="text-xs text-zinc-500 text-center">
+                Generated in {Math.round(result.processingTimeMs / 1000)}s
+              </p>
+            )}
+            <Button onClick={handleClose} className="w-full">
+              Done
+            </Button>
+          </div>
+        ) : result?.error ? (
+          <div className="space-y-4">
+            <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+              <div className="flex items-start gap-3">
+                <XCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-red-400">Generation Failed</p>
+                  <p className="text-sm text-zinc-400 mt-1">{result.error}</p>
+                </div>
+              </div>
+            </div>
+            <Button onClick={() => setResult(null)} variant="outline" className="w-full">
+              Try Again
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="prompt">Video Description</Label>
+              <Textarea
+                id="prompt"
+                placeholder="Describe your video... e.g., 'A drone shot flying over a tropical beach at sunset with gentle waves'"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={3}
+                className="bg-zinc-800 border-zinc-700"
+                data-testid="quick-video-prompt"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Model</Label>
+                <Select value={model} onValueChange={(v) => setModel(v as typeof model)}>
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="quick-video-model">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="veo-3.1-fast">Veo 3.1 Fast (Faster)</SelectItem>
+                    <SelectItem value="veo-3.1">Veo 3.1 (Quality)</SelectItem>
+                    <SelectItem value="veo-3.0">Veo 3.0 (Premium)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Duration</Label>
+                <Select value={String(duration)} onValueChange={(v) => setDuration(Number(v) as typeof duration)}>
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="quick-video-duration">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="4">4 seconds</SelectItem>
+                    <SelectItem value="6">6 seconds</SelectItem>
+                    <SelectItem value="8">8 seconds</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Aspect Ratio</Label>
+                <Select value={aspectRatio} onValueChange={(v) => setAspectRatio(v as typeof aspectRatio)}>
+                  <SelectTrigger className="bg-zinc-800 border-zinc-700" data-testid="quick-video-aspect">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="16:9">16:9 (Landscape)</SelectItem>
+                    <SelectItem value="9:16">9:16 (Portrait)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="style">Style (Optional)</Label>
+                <Input
+                  id="style"
+                  placeholder="e.g., cinematic, realistic"
+                  value={style}
+                  onChange={(e) => setStyle(e.target.value)}
+                  className="bg-zinc-800 border-zinc-700"
+                  data-testid="quick-video-style"
+                />
+              </div>
+            </div>
+
+            <div className="p-3 rounded-lg bg-zinc-800/50 text-xs text-zinc-400">
+              <p className="flex items-center gap-2">
+                <Volume2 className="w-4 h-4 text-green-400" />
+                Veo 3 generates videos with native audio (dialogue, music, sound effects).
+              </p>
+            </div>
+
+            <Button 
+              onClick={handleGenerate}
+              disabled={!prompt.trim() || generateMutation.isPending}
+              className="w-full bg-gradient-to-r from-violet-500 to-cyan-500 hover:from-violet-600 hover:to-cyan-600"
+              data-testid="quick-video-generate"
+            >
+              {generateMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Generating... (may take 2-5 min)
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Generate Video
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function ProjectSelector({ projects, selectedId, onSelect }: { 
   projects: VideoProject[]; 
   selectedId: string | null;
@@ -338,31 +598,38 @@ export default function VideoAssemblyPage() {
         </div>
         
         {!selectedProjectId ? (
-          <div className="space-y-4">
-            <h2 className="text-lg font-medium">Select a Project</h2>
-            {projectsLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
-              </div>
-            ) : projects.length === 0 ? (
-              <Card className="bg-zinc-900/50 border-zinc-700">
-                <CardContent className="py-12 text-center">
-                  <Film className="w-12 h-12 mx-auto text-zinc-600 mb-4" />
-                  <p className="text-zinc-400">No video projects found</p>
-                  <Link href="/ingredients-to-video">
-                    <Button className="mt-4" variant="outline">
-                      Create a Video Project
-                    </Button>
-                  </Link>
-                </CardContent>
-              </Card>
-            ) : (
-              <ProjectSelector 
-                projects={projects} 
-                selectedId={selectedProjectId}
-                onSelect={handleSelectProject}
-              />
-            )}
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-medium mb-3">Quick Generation</h2>
+              <QuickVideoGenerator />
+            </div>
+
+            <div>
+              <h2 className="text-lg font-medium mb-3">Multi-Scene Projects</h2>
+              {projectsLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 animate-spin text-cyan-400" />
+                </div>
+              ) : projects.length === 0 ? (
+                <Card className="bg-zinc-900/50 border-zinc-700">
+                  <CardContent className="py-12 text-center">
+                    <Film className="w-12 h-12 mx-auto text-zinc-600 mb-4" />
+                    <p className="text-zinc-400">No video projects found</p>
+                    <Link href="/ingredients-to-video">
+                      <Button className="mt-4" variant="outline">
+                        Create a Video Project
+                      </Button>
+                    </Link>
+                  </CardContent>
+                </Card>
+              ) : (
+                <ProjectSelector 
+                  projects={projects} 
+                  selectedId={selectedProjectId}
+                  onSelect={handleSelectProject}
+                />
+              )}
+            </div>
           </div>
         ) : (
           <div className="space-y-6">
