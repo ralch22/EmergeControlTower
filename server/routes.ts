@@ -1,13 +1,18 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertApprovalQueueSchema, insertKpiSchema, insertPodSchema, insertPhaseChangeSchema, insertAlertSchema, insertClientSchema, insertBrandAssetsSchema, insertBrandAssetFileSchema } from "@shared/schema";
+import { insertApprovalQueueSchema, insertKpiSchema, insertPodSchema, insertPhaseChangeSchema, insertAlertSchema, insertClientSchema, insertBrandAssetsSchema, insertBrandAssetFileSchema, clients } from "@shared/schema";
 import { fromError } from "zod-validation-error";
 import { runContentPipeline } from "../01-content-factory/orchestrator";
 import type { ClientBrief, ContentType } from "../01-content-factory/types";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import sharp from "sharp";
+// @ts-ignore - colorthief doesn't have type definitions
+import ColorThief from "colorthief";
+import { eq } from "drizzle-orm";
+import { db } from "./db";
 
 const BRAND_ASSETS_DIR = "attached_assets/brand";
 
@@ -874,6 +879,48 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
     }
   });
 
+  // Helper function to extract dominant colors from an image
+  async function extractDominantColors(filePath: string, numColors: number = 3): Promise<string[]> {
+    try {
+      // Use ColorThief for color extraction
+      const colorThief = new ColorThief();
+      // ColorThief.getPalette is synchronous
+      const palette = colorThief.getPalette(filePath, numColors);
+      
+      // Convert RGB arrays to hex strings
+      const hexColors = palette.map(([r, g, b]: number[]) => {
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      });
+      
+      return hexColors;
+    } catch (error: any) {
+      console.warn(`[Routes] Color extraction failed for ${filePath}: ${error.message}`);
+      // Fallback: try with sharp for basic color sampling
+      try {
+        const img = sharp(filePath);
+        const { data, info } = await img.raw().resize(150, 150).toBuffer({ resolveWithObject: true });
+        
+        // Simple color sampling - get average colors from regions
+        const colors: string[] = [];
+        const sampleSize = Math.min(numColors, 3);
+        const step = Math.floor(data.length / (sampleSize * info.channels));
+        
+        for (let i = 0; i < sampleSize; i++) {
+          const offset = i * step * info.channels;
+          const r = data[offset];
+          const g = data[offset + 1];
+          const b = data[offset + 2];
+          colors.push(`#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`);
+        }
+        
+        return colors;
+      } catch (fallbackError: any) {
+        console.warn(`[Routes] Fallback color extraction also failed: ${fallbackError.message}`);
+        return [];
+      }
+    }
+  }
+
   // Upload a brand asset file
   app.post("/api/brand-asset-files/:clientId", uploadBrandAsset.single('file'), async (req, res) => {
     try {
@@ -895,6 +942,8 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
       const fileType = path.extname(file.originalname).slice(1).toLowerCase();
       
       let metadata: Record<string, unknown> = {};
+      let extractedColors: string[] = [];
+      let updatedColorPalette = false;
       
       if (file.mimetype.startsWith('text/') || file.mimetype === 'application/json') {
         try {
@@ -903,6 +952,68 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
           metadata.lineCount = content.split('\n').length;
           metadata.wordCount = content.split(/\s+/).filter(Boolean).length;
         } catch { }
+      }
+      
+      // Extract colors if it's an image file
+      if (file.mimetype.startsWith('image/') && !file.mimetype.includes('svg')) {
+        try {
+          extractedColors = await extractDominantColors(file.path, 5);
+          if (extractedColors.length > 0) {
+            metadata.extractedColors = extractedColors;
+            
+            // Update client's brand profile with extracted colors
+            const [client] = await db.select().from(clients).where(eq(clients.id, clientId)).limit(1);
+            if (client && client.brandProfile) {
+              const brandProfile = client.brandProfile as any;
+              
+              // Update color palette if it doesn't exist or is empty
+              if (!brandProfile.visual?.colorPalette?.darkMode?.accent || 
+                  !brandProfile.visual?.colorPalette?.additionalColors ||
+                  brandProfile.visual.colorPalette.additionalColors.length === 0) {
+                
+                // Set primary accent color from first extracted color
+                if (!brandProfile.visual) brandProfile.visual = {};
+                if (!brandProfile.visual.colorPalette) brandProfile.visual.colorPalette = {};
+                if (!brandProfile.visual.colorPalette.darkMode) {
+                  brandProfile.visual.colorPalette.darkMode = {
+                    background: { name: "Deep Space", hex: "#0A0F1A", usage: "Primary background" },
+                    accent: { name: "Primary Accent", hex: extractedColors[0], usage: "Primary brand color" },
+                    textPrimary: { name: "Pure White", hex: "#FFFFFF", usage: "Main text color" },
+                  };
+                } else if (!brandProfile.visual.colorPalette.darkMode.accent) {
+                  brandProfile.visual.colorPalette.darkMode.accent = {
+                    name: "Primary Accent",
+                    hex: extractedColors[0],
+                    usage: "Primary brand color"
+                  };
+                }
+                
+                // Add remaining colors as additional colors
+                if (!brandProfile.visual.colorPalette.additionalColors) {
+                  brandProfile.visual.colorPalette.additionalColors = [];
+                }
+                extractedColors.slice(1).forEach((color, idx) => {
+                  brandProfile.visual.colorPalette.additionalColors.push({
+                    name: `Accent ${idx + 1}`,
+                    hex: color,
+                    usage: "Secondary accent color"
+                  });
+                });
+                
+                // Update client in database
+                await db.update(clients)
+                  .set({ brandProfile })
+                  .where(eq(clients.id, clientId));
+                
+                updatedColorPalette = true;
+                console.log(`[Routes] Updated color palette for client ${clientId} with colors: ${extractedColors.join(', ')}`);
+              }
+            }
+          }
+        } catch (colorError: any) {
+          console.warn(`[Routes] Color extraction failed: ${colorError.message}`);
+          // Continue with upload even if color extraction fails
+        }
       }
       
       const assetFile = await storage.createBrandAssetFile({
@@ -919,7 +1030,11 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
         metadata,
       });
       
-      res.status(201).json(assetFile);
+      res.status(201).json({
+        assetFile,
+        extractedColors: extractedColors.length > 0 ? extractedColors : undefined,
+        updatedColorPalette,
+      });
     } catch (error: any) {
       if (req.file) {
         try { fs.unlinkSync(req.file.path); } catch { }

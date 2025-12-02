@@ -32,6 +32,7 @@ from .agents import (
     QAAgent,
 )
 from .integrations.buffer import BufferPublisher
+from .brand_validator import validate_brand_voice, extract_dominant_colors
 
 
 class GraphState(TypedDict):
@@ -79,6 +80,7 @@ class ContentFactoryOrchestrator:
         self.on_content_created = on_content_created
         
         self.graph = self._build_graph()
+        self.validation_errors: List[str] = []
     
     def _build_graph(self) -> StateGraph:
         """Build the LangGraph execution graph"""
@@ -425,8 +427,60 @@ class ContentFactoryOrchestrator:
                 content=str(item),
             )
     
+    def _validate_brand_assets(self, config: ContentRunConfig) -> None:
+        """Validate brand assets and extract colors if needed"""
+        if not config.brand_voice:
+            return
+        
+        # Convert BrandVoice to dict for validation
+        brand_voice_dict = config.brand_voice.model_dump() if hasattr(config.brand_voice, 'model_dump') else {
+            'tone': config.brand_voice.tone,
+            'forbidden_words': getattr(config.brand_voice, 'forbidden_words', []),
+            'target_audience': config.brand_voice.target_audience,
+            'keywords': getattr(config.brand_voice, 'keywords', []),
+            'visual_style': getattr(config.brand_voice, 'visual_style', None),
+            'color_palette': getattr(config.brand_voice, 'color_palette', None),
+            'fonts': getattr(config.brand_voice, 'fonts', None),
+            'reference_assets': getattr(config.brand_voice, 'reference_assets', None),
+            'cinematic_guidelines': getattr(config.brand_voice, 'cinematic_guidelines', None),
+        }
+        
+        # Validate brand voice
+        validation_result = validate_brand_voice(brand_voice_dict)
+        
+        if not validation_result.valid:
+            self.validation_errors.extend(validation_result.errors)
+            print(f"[Orchestrator] Brand validation errors: {validation_result.errors}")
+        
+        if validation_result.warnings:
+            print(f"[Orchestrator] Brand validation warnings: {validation_result.warnings}")
+        
+        # Auto-extract colors if palette is empty and we have image assets
+        if not brand_voice_dict.get('color_palette') and brand_voice_dict.get('reference_assets'):
+            for key, asset_path in brand_voice_dict['reference_assets'].items():
+                if asset_path and not asset_path.startswith(('http://', 'https://')):
+                    # Check if it's an image
+                    import os
+                    if os.path.exists(asset_path) and asset_path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp')):
+                        try:
+                            colors = extract_dominant_colors(asset_path, 3)
+                            if colors:
+                                # Update brand voice color palette
+                                if hasattr(config.brand_voice, 'color_palette'):
+                                    config.brand_voice.color_palette = colors
+                                else:
+                                    # If BrandVoice doesn't have color_palette attribute, we can't set it directly
+                                    # But we can log it
+                                    print(f"[Orchestrator] Auto-extracted colors from {key}: {colors}")
+                                break
+                        except Exception as e:
+                            print(f"[Orchestrator] Failed to extract colors from {key}: {e}")
+
     async def run(self, config: ContentRunConfig) -> ContentRunState:
         """Execute the full content factory pipeline using LangGraph"""
+        
+        # Validate brand assets before starting
+        self._validate_brand_assets(config)
         
         run_id = f"run_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{config.client_id}"
         

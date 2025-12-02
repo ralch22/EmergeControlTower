@@ -16,6 +16,13 @@ import type {
   QAResult,
 } from "../types";
 import type { InsertActivityLog } from "@shared/schema";
+import fs from "fs";
+import path from "path";
+import axios from "axios";
+import sharp from "sharp";
+// @ts-ignore - colorthief doesn't have type definitions
+import ColorThief from "colorthief";
+import { loadBrandAssetsFromDatabase } from "../services/brand-brief";
 
 export interface PipelineState {
   runId: string;
@@ -47,6 +54,7 @@ export class ContentPipeline {
   private onActivityLog?: ActivityLogCallback;
   private onContentSave?: ContentSaveCallback;
   private savedContentIds: Set<string> = new Set();
+  private validationErrors: string[] = [];
 
   constructor(
     config: ContentRunConfig,
@@ -78,6 +86,11 @@ export class ContentPipeline {
     this.onContentCreated = options.onContentCreated;
     this.onActivityLog = options.onActivityLog;
     this.onContentSave = options.onContentSave;
+    
+    // Validate brand assets on initialization
+    this.validateBrandAssets().catch(err => {
+      console.warn(`[Pipeline] Asset validation warning: ${err.message}`);
+    });
   }
 
   private updateState(updates: Partial<PipelineState>) {
@@ -125,6 +138,8 @@ export class ContentPipeline {
     );
 
     try {
+      // Load brand assets from database and merge into brandVoiceConfig
+      await this.loadAndMergeBrandAssets();
       // Step 1: Generate Topics
       console.log(`[Pipeline] Step 1: Generating ${this.state.config.topicCount} topics...`);
       const topicsResult = await generateTopics(
@@ -500,6 +515,234 @@ export class ContentPipeline {
 
   getState(): PipelineState {
     return this.state;
+  }
+
+  /**
+   * Extract dominant colors from an image file
+   */
+  private async extractDominantColors(filePath: string, numColors: number = 3): Promise<string[]> {
+    try {
+      // Use ColorThief for color extraction
+      const colorThief = new ColorThief();
+      // ColorThief.getPalette is synchronous and takes an image path
+      const palette = colorThief.getPalette(filePath, numColors);
+      
+      // Convert RGB arrays to hex strings
+      const hexColors = palette.map(([r, g, b]: number[]) => {
+        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+      });
+      
+      return hexColors;
+    } catch (error: any) {
+      console.warn(`[Pipeline] Color extraction failed for ${filePath}: ${error.message}`);
+      // Fallback: try with sharp for basic color sampling
+      try {
+        const img = sharp(filePath);
+        const { data, info } = await img.raw().resize(150, 150).toBuffer({ resolveWithObject: true });
+        
+        // Simple color sampling - get average colors from regions
+        const colors: string[] = [];
+        const sampleSize = Math.min(numColors, 3);
+        const step = Math.floor(data.length / (sampleSize * info.channels));
+        
+        for (let i = 0; i < sampleSize; i++) {
+          const offset = i * step * info.channels;
+          const r = data[offset];
+          const g = data[offset + 1];
+          const b = data[offset + 2];
+          colors.push(`#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`);
+        }
+        
+        return colors;
+      } catch (fallbackError: any) {
+        console.warn(`[Pipeline] Fallback color extraction also failed: ${fallbackError.message}`);
+        return [];
+      }
+    }
+  }
+
+  /**
+   * Validate brand assets referenced in brandVoice
+   */
+  private async validateBrandAssets(): Promise<void> {
+    const brandVoice = this.state.config.clientBrief.brandVoiceConfig;
+    if (!brandVoice?.referenceAssets) {
+      return;
+    }
+
+    const assets = brandVoice.referenceAssets;
+    const validAssets: Record<string, string> = {};
+
+    for (const [key, ref] of Object.entries(assets)) {
+      try {
+        if (ref.startsWith('http://') || ref.startsWith('https://')) {
+          await this.validateUrl(key, ref);
+          validAssets[key] = ref;
+        } else {
+          const isValid = await this.validateLocalFile(key, ref);
+          if (isValid) {
+            validAssets[key] = ref;
+          }
+        }
+      } catch (error: any) {
+        this.validationErrors.push(`Asset ${key}: ${error.message}`);
+      }
+    }
+
+    // Update referenceAssets to only include valid ones
+    if (brandVoice) {
+      brandVoice.referenceAssets = validAssets;
+    }
+
+    // Auto-extract colors if palette is empty and we have image assets
+    if (!brandVoice.colorPalette || brandVoice.colorPalette.length === 0) {
+      for (const [key, ref] of Object.entries(validAssets)) {
+        if (ref.match(/\.(png|jpg|jpeg|gif|webp)$/i) && !ref.startsWith('http')) {
+          try {
+            const colors = await this.extractDominantColors(ref, 3);
+            if (colors.length > 0) {
+              brandVoice.colorPalette = colors;
+              console.log(`[Pipeline] Auto-populated color palette from ${key}: ${colors.join(', ')}`);
+              break; // Use first successful extraction
+            }
+          } catch (error: any) {
+            console.warn(`[Pipeline] Failed to extract colors from ${key}: ${error.message}`);
+          }
+        }
+      }
+    }
+
+    if (this.validationErrors.length > 0) {
+      console.warn(`[Pipeline] Asset validation warnings: ${this.validationErrors.join('; ')}`);
+    }
+  }
+
+  private async validateUrl(key: string, url: string): Promise<void> {
+    try {
+      const response = await axios.head(url, { timeout: 5000 });
+      if (response.status !== 200) {
+        throw new Error(`URL invalid (status ${response.status})`);
+      }
+      const contentLength = parseInt(response.headers['content-length'] || '0', 10);
+      if (contentLength > 50 * 1024 * 1024) {
+        throw new Error(`File too large (${(contentLength / 1024 / 1024).toFixed(2)}MB)`);
+      }
+      const contentType = response.headers['content-type'] || '';
+      if (!this.isValidAssetType(key, contentType)) {
+        throw new Error(`Invalid type (${contentType})`);
+      }
+    } catch (error: any) {
+      if (axios.isAxiosError(error)) {
+        throw new Error(`URL check failed: ${error.message}`);
+      }
+      throw error;
+    }
+  }
+
+  private async validateLocalFile(key: string, filePath: string): Promise<boolean> {
+    if (!fs.existsSync(filePath)) {
+      this.validationErrors.push(`Asset ${key}: File not found: ${filePath}`);
+      return false;
+    }
+
+    const stats = fs.statSync(filePath);
+    if (stats.size > 50 * 1024 * 1024) {
+      this.validationErrors.push(`Asset ${key}: File too large (${(stats.size / 1024 / 1024).toFixed(2)}MB)`);
+      return false;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeType = this.getMimeTypeFromExt(ext);
+    if (!this.isValidAssetType(key, mimeType)) {
+      this.validationErrors.push(`Asset ${key}: Invalid type (${mimeType})`);
+      return false;
+    }
+
+    // Advanced checks for images
+    if (mimeType.startsWith('image/')) {
+      try {
+        const img = sharp(filePath);
+        const metadata = await img.metadata();
+        if ((metadata.width ?? 0) < 100 || (metadata.height ?? 0) < 100) {
+          this.validationErrors.push(`Asset ${key}: Image too small (${metadata.width}x${metadata.height})`);
+          return false;
+        }
+      } catch (error: any) {
+        this.validationErrors.push(`Asset ${key}: Image invalid: ${error.message}`);
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private isValidAssetType(key: string, mimeType: string): boolean {
+    if (key.includes('logo') || key.includes('mood_board')) {
+      return ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'].includes(mimeType);
+    } else if (key.includes('ref_video') || key.includes('video')) {
+      return ['video/mp4', 'video/quicktime', 'video/webm'].includes(mimeType);
+    }
+    return true; // Default allow
+  }
+
+  private getMimeTypeFromExt(ext: string): string {
+    const map: Record<string, string> = {
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.webp': 'image/webp',
+      '.svg': 'image/svg+xml',
+      '.mp4': 'video/mp4',
+      '.mov': 'video/quicktime',
+      '.webm': 'video/webm',
+    };
+    return map[ext] || 'application/octet-stream';
+  }
+
+  /**
+   * Load brand assets from database and merge into brandVoiceConfig
+   */
+  private async loadAndMergeBrandAssets(): Promise<void> {
+    try {
+      // Import storage dynamically to avoid circular dependencies
+      const { storage } = await import("../../server/storage");
+      
+      const clientId = parseInt(this.state.config.clientId);
+      const assetFiles = await storage.getBrandAssetFiles(clientId);
+      
+      if (assetFiles.length > 0) {
+        const dbAssets = loadBrandAssetsFromDatabase(assetFiles);
+        
+        // Merge into brandVoiceConfig.referenceAssets
+        const brief = this.state.config.clientBrief;
+        if (!brief.brandVoiceConfig) {
+          brief.brandVoiceConfig = {
+            tone: brief.brandVoice,
+            targetAudience: brief.targetAudience,
+            keywords: brief.keywords,
+            contentGoals: brief.contentGoals,
+            referenceAssets: {},
+          };
+        }
+        
+        const config = brief.brandVoiceConfig;
+        if (!config.referenceAssets) {
+          config.referenceAssets = {};
+        }
+        
+        // Merge database assets (they take precedence)
+        config.referenceAssets = {
+          ...config.referenceAssets,
+          ...dbAssets,
+        };
+        
+        console.log(`[Pipeline] Loaded ${assetFiles.length} brand assets from database`);
+      }
+    } catch (error: any) {
+      console.warn(`[Pipeline] Failed to load brand assets: ${error.message}`);
+      // Continue without assets - not a fatal error
+    }
   }
 }
 

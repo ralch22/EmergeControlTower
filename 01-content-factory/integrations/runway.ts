@@ -249,6 +249,8 @@ export async function generateVideoWithRunway(
     projectId?: string;
     sceneId?: string;
     skipTierCheck?: boolean;
+    brandProfile?: any; // BrandProfileJSON type
+    brandVoice?: any; // BrandVoiceConfig type
   } = {}
 ): Promise<VideoGenerationResult> {
   const apiKey = process.env.RUNWAY_API_KEY;
@@ -260,7 +262,66 @@ export async function generateVideoWithRunway(
     };
   }
 
-  const { duration = 5, aspectRatio = '16:9', model = 'gen4_turbo', imageBase64, projectId, sceneId, skipTierCheck } = options;
+  const { duration = 5, aspectRatio = '16:9', model = 'gen4_turbo', imageBase64, projectId, sceneId, skipTierCheck, brandProfile, brandVoice } = options;
+  
+  // Enhance prompt with brand guidelines if provided
+  let enhancedPrompt = prompt;
+  if (brandProfile?.visual || brandVoice) {
+    const brandContext: string[] = [];
+    
+    if (brandProfile?.visual) {
+      const v = brandProfile.visual;
+      if (v.visualStyle?.description) {
+        brandContext.push(`Visual Style: ${v.visualStyle.description}`);
+      }
+      if (v.visualStyle?.aesthetic?.length) {
+        brandContext.push(`Aesthetic: ${v.visualStyle.aesthetic.join(', ')}`);
+      }
+      if (v.colorPalette?.darkMode?.accent?.hex) {
+        brandContext.push(`Primary Color: ${v.colorPalette.darkMode.accent.hex}`);
+      }
+      if (v.cinematicGuidelines) {
+        const cine = v.cinematicGuidelines;
+        brandContext.push(`Motion Style: ${cine.motionStyle || 'smooth'}`);
+        brandContext.push(`Pacing: ${cine.pacing || 'moderate'}`);
+        if (cine.colorGrading) {
+          brandContext.push(`Color Grading: ${cine.colorGrading}`);
+        }
+      }
+      if (v.visualStyle?.motifs?.length) {
+        brandContext.push(`Brand Motifs: ${v.visualStyle.motifs.join(', ')}`);
+      }
+      // Reference assets
+      if (brandProfile.referenceAssets?.logos?.length) {
+        const primaryLogo = brandProfile.referenceAssets.logos.find((l: any) => l.isPrimary) || brandProfile.referenceAssets.logos[0];
+        if (primaryLogo?.url) {
+          brandContext.push(`Reference Logo: ${primaryLogo.url} - incorporate brand elements from this reference`);
+        }
+      }
+    } else if (brandVoice) {
+      if (brandVoice.visualStyle) {
+        brandContext.push(`Visual Style: ${brandVoice.visualStyle}`);
+      }
+      if (brandVoice.colorPalette?.length) {
+        brandContext.push(`Colors: ${brandVoice.colorPalette.join(', ')}`);
+      }
+      if (brandVoice.cinematicGuidelines) {
+        brandContext.push(`Cinematic: ${brandVoice.cinematicGuidelines}`);
+      }
+      if (brandVoice.referenceAssets) {
+        const assetRefs = Object.entries(brandVoice.referenceAssets)
+          .map(([key, path]) => `${key}: ${path}`)
+          .join(', ');
+        if (assetRefs) {
+          brandContext.push(`Reference Assets: ${assetRefs} - incorporate brand elements`);
+        }
+      }
+    }
+    
+    if (brandContext.length > 0) {
+      enhancedPrompt = `${prompt}\n\nBrand Guidelines:\n${brandContext.join('\n')}`;
+    }
+  }
   
   // Check tier limits before submitting (unless explicitly skipped)
   if (!skipTierCheck) {
@@ -325,7 +386,7 @@ export async function generateVideoWithRunway(
       },
       body: JSON.stringify({
         promptImage: imageUrl,
-        promptText: prompt,
+        promptText: enhancedPrompt,
         model,
         duration,
         ratio: runwayRatio,

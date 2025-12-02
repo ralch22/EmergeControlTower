@@ -77,12 +77,13 @@ Return JSON:
         topic: ContentTopic,
         brand_voice: BrandVoice,
         blog_content: Optional[str] = None,
+        brand_profile: Optional[dict] = None,
     ) -> VideoScript:
         """Generate a video script from topic or blog content"""
         
         content = blog_content or f"{topic.title}\n\n{topic.angle}"
         
-        brand_visual_context = self._build_brand_visual_context(brand_voice)
+        brand_visual_context = self._build_brand_visual_context(brand_voice, brand_profile)
         
         user = self.SCRIPT_PROMPT.format(
             title=topic.title,
@@ -104,14 +105,92 @@ Return JSON:
             cta=script_data["cta"],
         )
     
-    def _build_brand_visual_context(self, brand_voice: BrandVoice) -> str:
-        """Build the visual context section for prompts from brand voice data"""
-        brand_dict = brand_voice.model_dump()
-        context = build_brand_prompt_context(brand_dict)
+    def _build_brand_visual_context(self, brand_voice: BrandVoice, brand_profile: Optional[dict] = None) -> str:
+        """Build the visual context section for prompts from brand voice data and optional brand profile"""
+        parts = []
         
-        if context:
+        # If full brand profile is available, use it for comprehensive context
+        if brand_profile and brand_profile.get('visual'):
+            v = brand_profile['visual']
+            
+            # Visual Style
+            if v.get('visualStyle'):
+                vs = v['visualStyle']
+                if vs.get('description'):
+                    parts.append(f"Visual Style: {vs['description']}")
+                if vs.get('aesthetic'):
+                    parts.append(f"Aesthetic: {', '.join(vs['aesthetic'])}")
+                if vs.get('moodKeywords'):
+                    parts.append(f"Mood: {', '.join(vs['moodKeywords'])}")
+                if vs.get('patterns'):
+                    parts.append(f"Patterns: {', '.join(vs['patterns'])}")
+                if vs.get('motifs'):
+                    parts.append(f"Brand Motifs: {', '.join(vs['motifs'])}")
+            
+            # Color Palette
+            if v.get('colorPalette'):
+                cp = v['colorPalette']
+                if cp.get('darkMode') and cp['darkMode'].get('accent'):
+                    accent = cp['darkMode']['accent']
+                    parts.append(f"Primary Color: {accent.get('name', 'Accent')} ({accent.get('hex', '')}) - {accent.get('usage', '')}")
+                if cp.get('darkMode') and cp['darkMode'].get('background'):
+                    bg = cp['darkMode']['background']
+                    parts.append(f"Background: {bg.get('name', 'Background')} ({bg.get('hex', '')})")
+                if cp.get('additionalColors'):
+                    additional = ', '.join([f"{c.get('name', 'Color')} {c.get('hex', '')}" for c in cp['additionalColors']])
+                    parts.append(f"Additional Colors: {additional}")
+            
+            # Typography
+            if v.get('typography') and v['typography'].get('fonts'):
+                fonts = ', '.join([f.get('family', '') for f in v['typography']['fonts']])
+                if fonts:
+                    parts.append(f"Fonts: {fonts}")
+            
+            # Cinematic Guidelines
+            if v.get('cinematicGuidelines'):
+                cine = v['cinematicGuidelines']
+                parts.append(f"Aspect Ratio: {cine.get('aspectRatio', '16:9')}")
+                parts.append(f"Resolution: {cine.get('resolution', '1080p')}")
+                parts.append(f"Pacing: {cine.get('pacing', 'moderate')}")
+                parts.append(f"Motion Style: {cine.get('motionStyle', 'smooth')}")
+                if cine.get('transitionStyle'):
+                    parts.append(f"Transitions: {cine['transitionStyle']}")
+                if cine.get('colorGrading'):
+                    parts.append(f"Color Grading: {cine['colorGrading']}")
+                if cine.get('soundtrackStyle'):
+                    parts.append(f"Soundtrack: {cine['soundtrackStyle']}")
+            
+            # Reference Assets
+            if brand_profile.get('referenceAssets'):
+                ra = brand_profile['referenceAssets']
+                asset_refs = []
+                if ra.get('logos'):
+                    for logo in ra['logos']:
+                        if logo.get('url'):
+                            asset_refs.append(f"Logo: {logo['url']}")
+                if ra.get('moodBoards'):
+                    for mb in ra['moodBoards']:
+                        if mb.get('url'):
+                            asset_refs.append(f"Mood Board: {mb['url']}")
+                if asset_refs:
+                    parts.append(f"Reference Assets: {'; '.join(asset_refs)} - incorporate brand elements from these references")
+        
+        # Fallback to BrandVoice fields if brand profile not available
+        if not parts:
+            brand_dict = brand_voice.model_dump() if hasattr(brand_voice, 'model_dump') else {
+                'visual_style': getattr(brand_voice, 'visual_style', None),
+                'color_palette': getattr(brand_voice, 'color_palette', None),
+                'fonts': getattr(brand_voice, 'fonts', None),
+                'cinematic_guidelines': getattr(brand_voice, 'cinematic_guidelines', None),
+                'reference_assets': getattr(brand_voice, 'reference_assets', None),
+            }
+            context = build_brand_prompt_context(brand_dict)
+            if context:
+                parts = context.split('\n')
+        
+        if parts:
             return f"""**Brand Visual Guidelines:**
-{context}"""
+{chr(10).join(parts)}"""
         
         return "**Brand Visual Guidelines:** Use professional, modern, clean visuals with high contrast."
     

@@ -16,6 +16,8 @@ export async function generateVideoWithLuma(
     loop?: boolean;
     imageUrl?: string;
     imageEndUrl?: string;
+    brandProfile?: any; // BrandProfileJSON type
+    brandVoice?: any; // BrandVoiceConfig type
   } = {}
 ): Promise<LumaVideoResult> {
   const apiKey = process.env.LUMA_API_KEY;
@@ -31,12 +33,44 @@ export async function generateVideoWithLuma(
     aspectRatio = '16:9',
     loop = false,
     imageUrl,
-    imageEndUrl
+    imageEndUrl,
+    brandProfile,
+    brandVoice
   } = options;
+
+  // Enhance prompt with brand guidelines if provided
+  let enhancedPrompt = prompt;
+  if (brandProfile?.visual || brandVoice) {
+    const brandContext: string[] = [];
+    
+    if (brandProfile?.visual) {
+      const v = brandProfile.visual;
+      if (v.visualStyle?.description) {
+        brandContext.push(`Visual Style: ${v.visualStyle.description}`);
+      }
+      if (v.colorPalette?.darkMode?.accent?.hex) {
+        brandContext.push(`Primary Color: ${v.colorPalette.darkMode.accent.hex}`);
+      }
+      if (v.cinematicGuidelines?.motionStyle) {
+        brandContext.push(`Motion: ${v.cinematicGuidelines.motionStyle}`);
+      }
+    } else if (brandVoice) {
+      if (brandVoice.visualStyle) {
+        brandContext.push(`Visual Style: ${brandVoice.visualStyle}`);
+      }
+      if (brandVoice.colorPalette?.length) {
+        brandContext.push(`Colors: ${brandVoice.colorPalette.join(', ')}`);
+      }
+    }
+    
+    if (brandContext.length > 0) {
+      enhancedPrompt = `${prompt}. Brand Guidelines: ${brandContext.join(', ')}`;
+    }
+  }
 
   try {
     const body: Record<string, any> = {
-      prompt,
+      prompt: enhancedPrompt,
       aspect_ratio: aspectRatio,
       loop,
     };

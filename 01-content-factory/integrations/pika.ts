@@ -15,6 +15,8 @@ export async function generateVideoWithPika(
     aspectRatio?: '16:9' | '9:16' | '1:1';
     style?: string;
     imageUrl?: string;
+    brandProfile?: any; // BrandProfileJSON type
+    brandVoice?: any; // BrandVoiceConfig type
   } = {}
 ): Promise<PikaVideoResult> {
   const apiKey = process.env.PIKA_API_KEY;
@@ -30,14 +32,46 @@ export async function generateVideoWithPika(
     duration = 3, 
     aspectRatio = '16:9',
     style = 'cinematic',
-    imageUrl
+    imageUrl,
+    brandProfile,
+    brandVoice
   } = options;
+
+  // Enhance prompt with brand guidelines if provided
+  let enhancedPrompt = prompt;
+  if (brandProfile?.visual || brandVoice) {
+    const brandContext: string[] = [];
+    
+    if (brandProfile?.visual) {
+      const v = brandProfile.visual;
+      if (v.visualStyle?.description) {
+        brandContext.push(`Visual Style: ${v.visualStyle.description}`);
+      }
+      if (v.colorPalette?.darkMode?.accent?.hex) {
+        brandContext.push(`Primary Color: ${v.colorPalette.darkMode.accent.hex}`);
+      }
+      if (v.cinematicGuidelines?.motionStyle) {
+        brandContext.push(`Motion: ${v.cinematicGuidelines.motionStyle}`);
+      }
+    } else if (brandVoice) {
+      if (brandVoice.visualStyle) {
+        brandContext.push(`Visual Style: ${brandVoice.visualStyle}`);
+      }
+      if (brandVoice.colorPalette?.length) {
+        brandContext.push(`Colors: ${brandVoice.colorPalette.join(', ')}`);
+      }
+    }
+    
+    if (brandContext.length > 0) {
+      enhancedPrompt = `${prompt}. Brand Guidelines: ${brandContext.join(', ')}`;
+    }
+  }
 
   try {
     const endpoint = imageUrl ? '/image-to-video' : '/text-to-video';
     
     const body: Record<string, any> = {
-      prompt,
+      prompt: enhancedPrompt,
       style,
       duration,
       aspect_ratio: aspectRatio,

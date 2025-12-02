@@ -1,4 +1,49 @@
 import type { BrandProfileJSON } from "../../shared/schema";
+import type { BrandAssetFile } from "../../shared/schema";
+
+/**
+ * Load brand assets from database and map them to referenceAssets format
+ * This function takes brand asset files from the database and converts them
+ * to the format expected by BrandVoice.referenceAssets
+ */
+export function loadBrandAssetsFromDatabase(assetFiles: BrandAssetFile[]): Record<string, string> {
+  const referenceAssets: Record<string, string> = {};
+  
+  for (const asset of assetFiles) {
+    // Map assets by purpose or category/subcategory
+    let key = asset.purpose || asset.fileName;
+    
+    // Normalize key names
+    if (asset.purpose) {
+      // Map common purposes to standard keys
+      const purposeMap: Record<string, string> = {
+        'logo_full': 'logo',
+        'logo_full-color': 'logo',
+        'logo_monochrome': 'logo_monochrome',
+        'logo_inverted': 'logo_inverted',
+        'mood_board': 'mood_board',
+        'ref_video': 'ref_video',
+        'icon_set': 'icons',
+      };
+      key = purposeMap[asset.purpose] || asset.purpose;
+    } else if (asset.category === 'assets') {
+      // Use subcategory or filename as key
+      if (asset.subcategory) {
+        key = asset.subcategory;
+      } else {
+        // Extract key from filename (e.g., "shield_logo.png" -> "logo")
+        const nameWithoutExt = asset.fileName.replace(/\.[^/.]+$/, '');
+        const parts = nameWithoutExt.split('_');
+        key = parts[parts.length - 1] || nameWithoutExt;
+      }
+    }
+    
+    // Use filePath (relative path) for the asset
+    referenceAssets[key] = asset.filePath;
+  }
+  
+  return referenceAssets;
+}
 
 export interface TextualBrandBrief {
   brandName: string;
@@ -85,6 +130,7 @@ export function composeBrandBrief(
     brandProfile?: BrandProfileJSON | null;
     primaryLogoUrl?: string | null;
     websiteUrl?: string | null;
+    brandAssetFiles?: BrandAssetFile[]; // Optional: assets loaded from database
   }
 ): EnrichedClientBrief {
   const bp = client.brandProfile;
@@ -205,6 +251,57 @@ export function composeBrandBrief(
   const defaultBgColor = { name: "Dark", hex: "#1a1a2e", usage: "Backgrounds" };
   const defaultTextColor = { name: "White", hex: "#ffffff", usage: "Primary text" };
 
+  // Load assets from database if provided
+  const dbAssets = client.brandAssetFiles ? loadBrandAssetsFromDatabase(client.brandAssetFiles) : {};
+  
+  // Merge database assets with brandProfile assets
+  // Database assets take precedence as they're more up-to-date
+  const allReferenceAssets: ReferenceAsset[] = [
+    // First add database assets (most current)
+    ...Object.entries(dbAssets).map(([key, filePath]) => {
+      const assetFile = client.brandAssetFiles?.find(af => af.filePath === filePath);
+      const isLogo = key.includes('logo') || assetFile?.purpose?.includes('logo');
+      const isMoodBoard = key.includes('mood') || assetFile?.purpose?.includes('mood');
+      const isIcon = key.includes('icon') || assetFile?.purpose?.includes('icon');
+      
+      return {
+        id: assetFile?.id.toString() || `db-${key}-${Math.random().toString(36).substr(2, 9)}`,
+        type: (isLogo ? 'logo' : isMoodBoard ? 'moodboard' : isIcon ? 'icon' : 'reference_image') as const,
+        url: filePath,
+        description: assetFile?.purpose || `Brand asset: ${key}`,
+        isPrimary: isLogo && (key === 'logo' || assetFile?.purpose?.includes('primary')),
+      };
+    }),
+    // Then add brandProfile assets (if not already in database assets)
+    ...(bp.referenceAssets?.logos || []).filter(l => !Object.values(dbAssets).includes(l.url)).map(l => ({
+      id: l.id || `logo-${Math.random().toString(36).substr(2, 9)}`,
+      type: 'logo' as const,
+      url: l.url,
+      isPrimary: l.isPrimary,
+    })),
+    ...(bp.referenceAssets?.icons || []).filter(i => !Object.values(dbAssets).includes(i.url)).map(i => ({
+      id: i.id || `icon-${Math.random().toString(36).substr(2, 9)}`,
+      type: 'icon' as const,
+      url: i.url,
+    })),
+    ...(bp.referenceAssets?.moodBoards || []).filter(m => !Object.values(dbAssets).includes(m.url)).map(m => ({
+      id: m.id || `moodboard-${Math.random().toString(36).substr(2, 9)}`,
+      type: 'moodboard' as const,
+      url: m.url,
+    })),
+  ];
+  
+  // Find primary logo from merged assets
+  const primaryLogoAsset = allReferenceAssets.find(a => a.isPrimary && a.type === 'logo') 
+    || allReferenceAssets.find(a => a.type === 'logo' && a.url.includes('logo'))
+    || (client.primaryLogoUrl ? {
+      id: 'primary-logo',
+      type: 'logo' as const,
+      url: client.primaryLogoUrl,
+      description: `Primary brand logo for ${client.name}`,
+      isPrimary: true,
+    } : undefined);
+
   const visual: VisualBrandBrief = {
     visualStyle: v.visualStyle?.description || defaultVisual.visualStyle,
     aesthetic: v.visualStyle?.aesthetic || defaultVisual.aesthetic,
@@ -225,38 +322,9 @@ export function composeBrandBrief(
     cinematicColorGrading: v.cinematicGuidelines?.colorGrading,
     usageDos: v.usageRules?.dos || [],
     usageDonts: v.usageRules?.donts || [],
-    logoUrl: client.primaryLogoUrl || bp.referenceAssets?.logos?.find(l => l.isPrimary)?.url,
-    primaryLogoReference: client.primaryLogoUrl ? {
-      id: 'primary-logo',
-      type: 'logo' as const,
-      url: client.primaryLogoUrl,
-      description: `Primary brand logo for ${client.name}`,
-      isPrimary: true,
-    } : bp.referenceAssets?.logos?.find(l => l.isPrimary) ? {
-      id: bp.referenceAssets.logos.find(l => l.isPrimary)!.id || 'profile-logo',
-      type: 'logo' as const,
-      url: bp.referenceAssets.logos.find(l => l.isPrimary)!.url,
-      description: `Primary brand logo for ${client.name}`,
-      isPrimary: true,
-    } : undefined,
-    referenceAssets: [
-      ...(bp.referenceAssets?.logos || []).map(l => ({
-        id: l.id || `logo-${Math.random().toString(36).substr(2, 9)}`,
-        type: 'logo' as const,
-        url: l.url,
-        isPrimary: l.isPrimary,
-      })),
-      ...(bp.referenceAssets?.icons || []).map(i => ({
-        id: i.id || `icon-${Math.random().toString(36).substr(2, 9)}`,
-        type: 'icon' as const,
-        url: i.url,
-      })),
-      ...(bp.referenceAssets?.moodBoards || []).map(m => ({
-        id: m.id || `moodboard-${Math.random().toString(36).substr(2, 9)}`,
-        type: 'moodboard' as const,
-        url: m.url,
-      })),
-    ],
+    logoUrl: primaryLogoAsset?.url || client.primaryLogoUrl || bp.referenceAssets?.logos?.find(l => l.isPrimary)?.url,
+    primaryLogoReference: primaryLogoAsset,
+    referenceAssets: allReferenceAssets,
   };
 
   return {
