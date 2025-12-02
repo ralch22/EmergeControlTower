@@ -1097,6 +1097,293 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
     }
   });
 
+  // ===== WORDPRESS PUBLISHING ROUTES =====
+  
+  // Get WordPress config for a client
+  app.get("/api/wordpress-config/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const config = await storage.getWordpressConfig(clientId);
+      if (!config) {
+        return res.status(404).json({ error: "WordPress config not found" });
+      }
+      // Don't send sensitive fields to client
+      const { jwtToken, ...safeConfig } = config;
+      res.json(safeConfig);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch WordPress config" });
+    }
+  });
+
+  // Get all WordPress configs
+  app.get("/api/wordpress-configs", async (req, res) => {
+    try {
+      const configs = await storage.getAllWordpressConfigs();
+      // Strip sensitive fields
+      const safeConfigs = configs.map(({ jwtToken, ...config }) => config);
+      res.json(safeConfigs);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch WordPress configs" });
+    }
+  });
+
+  // Create/update WordPress config for a client
+  app.post("/api/wordpress-config/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const { endpointUrl, authType, username, password, defaultPostStatus, autoPublishEnabled } = req.body;
+
+      // Validate endpoint URL
+      const { WordPressPublisher } = await import("../01-content-factory/services/wordpress-publisher");
+      const validation = WordPressPublisher.validateEndpointUrl(endpointUrl);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.error });
+      }
+
+      // Check if client exists
+      const client = await storage.getClient(clientId);
+      if (!client) {
+        return res.status(404).json({ error: "Client not found" });
+      }
+
+      // Create or update config
+      const existing = await storage.getWordpressConfig(clientId);
+      
+      // Store password securely using env var key pattern
+      const credentialSecretKey = password ? `WP_CREDENTIAL_${clientId}` : undefined;
+
+      const configData = {
+        clientId,
+        endpointUrl,
+        authType: authType || 'application_password',
+        username,
+        credentialSecretKey,
+        defaultPostStatus: defaultPostStatus || 'publish',
+        autoPublishEnabled: autoPublishEnabled || false,
+        isActive: true,
+      };
+
+      let config;
+      if (existing) {
+        config = await storage.updateWordpressConfig(clientId, configData);
+      } else {
+        config = await storage.createWordpressConfig(configData);
+      }
+
+      // Return instruction to set password as secret if provided
+      const response: Record<string, unknown> = { ...config };
+      if (password) {
+        response.message = `WordPress config saved. Please add the password as a secret with key: ${credentialSecretKey}`;
+        response.credentialSecretKey = credentialSecretKey;
+      }
+
+      res.json(response);
+    } catch (error: any) {
+      console.error("WordPress config error:", error);
+      res.status(500).json({ error: error.message || "Failed to save WordPress config" });
+    }
+  });
+
+  // Test WordPress connection
+  app.post("/api/wordpress-config/:clientId/test", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const { password } = req.body; // Accept password directly for testing
+      
+      const config = await storage.getWordpressConfig(clientId);
+      if (!config) {
+        return res.status(404).json({ error: "WordPress config not found" });
+      }
+
+      const { WordPressPublisher } = await import("../01-content-factory/services/wordpress-publisher");
+      
+      // For testing, use provided password or try to get from env
+      const testPassword = password || process.env[config.credentialSecretKey || ''];
+      
+      if (!testPassword && !config.jwtToken) {
+        return res.status(400).json({ 
+          error: "No credentials available. Please provide password or set the secret.",
+          credentialSecretKey: config.credentialSecretKey
+        });
+      }
+
+      const publisher = new WordPressPublisher(config, { 
+        password: testPassword, 
+        token: config.jwtToken || undefined 
+      });
+      
+      const result = await publisher.testConnection();
+      
+      if (result.success && result.siteTitle) {
+        // Update cached site title
+        await storage.updateWordpressConfig(clientId, { 
+          siteTitle: result.siteTitle,
+          lastSyncAt: new Date(),
+          lastError: null,
+        });
+      } else if (!result.success) {
+        await storage.updateWordpressConfig(clientId, { 
+          lastError: result.error,
+        });
+      }
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("WordPress test error:", error);
+      res.status(500).json({ error: error.message || "Failed to test WordPress connection" });
+    }
+  });
+
+  // Delete WordPress config
+  app.delete("/api/wordpress-config/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      await storage.deleteWordpressConfig(clientId);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete WordPress config" });
+    }
+  });
+
+  // Publish content to WordPress
+  app.post("/api/wordpress/publish", async (req, res) => {
+    try {
+      const { contentId, status, password } = req.body;
+
+      if (!contentId) {
+        return res.status(400).json({ error: "Content ID is required" });
+      }
+
+      // Find the content
+      const allContent = await storage.getAllGeneratedContent(1000, 0);
+      const content = allContent.find(c => c.contentId === contentId);
+      
+      if (!content) {
+        return res.status(404).json({ error: "Content not found" });
+      }
+
+      // Check content type
+      if (content.type !== 'blog') {
+        return res.status(400).json({ error: "Only blog content can be published to WordPress" });
+      }
+
+      // Get WordPress config for client
+      const config = await storage.getWordpressConfig(content.clientId);
+      if (!config) {
+        return res.status(404).json({ error: "WordPress not configured for this client" });
+      }
+
+      if (!config.isActive) {
+        return res.status(400).json({ error: "WordPress integration is disabled for this client" });
+      }
+
+      const { WordPressPublisher } = await import("../01-content-factory/services/wordpress-publisher");
+      
+      // Get credentials
+      const wpPassword = password || process.env[config.credentialSecretKey || ''];
+      
+      if (!wpPassword && !config.jwtToken) {
+        return res.status(400).json({ 
+          error: "WordPress credentials not configured",
+          credentialSecretKey: config.credentialSecretKey
+        });
+      }
+
+      const publisher = new WordPressPublisher(config, { 
+        password: wpPassword, 
+        token: config.jwtToken || undefined 
+      });
+
+      // Check if already published
+      const existingPost = await storage.getWordpressPublishedPost(contentId);
+      if (existingPost) {
+        return res.status(409).json({ 
+          error: "Content already published to WordPress",
+          postUrl: existingPost.wordpressPostUrl,
+          postId: existingPost.wordpressPostId
+        });
+      }
+
+      // Publish
+      const wpStatus = status === 'draft' ? 'DRAFT' : status === 'pending' ? 'PENDING' : 'PUBLISH';
+      const result = await publisher.publishPost(content, { status: wpStatus });
+
+      if (result.success && result.postId && result.postUrl) {
+        // Record the published post
+        await storage.createWordpressPublishedPost({
+          clientId: content.clientId,
+          contentId: content.contentId,
+          wordpressPostId: result.postId,
+          wordpressPostUrl: result.postUrl,
+          wordpressStatus: status || 'publish',
+          title: content.title || 'Untitled',
+          publishedAt: result.publishedAt || new Date(),
+          syncStatus: 'synced',
+        });
+
+        // Update content status
+        await storage.updateGeneratedContentStatus(contentId, 'published');
+
+        res.json({
+          success: true,
+          postId: result.postId,
+          postUrl: result.postUrl,
+          message: "Content published to WordPress successfully"
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: result.error || "Failed to publish to WordPress"
+        });
+      }
+    } catch (error: any) {
+      console.error("WordPress publish error:", error);
+      res.status(500).json({ error: error.message || "Failed to publish to WordPress" });
+    }
+  });
+
+  // Get published posts for a client
+  app.get("/api/wordpress/published/:clientId", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const posts = await storage.getWordpressPublishedPostsByClient(clientId);
+      res.json(posts);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch published posts" });
+    }
+  });
+
+  // Get WordPress categories for a client
+  app.get("/api/wordpress-config/:clientId/categories", async (req, res) => {
+    try {
+      const clientId = parseInt(req.params.clientId);
+      const { password } = req.query;
+      
+      const config = await storage.getWordpressConfig(clientId);
+      if (!config) {
+        return res.status(404).json({ error: "WordPress config not found" });
+      }
+
+      const { WordPressPublisher } = await import("../01-content-factory/services/wordpress-publisher");
+      
+      const wpPassword = (password as string) || process.env[config.credentialSecretKey || ''];
+      
+      if (!wpPassword && !config.jwtToken) {
+        return res.status(400).json({ error: "WordPress credentials not configured" });
+      }
+
+      const publisher = new WordPressPublisher(config, { 
+        password: wpPassword, 
+        token: config.jwtToken || undefined 
+      });
+
+      const categories = await publisher.getCategories();
+      res.json(categories);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to fetch categories" });
+    }
+  });
+
   // Get content runs
   app.get("/api/content-runs", async (req, res) => {
     try {
