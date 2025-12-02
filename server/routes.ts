@@ -5224,6 +5224,135 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
     }
   });
 
+  // ============================================
+  // COST CONTROL & BUDGET MANAGEMENT API
+  // ============================================
+
+  // Get current budget status
+  app.get("/api/cost-control/status", async (req, res) => {
+    try {
+      const { costControl } = await import('../01-content-factory/services/cost-control');
+      const status = await costControl.getBudgetStatus();
+      res.json(status);
+    } catch (error: any) {
+      console.error('[CostControl] Failed to get status:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Set daily budget limit
+  app.post("/api/cost-control/budget", async (req, res) => {
+    try {
+      const { limitUsd, provider } = req.body;
+      
+      if (!limitUsd || limitUsd < 0) {
+        return res.status(400).json({ error: 'limitUsd is required and must be >= 0' });
+      }
+      
+      const { costControl } = await import('../01-content-factory/services/cost-control');
+      await costControl.setDailyBudget(parseFloat(limitUsd), provider);
+      
+      const status = await costControl.getBudgetStatus();
+      res.json({
+        success: true,
+        message: `Daily budget set to $${parseFloat(limitUsd).toFixed(2)}${provider ? ` for ${provider}` : ''}`,
+        status,
+      });
+    } catch (error: any) {
+      console.error('[CostControl] Failed to set budget:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Check if video generation is allowed (budget + approval)
+  app.post("/api/cost-control/check-video", async (req, res) => {
+    try {
+      const { contentId, provider = 'veo31', durationSeconds = 8 } = req.body;
+      
+      const { costControl } = await import('../01-content-factory/services/cost-control');
+      const result = await costControl.canGenerateVideo(contentId, provider, durationSeconds);
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error('[CostControl] Failed to check video:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Track a cost manually (for debugging/testing)
+  app.post("/api/cost-control/track", async (req, res) => {
+    try {
+      const { provider, operation, costUsd, clientId, metadata } = req.body;
+      
+      if (!provider || !operation || costUsd === undefined) {
+        return res.status(400).json({ error: 'provider, operation, and costUsd are required' });
+      }
+      
+      const { costControl } = await import('../01-content-factory/services/cost-control');
+      await costControl.trackCost(provider, operation, parseFloat(costUsd), clientId, metadata);
+      
+      const status = await costControl.getBudgetStatus();
+      res.json({
+        success: true,
+        message: `Tracked $${parseFloat(costUsd).toFixed(4)} for ${provider}/${operation}`,
+        status,
+      });
+    } catch (error: any) {
+      console.error('[CostControl] Failed to track cost:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get cost estimates for different operations
+  app.get("/api/cost-control/estimates", async (req, res) => {
+    try {
+      res.json({
+        estimates: {
+          veo31: {
+            video_generation_4s: 5.00,
+            video_generation_8s: 10.00,
+            description: "Veo 3.1 video generation (most expensive)",
+          },
+          veo3: {
+            video_generation_4s: 5.00,
+            video_generation_8s: 10.00,
+            description: "Veo 3.0 video generation",
+          },
+          runway: {
+            video_generation: 0.50,
+            description: "Runway video generation (cheaper alternative)",
+          },
+          gemini: {
+            text_generation: 0.001,
+            image_generation: 0.05,
+            description: "Gemini text and image generation",
+          },
+          anthropic: {
+            text_generation: 0.015,
+            description: "Claude text generation",
+          },
+          fal: {
+            image_generation: 0.02,
+            description: "Fal.ai Flux image generation",
+          },
+          alibaba: {
+            image_generation: 0.01,
+            description: "Alibaba Dashscope image generation",
+          },
+        },
+        tips: [
+          "Veo 3 video generation is the most expensive operation (~$10/video)",
+          "Use Runway for draft videos (~$0.50/video) and Veo 3 for final/approved content",
+          "Text generation is very cheap (<$0.02/request)",
+          "Set a daily budget to prevent runaway costs",
+          "Videos require content approval before generation to prevent waste",
+        ],
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return httpServer;
 }
 

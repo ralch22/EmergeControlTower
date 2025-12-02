@@ -1393,3 +1393,36 @@ export const publishToWordpressRequestSchema = z.object({
   categoryIds: z.array(z.number()).optional(),
   tagIds: z.array(z.number()).optional(),
 });
+
+// API Cost Tracking - Track spending per provider per day
+export const apiCostTracking = pgTable("api_cost_tracking", {
+  id: serial("id").primaryKey(),
+  date: text("date").notNull(), // YYYY-MM-DD format for daily tracking
+  provider: text("provider").notNull(), // veo3, gemini, runway, openai, etc
+  operation: text("operation").notNull(), // video_generation, text_generation, image_generation
+  costUsd: decimal("cost_usd", { precision: 10, scale: 4 }).notNull(),
+  requestCount: integer("request_count").notNull().default(1),
+  clientId: integer("client_id"), // Optional - track per client
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertApiCostTrackingSchema = createInsertSchema(apiCostTracking).omit({ id: true, createdAt: true });
+export type InsertApiCostTracking = z.infer<typeof insertApiCostTrackingSchema>;
+export type ApiCostTracking = typeof apiCostTracking.$inferSelect;
+
+// Cost Budgets - Daily/monthly spending limits
+export const costBudgets = pgTable("cost_budgets", {
+  id: serial("id").primaryKey(),
+  budgetType: text("budget_type").notNull(), // daily, monthly
+  provider: text("provider"), // null = all providers, or specific provider
+  limitUsd: decimal("limit_usd", { precision: 10, scale: 2 }).notNull(),
+  alertThresholdPercent: integer("alert_threshold_percent").notNull().default(80),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCostBudgetSchema = createInsertSchema(costBudgets).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertCostBudget = z.infer<typeof insertCostBudgetSchema>;
+export type CostBudget = typeof costBudgets.$inferSelect;

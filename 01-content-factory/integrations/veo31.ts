@@ -1,5 +1,6 @@
 import { getVertexAIAccessToken, getProjectId, getLocation } from './vertex-auth';
 import { sanitizeForVeo } from '../utils/prompt-sanitizer';
+import { costControl } from '../services/cost-control';
 
 export interface Veo31Result {
   success: boolean;
@@ -8,6 +9,8 @@ export interface Veo31Result {
   status?: 'pending' | 'processing' | 'completed' | 'failed';
   error?: string;
   hasAudio?: boolean;
+  budgetBlocked?: boolean;
+  approvalRequired?: boolean;
 }
 
 export interface BrandGuidelines {
@@ -28,6 +31,10 @@ export interface Veo31Options {
   imageBase64?: string;
   brandGuidelines?: BrandGuidelines;
   model?: 'veo-3.0' | 'veo-3.1' | 'veo-3.1-fast';
+  contentId?: string;
+  clientId?: number;
+  skipBudgetCheck?: boolean;
+  skipApprovalCheck?: boolean;
 }
 
 export type Veo3Model = 'veo-3.0' | 'veo-3.1' | 'veo-3.1-fast';
@@ -339,16 +346,60 @@ export async function generateVideoWithVeo31(
   prompt: string,
   options: Veo31Options = {}
 ): Promise<Veo31Result> {
+  const duration = options.duration || 8;
+  const provider = 'veo31';
+  const operation = duration <= 4 ? 'video_generation_4s' : 'video_generation_8s';
+  
+  if (!options.skipBudgetCheck) {
+    const budgetCheck = await costControl.checkBudget(provider, operation);
+    if (!budgetCheck.allowed) {
+      console.log(`[Veo] Budget blocked: ${budgetCheck.reason}`);
+      return {
+        success: false,
+        error: budgetCheck.reason,
+        budgetBlocked: true,
+      };
+    }
+    console.log(`[Veo] Budget check passed: $${budgetCheck.dailySpent.toFixed(2)} / $${budgetCheck.dailyLimit.toFixed(2)} spent`);
+  }
+  
+  if (!options.skipApprovalCheck && options.contentId) {
+    const approvalCheck = await costControl.checkContentApproval(options.contentId);
+    if (!approvalCheck.allowed) {
+      console.log(`[Veo] Approval required: ${approvalCheck.reason}`);
+      return {
+        success: false,
+        error: approvalCheck.reason,
+        approvalRequired: true,
+      };
+    }
+  }
+  
+  let result: Veo31Result;
+  
   if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
     console.log('[Veo] Trying Vertex AI with service account...');
-    const vertexResult = await generateWithVertexAI(prompt, options);
-    if (vertexResult.success) {
-      return vertexResult;
+    result = await generateWithVertexAI(prompt, options);
+    if (!result.success) {
+      console.log('[Veo] Vertex AI failed, trying Gemini API...');
+      result = await generateWithGeminiAPI(prompt, options);
     }
-    console.log('[Veo] Vertex AI failed, trying Gemini API...');
+  } else {
+    result = await generateWithGeminiAPI(prompt, options);
   }
-
-  return generateWithGeminiAPI(prompt, options);
+  
+  if (result.success || result.taskId) {
+    const estimatedCost = costControl.getEstimatedCost(provider, operation);
+    await costControl.trackCost(
+      provider,
+      operation,
+      estimatedCost,
+      options.clientId,
+      { prompt: prompt.substring(0, 100), duration }
+    );
+  }
+  
+  return result;
 }
 
 export async function checkVeo31Status(operationName: string): Promise<Veo31Result> {
