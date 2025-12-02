@@ -180,10 +180,6 @@ function getVideoUrl(clip: { videoUrl?: string; permanentVideoUrl?: string } | u
   return clip.videoUrl;
 }
 
-function getAudioUrl(url: string | undefined | null): string {
-  if (!url) return '';
-  return url;
-}
 
 export default function VideoProjectsPage() {
   const { toast } = useToast();
@@ -1367,7 +1363,7 @@ export default function VideoProjectsPage() {
                                           sceneId: scene.sceneId,
                                           title: `${scene.title} - Audio`,
                                           type: 'audio',
-                                          url: getAudioUrl(audio.audioUrl)
+                                          url: audio.audioUrl || ''
                                         });
                                       }}
                                       data-testid={`button-play-audio-${scene.sceneId}`}
