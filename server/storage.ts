@@ -53,6 +53,10 @@ import {
   type InsertQualityTierConfig,
   type QualityFeedbackLoop,
   type InsertQualityFeedbackLoop,
+  type WordpressConfig,
+  type InsertWordpressConfig,
+  type WordpressPublishedPost,
+  type InsertWordpressPublishedPost,
   kpis,
   pods,
   phaseChanges,
@@ -79,7 +83,9 @@ import {
   contentQualityMetrics,
   providerQualityScores,
   qualityTierConfigs,
-  qualityFeedbackLoop
+  qualityFeedbackLoop,
+  wordpressConfigs,
+  wordpressPublishedPosts
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, sql, gte, lte, inArray } from "drizzle-orm";
@@ -278,6 +284,20 @@ export interface IStorage {
   createQualityFeedback(feedback: InsertQualityFeedbackLoop): Promise<QualityFeedbackLoop>;
   getRecentQualityFeedback(limit?: number): Promise<QualityFeedbackLoop[]>;
   getQualityFeedbackByProvider(providerName: string, limit?: number): Promise<QualityFeedbackLoop[]>;
+
+  // WordPress Configurations
+  getWordpressConfig(clientId: number): Promise<WordpressConfig | undefined>;
+  getWordpressConfigById(id: number): Promise<WordpressConfig | undefined>;
+  getAllWordpressConfigs(): Promise<WordpressConfig[]>;
+  createWordpressConfig(config: InsertWordpressConfig): Promise<WordpressConfig>;
+  updateWordpressConfig(clientId: number, updates: Partial<InsertWordpressConfig>): Promise<WordpressConfig>;
+  deleteWordpressConfig(clientId: number): Promise<void>;
+
+  // WordPress Published Posts
+  getWordpressPublishedPost(contentId: string): Promise<WordpressPublishedPost | undefined>;
+  getWordpressPublishedPostsByClient(clientId: number): Promise<WordpressPublishedPost[]>;
+  createWordpressPublishedPost(post: InsertWordpressPublishedPost): Promise<WordpressPublishedPost>;
+  updateWordpressPublishedPost(contentId: string, updates: Partial<InsertWordpressPublishedPost>): Promise<WordpressPublishedPost>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1570,6 +1590,79 @@ export class DatabaseStorage implements IStorage {
       .where(eq(qualityFeedbackLoop.providerName, providerName))
       .orderBy(desc(qualityFeedbackLoop.createdAt))
       .limit(limit);
+  }
+
+  // WordPress Configurations
+  async getWordpressConfig(clientId: number): Promise<WordpressConfig | undefined> {
+    const [config] = await db
+      .select()
+      .from(wordpressConfigs)
+      .where(eq(wordpressConfigs.clientId, clientId));
+    return config || undefined;
+  }
+
+  async getWordpressConfigById(id: number): Promise<WordpressConfig | undefined> {
+    const [config] = await db
+      .select()
+      .from(wordpressConfigs)
+      .where(eq(wordpressConfigs.id, id));
+    return config || undefined;
+  }
+
+  async getAllWordpressConfigs(): Promise<WordpressConfig[]> {
+    return await db
+      .select()
+      .from(wordpressConfigs)
+      .orderBy(desc(wordpressConfigs.createdAt));
+  }
+
+  async createWordpressConfig(config: InsertWordpressConfig): Promise<WordpressConfig> {
+    const [result] = await db.insert(wordpressConfigs).values(config).returning();
+    return result;
+  }
+
+  async updateWordpressConfig(clientId: number, updates: Partial<InsertWordpressConfig>): Promise<WordpressConfig> {
+    const [result] = await db
+      .update(wordpressConfigs)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(wordpressConfigs.clientId, clientId))
+      .returning();
+    return result;
+  }
+
+  async deleteWordpressConfig(clientId: number): Promise<void> {
+    await db.delete(wordpressConfigs).where(eq(wordpressConfigs.clientId, clientId));
+  }
+
+  // WordPress Published Posts
+  async getWordpressPublishedPost(contentId: string): Promise<WordpressPublishedPost | undefined> {
+    const [post] = await db
+      .select()
+      .from(wordpressPublishedPosts)
+      .where(eq(wordpressPublishedPosts.contentId, contentId));
+    return post || undefined;
+  }
+
+  async getWordpressPublishedPostsByClient(clientId: number): Promise<WordpressPublishedPost[]> {
+    return await db
+      .select()
+      .from(wordpressPublishedPosts)
+      .where(eq(wordpressPublishedPosts.clientId, clientId))
+      .orderBy(desc(wordpressPublishedPosts.createdAt));
+  }
+
+  async createWordpressPublishedPost(post: InsertWordpressPublishedPost): Promise<WordpressPublishedPost> {
+    const [result] = await db.insert(wordpressPublishedPosts).values(post).returning();
+    return result;
+  }
+
+  async updateWordpressPublishedPost(contentId: string, updates: Partial<InsertWordpressPublishedPost>): Promise<WordpressPublishedPost> {
+    const [result] = await db
+      .update(wordpressPublishedPosts)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(wordpressPublishedPosts.contentId, contentId))
+      .returning();
+    return result;
   }
 }
 
