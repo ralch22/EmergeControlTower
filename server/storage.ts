@@ -1617,14 +1617,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createWordpressConfig(config: InsertWordpressConfig): Promise<WordpressConfig> {
-    const [result] = await db.insert(wordpressConfigs).values(config).returning();
+    const [result] = await db.insert(wordpressConfigs).values(config as any).returning();
     return result;
   }
 
   async updateWordpressConfig(clientId: number, updates: Partial<InsertWordpressConfig>): Promise<WordpressConfig> {
     const [result] = await db
       .update(wordpressConfigs)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date() } as any)
       .where(eq(wordpressConfigs.clientId, clientId))
       .returning();
     return result;
