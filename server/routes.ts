@@ -1963,6 +1963,15 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
         return res.status(404).json({ error: "Client not found" });
       }
 
+      // Compliance gate: regulated verticals (real_estate) must carry their
+      // permit numbers before we spend a generation. Reject early.
+      const { complianceGate, complianceFooter, withComplianceFooter, resolveLocales, translateToArabic } =
+        await import("./services/content-finishing");
+      const gate = complianceGate(client);
+      if (!gate.ok) {
+        return res.status(422).json({ status: "rejected_compliance", error: gate.reason });
+      }
+
       // Create a unique run ID for single content generation
       const runId = `single-${Date.now()}-${Math.random().toString(36).substring(7)}`;
       const contentId = `content-${Date.now()}-${Math.random().toString(36).substring(7)}`;
@@ -2262,17 +2271,21 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
         }
       }
 
-      // Create the generated content record
+      // Finish the English variant: append the compliance footer (no-op for
+      // non-regulated clients) and persist with locale "en".
+      const enFooter = complianceFooter(client, "en");
       const generatedContentData = {
         contentId,
         runId,
         clientId,
         type: contentType,
         title: topic.substring(0, 100),
-        content: result.content,
+        content: withComplianceFooter(result.content, enFooter),
+        locale: "en",
         metadata: JSON.stringify({
           provider: result.provider,
           generationType: 'single',
+          archetype: (validation.data as any).archetype,
           topic,
           brief,
           tone,
@@ -2289,14 +2302,41 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
 
       const savedContent = await storage.createGeneratedContent(generatedContentData);
 
+      // Bilingual fan-out: produce one extra row per non-English locale the
+      // client wants (Acc → ["en","ar"]). Arabic is translated from the
+      // finished English copy, then gets its own localized footer.
+      const locales = resolveLocales(client);
+      const extraLocales = locales.filter((l) => l !== "en");
+      const extraSaved = [];
+      for (const locale of extraLocales) {
+        try {
+          const translated =
+            locale === "ar" ? await translateToArabic(result.content, client) : result.content;
+          const localizedFooter = complianceFooter(client, locale);
+          const localeContentId = `${contentId}-${locale}`;
+          const saved = await storage.createGeneratedContent({
+            ...generatedContentData,
+            contentId: localeContentId,
+            content: withComplianceFooter(translated, localizedFooter),
+            locale,
+          });
+          extraSaved.push(saved);
+        } catch (err) {
+          console.error(`[generate-single] ${locale} variant failed:`, err);
+        }
+      }
+
+      const totalPieces = 1 + extraSaved.length;
+
       // Update run as completed
-      await storage.updateContentRun(runId, { 
+      await storage.updateContentRun(runId, {
         status: "completed",
-        successfulPieces: 1,
+        totalPieces,
+        successfulPieces: totalPieces,
       });
 
       // Increment AI output counter
-      await storage.incrementAiOutput(1);
+      await storage.incrementAiOutput(totalPieces);
 
       res.json({
         success: true,
@@ -2306,6 +2346,8 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
           imageDataUrl,
           imageProvider,
         },
+        locales,
+        variants: extraSaved.map((s) => ({ contentId: s.contentId, locale: s.locale })),
         runId,
       });
     } catch (error: any) {
@@ -2483,7 +2525,36 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
         }
       }
       
-      res.json({ status: 'approved', contentId, content });
+      // Non-video content is immediately deliverable. Try Buffer (social),
+      // fall back to emailing the client's deliveryEmail so "Approve" always
+      // does something even when no social account is connected.
+      let delivery: { delivered: string; reason?: string } = { delivered: "none" };
+      if (content) {
+        try {
+          const client = await storage.getClient(content.clientId);
+          const hasBuffer = !!process.env.BUFFER_ACCESS_TOKEN;
+          if (hasBuffer) {
+            const { publishToBuffer } = await import("../01-content-factory/integrations/buffer");
+            await publishToBuffer({ text: content.content } as any);
+            delivery = { delivered: "buffer" };
+          } else if (client?.deliveryEmail) {
+            const { deliverByEmail } = await import("./services/email-delivery");
+            delivery = await deliverByEmail({
+              to: client.deliveryEmail,
+              clientName: client.name,
+              title: content.title,
+              body: content.content,
+            });
+          } else {
+            delivery = { delivered: "none", reason: "no Buffer token and no client deliveryEmail" };
+          }
+        } catch (deliveryErr: any) {
+          console.error(`[Approve] Delivery failed for ${contentId}:`, deliveryErr.message);
+          delivery = { delivered: "none", reason: deliveryErr.message };
+        }
+      }
+
+      res.json({ status: 'approved', contentId, content, delivery });
     } catch (error) {
       res.status(500).json({ error: "Failed to approve content" });
     }
