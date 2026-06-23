@@ -8,13 +8,18 @@
     "dev": "NODE_ENV=development tsx server/index.ts",
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
-    "check": "tsc",
-    "db:push": "drizzle-kit push"
+    "check": "tsc && tsc -p workers/tsconfig.json",
+    "db:push": "drizzle-kit push",
+    "cf:types": "wrangler types",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "wrangler deploy",
+    "cf:deploy:dry": "wrangler deploy --dry-run --outdir=.wrangler/dry"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
     "@aws-sdk/client-s3": "^3.1075.0",
     "@aws-sdk/s3-request-presigner": "^3.1075.0",
+    "@cloudflare/containers": "^0.3.7",
     "@fal-ai/client": "^1.7.2",
     "@google/genai": "^1.30.0",
     "@hookform/resolvers": "^3.10.0",
@@ -54,6 +59,7 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.0",
     "@types/multer": "^2.0.0",
+    "@types/pg": "^8.20.0",
     "@types/supertest": "^6.0.3",
     "axios": "^1.13.2",
     "class-variance-authority": "^0.7.1",
@@ -78,6 +84,7 @@
     "openai": "^6.9.1",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",
+    "pg": "^8.22.0",
     "react": "^19.2.0",
     "react-day-picker": "^9.11.1",
     "react-dom": "^19.2.0",
@@ -98,6 +105,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260623.1",
     "@tailwindcss/vite": "^4.1.14",
     "@types/connect-pg-simple": "^7.0.3",
     "@types/express": "4.17.21",
@@ -116,7 +124,8 @@
     "tailwindcss": "^4.1.14",
     "tsx": "^4.20.5",
     "typescript": "5.6.3",
-    "vite": "^7.1.9"
+    "vite": "^7.1.9",
+    "wrangler": "^4.103.0"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"

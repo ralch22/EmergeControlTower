@@ -20,3 +20,10 @@ dependencies = [
     "scikit-learn>=1.7.2",
     "uvicorn>=0.38.0",
 ]
+
+# Tell uv this is a "workspace" not an installable package — we only
+# want it to manage dependencies, not try to build/install this project
+# itself. Without this, `uv sync` fails because there's no [build-system]
+# section to know how to build "repl-nix-workspace".
+[tool.uv]
+package = false

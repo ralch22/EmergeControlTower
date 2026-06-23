@@ -1,0 +1,116 @@
+/**
+ * EmergeControlTower — Cloudflare Containers deploy config.
+ *
+ * Topology:
+ *   Worker (workers/proxy.ts) — thin front-door. Every request is proxied
+ *   into a singleton Container instance via the EctContainer Durable Object.
+ *
+ *   Container (Dockerfile at repo root) — Node Express + Python FastAPI
+ *   orchestrator, single image. Express listens on :5000; Python on
+ *   localhost:8000 (Node→Python via PYTHON_API_URL).
+ *
+ * Bindings:
+ *   HYPERDRIVE — Postgres connection pooled at the CF edge, upstream =
+ *     Neon production DB (ect-neon, id faf8eeaaac7e4f7dafeb2df0dde88e5a).
+ *   ASSETS_BUCKET — R2 bucket emerge-control-tower-assets (PR 1.6 writes
+ *     brand assets here). Worker doesn't read R2 directly; the Container
+ *     uses S3-compat creds via env vars.
+ *
+ * Secrets (set via `wrangler secret put <NAME>`; not in this file):
+ *   R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
+ *   GEMINI_API_KEY, ANTHROPIC_API_KEY, AI_INTEGRATIONS_GEMINI_API_KEY
+ *   ELEVENLABS_API_KEY, RUNWAY_API_KEY, PIKA_API_KEY, FLUX_API_KEY,
+ *   REPLICATE_API_KEY, MIDJOURNEY_API_KEY
+ *   FAL_API_KEY                — Fal AI (Seedance Pro, Kling, Minimax…)
+ *   SLACK_WEBHOOK_URL, BUFFER_ACCESS_TOKEN
+ *   GOOGLE_SERVICE_ACCOUNT_JSON (or set GOOGLE_APPLICATION_CREDENTIALS)
+ *
+ * Local dev: `wrangler dev` boots both the Worker and (optionally) the
+ * Container locally via Docker. For non-Container local dev keep using
+ * `npm run dev` (tsx) — wrangler dev is only for end-to-end CF behaviour.
+ *
+ * Deploy: `wrangler deploy`. First deploy builds the Docker image and
+ * pushes to CF's container registry automatically.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "emerge-control-tower",
+  "main": "workers/proxy.ts",
+  "compatibility_date": "2025-06-23",
+  "compatibility_flags": ["nodejs_compat"],
+  "account_id": "4a75e91d6fca8bc58467fb80ce1b9c2e",
+
+  // Container definition — image built from the repo-root Dockerfile.
+  "containers": [
+    {
+      "class_name": "EctContainer",
+      "image": "./Dockerfile",
+      // standard-1 = 1 vCPU, 4 GiB RAM, 4 GiB disk. Basic (1/4 vCPU,
+      // 1 GiB RAM) OOMs on first real workload — Node + Python +
+      // sharp + langchain easily clear 1 GiB at idle. Cost delta is
+      // ~$18/mo, rounding-error vs the AI spend ECT generates.
+      "instance_type": "standard-1",
+      // Single shared instance for v1 (no per-tenant sharding yet).
+      "max_instances": 1
+    }
+  ],
+
+  // Durable Object that owns the Container lifecycle. Same class name as
+  // declared in containers[] above.
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ECT",
+        "class_name": "EctContainer"
+      }
+    ]
+  },
+
+  // First-deploy migration — register the DO class so CF allocates storage.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EctContainer"]
+    }
+  ],
+
+  // Hyperdrive — Postgres connection pooled at the edge. The Container
+  // reads its connection string via env.HYPERDRIVE.connectionString
+  // (forwarded by workers/proxy.ts as DATABASE_URL on Container startup).
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "faf8eeaaac7e4f7dafeb2df0dde88e5a"
+    }
+  ],
+
+  // R2 — brand asset bucket. The Container talks to R2 via S3 credentials
+  // (R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY secrets), NOT via this binding.
+  // The binding is here so the Worker can ALSO touch R2 cheaply in the
+  // future (e.g. direct-stream large files instead of proxying through
+  // Express), and so wrangler knows about the dependency at deploy time.
+  "r2_buckets": [
+    {
+      "binding": "ASSETS_BUCKET",
+      "bucket_name": "emerge-control-tower-assets"
+    }
+  ],
+
+  // Plain env vars (non-secret). Secrets must be set via
+  // `wrangler secret put <NAME>`.
+  "vars": {
+    "APP_BASE_URL": "https://emerge-control-tower.workers.dev",
+    "R2_ACCOUNT_ID": "4a75e91d6fca8bc58467fb80ce1b9c2e",
+    "R2_BUCKET": "emerge-control-tower-assets",
+    "CONTENT_FACTORY_PORT": "8000",
+    "CONTENT_FACTORY_URL": "http://localhost:8000",
+    "ELEVENLABS_MAX_CONCURRENT": "3"
+  },
+
+  // Observability — keep CF logs on the Worker side. The Container's
+  // stdout/stderr (entrypoint.sh + Express + uvicorn logs) is captured
+  // automatically by CF Containers.
+  "observability": {
+    "enabled": true
+  }
+}

@@ -5,7 +5,14 @@
  * for video generation jobs using the LangGraph pipeline.
  */
 
-const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://localhost:8000';
+// CONTENT_FACTORY_URL is the canonical name (matches Dockerfile ENV,
+// wrangler.jsonc vars, and workers/proxy.ts forwarding). PYTHON_API_URL
+// kept as a fallback for backward compatibility with older .env files
+// and local dev setups that pre-date the Cloudflare migration.
+const PYTHON_API_URL =
+  process.env.CONTENT_FACTORY_URL ||
+  process.env.PYTHON_API_URL ||
+  'http://localhost:8000';
 
 export interface IngredientScene {
   id: string;
