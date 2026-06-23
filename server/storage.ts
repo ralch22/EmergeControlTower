@@ -92,29 +92,32 @@ import { eq, desc, and, sql, gte, lte, inArray } from "drizzle-orm";
 
 export interface IStorage {
   // KPIs
-  getLatestKpi(): Promise<Kpi | undefined>;
+  // clientId is optional everywhere: undefined = "all workspaces" (unscoped,
+  // preserves pre-multi-tenant behaviour). The workspace switcher passes a
+  // concrete clientId via the X-Client-Id header (see middleware/client-scope).
+  getLatestKpi(clientId?: number): Promise<Kpi | undefined>;
   updateKpi(kpi: InsertKpi): Promise<Kpi>;
   incrementAiOutput(count: number): Promise<Kpi>;
-  
+
   // Pods
-  getActivePods(): Promise<Pod[]>;
+  getActivePods(clientId?: number): Promise<Pod[]>;
   getPod(id: number): Promise<Pod | undefined>;
   createPod(pod: InsertPod): Promise<Pod>;
   updatePod(id: number, pod: Partial<InsertPod>): Promise<Pod>;
-  
+
   // Phase Changes
-  getUpcomingPhaseChanges(): Promise<PhaseChange[]>;
+  getUpcomingPhaseChanges(clientId?: number): Promise<PhaseChange[]>;
   createPhaseChange(phaseChange: InsertPhaseChange): Promise<PhaseChange>;
-  
+
   // Approval Queue
-  getPendingApprovals(): Promise<ApprovalQueue[]>;
-  getApprovalsByStatus(status?: string): Promise<ApprovalQueue[]>;
+  getPendingApprovals(clientId?: number): Promise<ApprovalQueue[]>;
+  getApprovalsByStatus(status?: string, clientId?: number): Promise<ApprovalQueue[]>;
   getApprovalItem(id: number): Promise<ApprovalQueue | undefined>;
   createApprovalItem(item: InsertApprovalQueue): Promise<ApprovalQueue>;
   updateApprovalStatus(id: number, status: string): Promise<ApprovalQueue>;
-  
+
   // Alerts
-  getActiveAlerts(): Promise<Alert[]>;
+  getActiveAlerts(clientId?: number): Promise<Alert[]>;
   createAlert(alert: InsertAlert): Promise<Alert>;
   resolveAlert(id: number): Promise<Alert>;
 
@@ -302,8 +305,13 @@ export interface IStorage {
 
 export class DatabaseStorage implements IStorage {
   // KPIs
-  async getLatestKpi(): Promise<Kpi | undefined> {
-    const [kpi] = await db.select().from(kpis).orderBy(desc(kpis.updatedAt)).limit(1);
+  async getLatestKpi(clientId?: number): Promise<Kpi | undefined> {
+    const [kpi] = await db
+      .select()
+      .from(kpis)
+      .where(clientId !== undefined ? eq(kpis.clientId, clientId) : undefined)
+      .orderBy(desc(kpis.updatedAt))
+      .limit(1);
     return kpi || undefined;
   }
 
@@ -313,8 +321,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Pods
-  async getActivePods(): Promise<Pod[]> {
-    return await db.select().from(pods).where(eq(pods.isActive, true));
+  async getActivePods(clientId?: number): Promise<Pod[]> {
+    return await db
+      .select()
+      .from(pods)
+      .where(
+        clientId !== undefined
+          ? and(eq(pods.isActive, true), eq(pods.clientId, clientId))
+          : eq(pods.isActive, true),
+      );
   }
 
   async getPod(id: number): Promise<Pod | undefined> {
@@ -333,12 +348,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Phase Changes
-  async getUpcomingPhaseChanges(): Promise<PhaseChange[]> {
-    const now = new Date();
+  async getUpcomingPhaseChanges(clientId?: number): Promise<PhaseChange[]> {
     return await db
       .select()
       .from(phaseChanges)
-      .where(and(eq(phaseChanges.isCompleted, false)))
+      .where(
+        clientId !== undefined
+          ? and(eq(phaseChanges.isCompleted, false), eq(phaseChanges.clientId, clientId))
+          : eq(phaseChanges.isCompleted, false),
+      )
       .orderBy(phaseChanges.changeDate);
   }
 
@@ -348,25 +366,26 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Approval Queue
-  async getPendingApprovals(): Promise<ApprovalQueue[]> {
+  async getPendingApprovals(clientId?: number): Promise<ApprovalQueue[]> {
     return await db
       .select()
       .from(approvalQueue)
-      .where(eq(approvalQueue.status, "pending"))
+      .where(
+        clientId !== undefined
+          ? and(eq(approvalQueue.status, "pending"), eq(approvalQueue.clientId, clientId))
+          : eq(approvalQueue.status, "pending"),
+      )
       .orderBy(desc(approvalQueue.createdAt));
   }
 
-  async getApprovalsByStatus(status?: string): Promise<ApprovalQueue[]> {
-    if (status && status !== "all") {
-      return await db
-        .select()
-        .from(approvalQueue)
-        .where(eq(approvalQueue.status, status))
-        .orderBy(desc(approvalQueue.createdAt));
-    }
+  async getApprovalsByStatus(status?: string, clientId?: number): Promise<ApprovalQueue[]> {
+    const filters = [];
+    if (status && status !== "all") filters.push(eq(approvalQueue.status, status));
+    if (clientId !== undefined) filters.push(eq(approvalQueue.clientId, clientId));
     return await db
       .select()
       .from(approvalQueue)
+      .where(filters.length ? and(...filters) : undefined)
       .orderBy(desc(approvalQueue.createdAt));
   }
 
@@ -390,11 +409,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Alerts
-  async getActiveAlerts(): Promise<Alert[]> {
+  async getActiveAlerts(clientId?: number): Promise<Alert[]> {
     return await db
       .select()
       .from(alerts)
-      .where(eq(alerts.isResolved, false))
+      .where(
+        clientId !== undefined
+          ? and(eq(alerts.isResolved, false), eq(alerts.clientId, clientId))
+          : eq(alerts.isResolved, false),
+      )
       .orderBy(desc(alerts.createdAt));
   }
 
