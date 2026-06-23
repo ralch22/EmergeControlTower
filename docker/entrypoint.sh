@@ -8,11 +8,11 @@
 
 set -euo pipefail
 
-PY_BIN="/opt/venv/bin/python"
+PY_BIN="python3"
 PY_HOST="${PYTHON_API_HOST:-127.0.0.1}"
 PY_PORT="${CONTENT_FACTORY_PORT:-8000}"
 
-if [[ -x "$PY_BIN" ]]; then
+if command -v "$PY_BIN" >/dev/null 2>&1; then
   echo "[entrypoint] starting Python FastAPI orchestrator on ${PY_HOST}:${PY_PORT}"
   # Run uvicorn in the background. Logs go to stdout/stderr (collected by CF).
   #

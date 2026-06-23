@@ -1,0 +1,68 @@
+# EmergeControlTower — Fly.io deploy config (fallback compute layer).
+#
+# Pivot rationale: Cloudflare Containers silently boot-fails ECT with no
+# log surfacing via `wrangler tail`. Fly.io gives us SSH + journalctl-style
+# log access on the machine, which we need to debug the Python orchestrator
+# boot chain. All Cloudflare-side resources (R2, Hyperdrive, Worker proxy)
+# stay in place — Fly only replaces the Container compute.
+#
+# Topology after pivot:
+#   Client → Worker (workers/proxy.ts) → fetch(https://ect-emerge.fly.dev)
+#   Container (this app) → Hyperdrive via DATABASE_URL → Neon
+#                        → R2 via S3 creds (R2_ACCESS_KEY_ID/SECRET)
+#
+# Boot model (unchanged from CF Containers):
+#   docker/entrypoint.sh starts uvicorn on :8000 (background),
+#   then execs Node Express on :5000 (foreground). Express is the only
+#   externally exposed port — Python is localhost-only inside the VM.
+
+app = "ect-emerge"
+primary_region = "iad"   # US East, same AZ family as Neon ect-neon (us-east-1)
+
+# Build from the existing repo-root Dockerfile (verified working locally).
+# Fly's remote builder will cross-build for amd64 automatically.
+[build]
+  dockerfile = "Dockerfile"
+
+# Plain env vars — mirrors wrangler.jsonc `vars` block. Keep these in sync
+# with wrangler.jsonc so the two deployments don't drift.
+[env]
+  NODE_ENV = "production"
+  PORT = "5000"
+  APP_BASE_URL = "https://ect-emerge.fly.dev"
+  R2_ACCOUNT_ID = "4a75e91d6fca8bc58467fb80ce1b9c2e"
+  R2_BUCKET = "emerge-control-tower-assets"
+  CONTENT_FACTORY_PORT = "8000"
+  CONTENT_FACTORY_URL = "http://localhost:8000"
+  ELEVENLABS_MAX_CONCURRENT = "3"
+  DEPLOY_TAG = "fly-v1"
+  PYTHONUNBUFFERED = "1"
+
+# Public HTTP service — Express on :5000.
+# auto_stop_machines = "off" + min_machines_running = 1 keeps a warm VM
+# always running (no cold starts). We can flip to "stop" later if cost
+# becomes a concern, but for the front-door we want sub-100ms responses.
+[http_service]
+  internal_port = 5000
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/healthz"
+
+# VM sizing — shared-cpu-2x with 2 GiB is the smallest standard size
+# that fits ECT (matches the local boot peak of ~1.5 GiB + headroom for
+# sklearn mmap pressure that OOM'd CF's 4 GiB standard-1). Bump to
+# performance-2x / 4 GiB if Python imports start swapping.
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"
+  cpu_kind = "shared"
+  cpus = 2
