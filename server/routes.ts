@@ -112,7 +112,7 @@ export async function registerRoutes(
   // Get latest KPIs
   app.get("/api/kpis", async (req, res) => {
     try {
-      const kpi = await storage.getLatestKpi();
+      const kpi = await storage.getLatestKpi(req.clientId);
       res.json(kpi || null);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch KPIs" });
@@ -123,7 +123,7 @@ export async function registerRoutes(
   app.post("/api/kpis", async (req, res) => {
     try {
       const validated = insertKpiSchema.parse(req.body);
-      const kpi = await storage.updateKpi(validated);
+      const kpi = await storage.updateKpi({ clientId: req.clientId, ...validated });
       res.json(kpi);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -137,7 +137,7 @@ export async function registerRoutes(
   // Get all active pods
   app.get("/api/pods", async (req, res) => {
     try {
-      const pods = await storage.getActivePods();
+      const pods = await storage.getActivePods(req.clientId);
       res.json(pods);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch pods" });
@@ -148,7 +148,7 @@ export async function registerRoutes(
   app.post("/api/pods", async (req, res) => {
     try {
       const validated = insertPodSchema.parse(req.body);
-      const pod = await storage.createPod(validated);
+      const pod = await storage.createPod({ clientId: req.clientId, ...validated });
       res.status(201).json(pod);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -173,7 +173,7 @@ export async function registerRoutes(
   // Get upcoming phase changes
   app.get("/api/phase-changes", async (req, res) => {
     try {
-      const phaseChanges = await storage.getUpcomingPhaseChanges();
+      const phaseChanges = await storage.getUpcomingPhaseChanges(req.clientId);
       res.json(phaseChanges);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch phase changes" });
@@ -184,7 +184,7 @@ export async function registerRoutes(
   app.post("/api/phase-changes", async (req, res) => {
     try {
       const validated = insertPhaseChangeSchema.parse(req.body);
-      const phaseChange = await storage.createPhaseChange(validated);
+      const phaseChange = await storage.createPhaseChange({ clientId: req.clientId, ...validated });
       res.status(201).json(phaseChange);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -199,7 +199,7 @@ export async function registerRoutes(
   app.get("/api/approvals", async (req, res) => {
     try {
       const status = req.query.status as string | undefined;
-      const approvals = await storage.getApprovalsByStatus(status);
+      const approvals = await storage.getApprovalsByStatus(status, req.clientId);
       res.json(approvals);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch approvals" });
@@ -210,7 +210,7 @@ export async function registerRoutes(
   app.post("/api/approvals", async (req, res) => {
     try {
       const validated = insertApprovalQueueSchema.parse(req.body);
-      const approval = await storage.createApprovalItem(validated);
+      const approval = await storage.createApprovalItem({ clientId: req.clientId, ...validated });
       res.status(201).json(approval);
     } catch (error: any) {
       if (error.name === 'ZodError') {
@@ -246,7 +246,7 @@ export async function registerRoutes(
   // Get active alerts
   app.get("/api/alerts", async (req, res) => {
     try {
-      const alerts = await storage.getActiveAlerts();
+      const alerts = await storage.getActiveAlerts(req.clientId);
       res.json(alerts);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch alerts" });
@@ -257,7 +257,7 @@ export async function registerRoutes(
   app.post("/api/alerts", async (req, res) => {
     try {
       const validated = insertAlertSchema.parse(req.body);
-      const alert = await storage.createAlert(validated);
+      const alert = await storage.createAlert({ clientId: req.clientId, ...validated });
       res.status(201).json(alert);
     } catch (error: any) {
       if (error.name === 'ZodError') {

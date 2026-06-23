@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
+import { clientScope } from "./middleware/client-scope";
 import { createServer } from "http";
 
 const app = express();
@@ -21,6 +22,10 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// Resolve workspace scope (req.clientId) from the X-Client-Id header /
+// body before any route handler runs. See middleware/client-scope.ts.
+app.use(clientScope);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
