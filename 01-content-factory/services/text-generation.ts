@@ -3,32 +3,56 @@ import { generateWithClaude } from '../integrations/anthropic';
 import { openRouterClient } from '../integrations/openrouter';
 import { healthMonitor } from './provider-health-monitor';
 
-function geminiApiKey(): string | undefined {
-  return process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+// Candidate Gemini/Google keys, in preference order. The AI_INTEGRATIONS_*
+// name is Replit-managed and is often a placeholder when the integration
+// isn't connected (the Anthropic one was literally "_DUMMY_API_KEY_"), so
+// the user-supplied GEMINI_API_KEY / GOOGLE_API_KEY are tried first.
+function geminiKeyCandidates(): string[] {
+  return [
+    process.env.GEMINI_API_KEY,
+    process.env.GOOGLE_API_KEY,
+    process.env.AI_INTEGRATIONS_GEMINI_API_KEY,
+  ].filter((k): k is string => !!k && k.length > 10 && !/dummy|placeholder/i.test(k));
+}
+
+function geminiConfigured(): boolean {
+  return geminiKeyCandidates().length > 0;
 }
 
 /**
- * Gemini text generation via @google/genai. Added as the primary text
- * provider because it's the one we hold a working key for — the Anthropic
- * key is a placeholder and the OpenRouter free models were deprecated
- * (404 "unavailable for free"), so without Gemini the whole chain fails.
+ * Gemini text generation via @google/genai. Primary text provider — it's the
+ * one we hold a working key for (the Anthropic key is a placeholder and the
+ * OpenRouter free models were deprecated, so without Gemini the chain fails).
+ *
+ * Tries each candidate key until one succeeds, so it's robust to some of the
+ * forwarded keys being dummies.
  */
 async function generateWithGemini(
   prompt: string,
   options: TextGenerationOptions,
 ): Promise<TextGenerationResult> {
-  const ai = new GoogleGenAI({ apiKey: geminiApiKey() });
-  const resp = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: prompt,
-    config: {
-      ...(options.systemPrompt ? { systemInstruction: options.systemPrompt } : {}),
-      maxOutputTokens: options.maxTokens || 4000,
-      temperature: options.temperature ?? 0.7,
-    },
-  });
-  const content = resp.text;
-  return { success: !!content, content, provider: 'gemini' };
+  const keys = geminiKeyCandidates();
+  let lastErr: unknown;
+  for (const apiKey of keys) {
+    try {
+      const ai = new GoogleGenAI({ apiKey });
+      const resp = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          ...(options.systemPrompt ? { systemInstruction: options.systemPrompt } : {}),
+          maxOutputTokens: options.maxTokens || 4000,
+          temperature: options.temperature ?? 0.7,
+        },
+      });
+      const content = resp.text;
+      if (content) return { success: true, content, provider: 'gemini' };
+    } catch (err) {
+      lastErr = err;
+      // try the next candidate key
+    }
+  }
+  throw lastErr ?? new Error('Gemini: no working API key');
 }
 
 export interface TextGenerationResult {
@@ -60,7 +84,7 @@ const TEXT_PROVIDERS = [
     name: 'gemini',
     priority: 95,
     isFree: true,
-    isConfigured: () => !!geminiApiKey(),
+    isConfigured: () => geminiConfigured(),
     generate: (prompt: string, options: TextGenerationOptions) => generateWithGemini(prompt, options),
   },
   {
