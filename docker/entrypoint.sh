@@ -15,7 +15,14 @@ PY_PORT="${CONTENT_FACTORY_PORT:-8000}"
 if [[ -x "$PY_BIN" ]]; then
   echo "[entrypoint] starting Python FastAPI orchestrator on ${PY_HOST}:${PY_PORT}"
   # Run uvicorn in the background. Logs go to stdout/stderr (collected by CF).
-  "$PY_BIN" -m uvicorn 01-content-factory.python.main:app \
+  #
+  # The Python package lives at 01-content-factory/python/. Python identifiers
+  # can't start with a digit or contain hyphens, so the top-level dirname
+  # ("01-content-factory") isn't importable. We use --app-dir to inject the
+  # parent into sys.path; uvicorn then imports the inner `python` package
+  # cleanly (it has __init__.py + relative imports across siblings).
+  "$PY_BIN" -m uvicorn python.main:app \
+    --app-dir /app/01-content-factory \
     --host "$PY_HOST" --port "$PY_PORT" \
     --no-access-log &
   PY_PID=$!

@@ -45,9 +45,11 @@
     {
       "class_name": "EctContainer",
       "image": "./Dockerfile",
-      // basic tier = 1 vCPU, 1 GiB RAM, 4 GiB disk. Bump to "standard" if
-      // sharp/ffmpeg OOMs under load.
-      "instance_type": "basic",
+      // standard-1 = 1 vCPU, 4 GiB RAM, 4 GiB disk. Basic (1/4 vCPU,
+      // 1 GiB RAM) OOMs on first real workload — Node + Python +
+      // sharp + langchain easily clear 1 GiB at idle. Cost delta is
+      // ~$18/mo, rounding-error vs the AI spend ECT generates.
+      "instance_type": "standard-1",
       // Single shared instance for v1 (no per-tenant sharding yet).
       "max_instances": 1
     }

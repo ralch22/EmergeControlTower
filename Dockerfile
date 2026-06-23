@@ -55,8 +55,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
+# `uv sync --frozen --no-dev` is the modern lockfile-driven install path
+# (replaces the older `uv pip sync uv.lock` which is fragile across uv
+# versions). --frozen forbids resolution mismatches; --no-dev skips dev
+# extras. pyproject.toml's [tool.uv] package=false stops uv from trying
+# to build the project itself.
 RUN uv venv /opt/venv \
-    && uv pip sync --python /opt/venv/bin/python uv.lock
+    && VIRTUAL_ENV=/opt/venv uv sync --frozen --no-dev
 
 # ────────────────────────────────────────────────────────────────────────────
 # Stage 3 — Runtime
@@ -66,14 +71,16 @@ FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 
 # Runtime system deps:
-#   - python3 + libvips (sharp's native runtime) — kept slim, no compilers
-#   - ffmpeg — for any local mux/concat (most heavy lifting goes to Shotstack)
+#   - python3 + libvips42 (sharp's native runtime) — kept slim, no compilers
 #   - dumb-init — proper PID 1 so signals reach Node and Python cleanly
+#
+# Note: no ffmpeg here. ECT has no spawn/exec call sites for it; muxing
+# is handled by Shotstack via HTTP. Adding ffmpeg back would pull ~250
+# MB of codecs — re-add only when a real local-mux call site lands.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       python3 \
       libvips42 \
-      ffmpeg \
       dumb-init \
     && rm -rf /var/lib/apt/lists/*
 

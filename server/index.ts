@@ -33,23 +33,34 @@ export function log(message: string, source = "express") {
   console.log(`${formattedTime} [${source}] ${message}`);
 }
 
+// Request logger. Captures response bodies in development for debugging;
+// in production we drop the body entirely because Cloudflare Logs receive
+// stdout verbatim and several routes round-trip credentials (WordPress
+// passwords, AI provider configs, OAuth tokens). Status + duration is
+// enough operational signal in prod.
+const IS_PROD = process.env.NODE_ENV === "production";
+const LOG_BODY_MAX = 200; // chars, dev only
+
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
 
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
+  if (!IS_PROD) {
+    const originalResJson = res.json;
+    res.json = function (bodyJson, ...args) {
+      capturedJsonResponse = bodyJson;
+      return originalResJson.apply(res, [bodyJson, ...args]);
+    };
+  }
 
   res.on("finish", () => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      if (!IS_PROD && capturedJsonResponse) {
+        const body = JSON.stringify(capturedJsonResponse);
+        logLine += ` :: ${body.length > LOG_BODY_MAX ? body.slice(0, LOG_BODY_MAX) + "...[truncated]" : body}`;
       }
 
       log(logLine);
@@ -64,10 +75,22 @@ app.use((req, res, next) => {
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    // In production, never echo err.message to the client — it can carry
+    // raw DB errors ("password authentication failed for user 'ect_app'"),
+    // file paths, and other internal detail. Log the full error server-side
+    // and return a generic 5xx message. 4xx errors are usually intentional
+    // (user input validation) so we keep their message.
+    const safeMessage =
+      IS_PROD && status >= 500
+        ? "Internal Server Error"
+        : (err.message || "Internal Server Error");
 
-    res.status(status).json({ message });
-    throw err;
+    res.status(status).json({ message: safeMessage });
+
+    // Don't re-throw — it crashes after response is sent (no recovery),
+    // and the stack hits stdout → CF Logs. Log explicitly instead.
+    log(`error ${status} on ${_req.method} ${_req.path}: ${err.message ?? err}`);
+    if (err.stack) console.error(err.stack);
   });
 
   // importantly only setup vite in development and after
