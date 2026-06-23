@@ -1,6 +1,35 @@
+import { GoogleGenAI } from '@google/genai';
 import { generateWithClaude } from '../integrations/anthropic';
 import { openRouterClient } from '../integrations/openrouter';
 import { healthMonitor } from './provider-health-monitor';
+
+function geminiApiKey(): string | undefined {
+  return process.env.AI_INTEGRATIONS_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+}
+
+/**
+ * Gemini text generation via @google/genai. Added as the primary text
+ * provider because it's the one we hold a working key for — the Anthropic
+ * key is a placeholder and the OpenRouter free models were deprecated
+ * (404 "unavailable for free"), so without Gemini the whole chain fails.
+ */
+async function generateWithGemini(
+  prompt: string,
+  options: TextGenerationOptions,
+): Promise<TextGenerationResult> {
+  const ai = new GoogleGenAI({ apiKey: geminiApiKey() });
+  const resp = await ai.models.generateContent({
+    model: 'gemini-2.5-flash',
+    contents: prompt,
+    config: {
+      ...(options.systemPrompt ? { systemInstruction: options.systemPrompt } : {}),
+      maxOutputTokens: options.maxTokens || 4000,
+      temperature: options.temperature ?? 0.7,
+    },
+  });
+  const content = resp.text;
+  return { success: !!content, content, provider: 'gemini' };
+}
 
 export interface TextGenerationResult {
   success: boolean;
@@ -27,6 +56,13 @@ function isAnthropicConfigured(): boolean {
 }
 
 const TEXT_PROVIDERS = [
+  {
+    name: 'gemini',
+    priority: 95,
+    isFree: true,
+    isConfigured: () => !!geminiApiKey(),
+    generate: (prompt: string, options: TextGenerationOptions) => generateWithGemini(prompt, options),
+  },
   {
     name: 'anthropic',
     priority: 90,
@@ -137,10 +173,11 @@ const TEXT_PROVIDERS = [
 ];
 
 const FALLBACK_CHAINS = {
-  default: ['anthropic', 'openrouter_deepseek_r1', 'openrouter_llama4_maverick', 'openrouter_mistral_small'],
-  free_only: ['openrouter_deepseek_r1', 'openrouter_llama4_maverick', 'openrouter_mistral_small'],
-  reasoning: ['anthropic', 'openrouter_deepseek_r1', 'openrouter_qwen3'],
-  bulk_content: ['openrouter_deepseek_v3', 'openrouter_mistral_small', 'openrouter_llama4_maverick', 'anthropic'],
+  // Gemini leads every chain — it's the provider we hold a working key for.
+  default: ['gemini', 'anthropic', 'openrouter_deepseek_r1', 'openrouter_llama4_maverick', 'openrouter_mistral_small'],
+  free_only: ['gemini', 'openrouter_deepseek_r1', 'openrouter_llama4_maverick', 'openrouter_mistral_small'],
+  reasoning: ['gemini', 'anthropic', 'openrouter_deepseek_r1', 'openrouter_qwen3'],
+  bulk_content: ['gemini', 'openrouter_deepseek_v3', 'openrouter_mistral_small', 'openrouter_llama4_maverick', 'anthropic'],
 };
 
 export async function generateTextWithFallback(
