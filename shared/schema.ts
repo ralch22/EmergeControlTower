@@ -3,8 +3,12 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // KPI Metrics
+// clientId scopes KPIs per client. Nullable during migration A (rows
+// predating multi-tenancy roll up to "all clients"); backfilled + NOT NULL
+// in migration B/C (Week 3).
 export const kpis = pgTable("kpis", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id),
   mrr: decimal("mrr", { precision: 12, scale: 2 }).notNull(),
   mrrChange: decimal("mrr_change", { precision: 5, scale: 2 }).notNull(),
   profitToday: decimal("profit_today", { precision: 12, scale: 2 }).notNull(),
@@ -21,6 +25,7 @@ export type Kpi = typeof kpis.$inferSelect;
 // Pods
 export const pods = pgTable("pods", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id),
   name: text("name").notNull(),
   vertical: text("vertical").notNull(),
   mrr: decimal("mrr", { precision: 12, scale: 2 }).notNull(),
@@ -35,8 +40,11 @@ export type InsertPod = z.infer<typeof insertPodSchema>;
 export type Pod = typeof pods.$inferSelect;
 
 // Phase Changes
+// Note: `client` is a free-form text label (legacy). `clientId` is the
+// real FK; readers should prefer `clientId` once backfilled.
 export const phaseChanges = pgTable("phase_changes", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id),
   client: text("client").notNull(),
   oldPrice: decimal("old_price", { precision: 12, scale: 2 }).notNull(),
   newPrice: decimal("new_price", { precision: 12, scale: 2 }).notNull(),
@@ -50,8 +58,11 @@ export type InsertPhaseChange = z.infer<typeof insertPhaseChangeSchema>;
 export type PhaseChange = typeof phaseChanges.$inferSelect;
 
 // Approval Queue
+// Note: `client` is a free-form text label (legacy). `clientId` is the
+// real FK; readers should prefer `clientId` once backfilled.
 export const approvalQueue = pgTable("approval_queue", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id),
   client: text("client").notNull(),
   type: text("type").notNull(),
   author: text("author").notNull(),
@@ -68,6 +79,7 @@ export type ApprovalQueue = typeof approvalQueue.$inferSelect;
 // Alerts
 export const alerts = pgTable("alerts", {
   id: serial("id").primaryKey(),
+  clientId: integer("client_id").references(() => clients.id),
   title: text("title").notNull(),
   description: text("description").notNull(),
   severity: text("severity").notNull().default("critical"),
