@@ -108,13 +108,41 @@ export const clients = pgTable("clients", {
   primaryLogoUrl: text("primary_logo_url"),
   websiteUrl: text("website_url"),
   socialHandles: jsonb("social_handles").$type<Record<string, string>>(),
+  // Vertical drives the archetype menu (shared/archetypes.ts) and the
+  // compliance gate — "real_estate" requires RERA/DLD before a render.
+  vertical: text("vertical"),
+  // Where finished assets are delivered when no social account is connected
+  // (the email fallback in the approval handler). v1 clients don't log in.
+  deliveryEmail: text("delivery_email"),
 });
+
+// Per-jurisdiction regulatory footer appended to every asset's caption for
+// regulated verticals. real_estate clients are HARD-REJECTED at generation
+// if rera/dld/brokerLicense are missing (see the compliance pipeline node).
+export interface ComplianceProfile {
+  rera?: string; // Dubai RERA permit / KSA REGA ad-license number
+  dld?: string; // Dubai Land Department registration
+  brokerLicense?: string;
+  mandatoryFooterEn?: string;
+  mandatoryFooterAr?: string;
+}
 
 // Brand Profile JSON type for the jsonb column
 export interface BrandProfileJSON {
   version: string;
   lastUpdated?: string;
+  // Regulatory footer config (real_estate). Top-level so the compliance
+  // gate can read it without descending into textual/visual.
+  compliance?: ComplianceProfile;
   textual: {
+    // Output locales the pipeline fans out to. Default ["en"]. Acc/KSA
+    // clients set ["en","ar"]; the Arabic variant uses arabicGuidelines.
+    outputLocales?: ("en" | "ar")[];
+    arabicGuidelines?: {
+      dialect: "MSA" | "khaleeji";
+      tone?: string;
+      forbiddenTransliterations?: string[];
+    };
     brandName: { primary: string; token?: string; abbreviation?: string; usageNotes?: string };
     tagline: { primary: string; alternatives?: string[]; maxWords?: number };
     brandStory: { short: string; medium?: string; full?: string };
@@ -262,6 +290,9 @@ export const generatedContent = pgTable("generated_content", {
   metadata: text("metadata"),
   status: text("status").notNull().default("draft"),
   qaScore: integer("qa_score"),
+  // Output locale. Bilingual clients (Acc) produce one row per locale from
+  // a single brief; default "en" keeps existing single-language rows valid.
+  locale: text("locale").notNull().default("en"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -293,6 +324,8 @@ export const singleContentRequestSchema = z.object({
   keywords: z.array(z.string()).optional(),
   callToAction: z.string().optional(),
   includeImage: z.boolean().optional().default(true),
+  // Archetype key from shared/archetypes.ts (Brief Composer sends this).
+  archetype: z.string().optional(),
 });
 
 export type SingleContentRequest = z.infer<typeof singleContentRequestSchema>;
