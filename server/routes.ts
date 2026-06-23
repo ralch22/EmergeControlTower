@@ -8,35 +8,29 @@ import type { ClientBrief, ContentType } from "../01-content-factory/types";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import sharp from "sharp";
 // @ts-ignore - colorthief doesn't have type definitions
 import ColorThief from "colorthief";
 import { eq } from "drizzle-orm";
 import { db } from "./db";
+import {
+  isR2Configured,
+  isR2Key,
+  r2KeyOf,
+  r2FilePath,
+  r2Put,
+  r2Get,
+  r2GetUrl,
+  r2Delete,
+  makeBrandAssetKey,
+} from "./r2";
 
-const BRAND_ASSETS_DIR = "attached_assets/brand";
-
-const brandAssetStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const clientId = req.params.clientId || req.body.clientId;
-    const category = req.body.category || "assets";
-    const subcategory = req.body.subcategory || "";
-    
-    let uploadPath = path.join(BRAND_ASSETS_DIR, clientId, category);
-    if (subcategory) {
-      uploadPath = path.join(uploadPath, subcategory);
-    }
-    
-    fs.mkdirSync(uploadPath, { recursive: true });
-    cb(null, uploadPath);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const ext = path.extname(file.originalname);
-    const baseName = path.basename(file.originalname, ext).replace(/[^a-zA-Z0-9_-]/g, '_');
-    cb(null, `${baseName}_${uniqueSuffix}${ext}`);
-  }
-});
+// Brand-asset uploads now go to Cloudflare R2 (PR 1.6). Buffer them in memory
+// during the multer pass so we can write to R2 + run colour extraction without
+// ever touching local disk. File rows store filePath as "r2://{key}" so the
+// rest of the codebase can dispatch storage backend by inspecting the prefix.
+const brandAssetStorage = multer.memoryStorage();
 
 const FILE_SIZE_LIMITS: Record<string, number> = {
   text: 50 * 1024,       // 50KB for text files
@@ -879,25 +873,28 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
     }
   });
 
-  // Helper function to extract dominant colors from an image
-  async function extractDominantColors(filePath: string, numColors: number = 3): Promise<string[]> {
+  // Helper function to extract dominant colors from an image buffer.
+  // ColorThief needs a file path, so we write the buffer to a brief temp
+  // file and delete after; sharp (the fallback) accepts buffers directly.
+  async function extractDominantColors(input: Buffer, numColors: number = 3): Promise<string[]> {
+    let tempPath: string | null = null;
     try {
-      // Use ColorThief for color extraction
+      tempPath = path.join(
+        os.tmpdir(),
+        `colorthief_${Date.now()}_${Math.random().toString(36).slice(2)}.bin`,
+      );
+      fs.writeFileSync(tempPath, input);
       const colorThief = new ColorThief();
-      // ColorThief.getPalette is synchronous
-      const palette = colorThief.getPalette(filePath, numColors);
-      
-      // Convert RGB arrays to hex strings
+      const palette = colorThief.getPalette(tempPath, numColors);
       const hexColors = palette.map(([r, g, b]: number[]) => {
         return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
       });
-      
       return hexColors;
     } catch (error: any) {
-      console.warn(`[Routes] Color extraction failed for ${filePath}: ${error.message}`);
-      // Fallback: try with sharp for basic color sampling
+      console.warn(`[Routes] Color extraction failed: ${error.message}`);
+      // Fallback: try with sharp for basic color sampling (works on Buffer)
       try {
-        const img = sharp(filePath);
+        const img = sharp(input);
         const { data, info } = await img.raw().resize(150, 150).toBuffer({ resolveWithObject: true });
         
         // Simple color sampling - get average colors from regions
@@ -918,6 +915,10 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
         console.warn(`[Routes] Fallback color extraction also failed: ${fallbackError.message}`);
         return [];
       }
+    } finally {
+      if (tempPath) {
+        try { fs.unlinkSync(tempPath); } catch { /* best-effort cleanup */ }
+      }
     }
   }
 
@@ -926,38 +927,44 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
     try {
       const clientId = parseInt(req.params.clientId);
       const file = req.file;
-      
+
       if (!file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
-      
-      const maxSize = getFileSizeLimit(file.mimetype);
-      if (file.size > maxSize) {
-        fs.unlinkSync(file.path);
-        return res.status(400).json({ 
-          error: `File size ${(file.size / 1024 / 1024).toFixed(2)}MB exceeds limit of ${(maxSize / 1024 / 1024).toFixed(2)}MB for this file type` 
+
+      if (!isR2Configured()) {
+        return res.status(500).json({
+          error: "Object storage not configured. Set R2_ACCOUNT_ID, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY env vars.",
         });
       }
-      
+
+      const maxSize = getFileSizeLimit(file.mimetype);
+      if (file.size > maxSize) {
+        // memoryStorage means nothing on disk to clean up.
+        return res.status(400).json({
+          error: `File size ${(file.size / 1024 / 1024).toFixed(2)}MB exceeds limit of ${(maxSize / 1024 / 1024).toFixed(2)}MB for this file type`
+        });
+      }
+
       const fileType = path.extname(file.originalname).slice(1).toLowerCase();
-      
+
       let metadata: Record<string, unknown> = {};
       let extractedColors: string[] = [];
       let updatedColorPalette = false;
-      
+
       if (file.mimetype.startsWith('text/') || file.mimetype === 'application/json') {
         try {
-          const content = fs.readFileSync(file.path, 'utf-8');
+          const content = file.buffer.toString('utf-8');
           metadata.textPreview = content.slice(0, 500);
           metadata.lineCount = content.split('\n').length;
           metadata.wordCount = content.split(/\s+/).filter(Boolean).length;
         } catch { }
       }
-      
+
       // Extract colors if it's an image file
       if (file.mimetype.startsWith('image/') && !file.mimetype.includes('svg')) {
         try {
-          extractedColors = await extractDominantColors(file.path, 5);
+          extractedColors = await extractDominantColors(file.buffer, 5);
           if (extractedColors.length > 0) {
             metadata.extractedColors = extractedColors;
             
@@ -1016,29 +1023,37 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
         }
       }
       
+      const { key, fileName } = makeBrandAssetKey({
+        clientId,
+        category: req.body.category || 'assets',
+        subcategory: req.body.subcategory || null,
+        originalName: file.originalname,
+      });
+      await r2Put(key, file.buffer, file.mimetype);
+
       const assetFile = await storage.createBrandAssetFile({
         clientId,
         category: req.body.category || 'assets',
         subcategory: req.body.subcategory || null,
-        fileName: file.filename,
+        fileName,
         originalName: file.originalname,
-        filePath: file.path,
+        filePath: r2FilePath(key),
         fileType,
         mimeType: file.mimetype,
         fileSize: file.size,
         purpose: req.body.purpose || null,
         metadata,
       });
-      
+
       res.status(201).json({
         assetFile,
         extractedColors: extractedColors.length > 0 ? extractedColors : undefined,
         updatedColorPalette,
       });
     } catch (error: any) {
-      if (req.file) {
-        try { fs.unlinkSync(req.file.path); } catch { }
-      }
+      // memoryStorage means there's no temp file to clean up. If the R2 upload
+      // succeeded but the DB insert failed, the orphaned object will get
+      // swept by a future cleanup job — not a hard error path.
       res.status(500).json({ error: error.message || "Failed to upload brand asset file" });
     }
   });
@@ -1048,60 +1063,72 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
     try {
       const clientId = parseInt(req.params.clientId);
       const files = req.files as Express.Multer.File[];
-      
+
       if (!files || files.length === 0) {
         return res.status(400).json({ error: "No files uploaded" });
       }
-      
+
+      if (!isR2Configured()) {
+        return res.status(500).json({
+          error: "Object storage not configured. Set R2_ACCOUNT_ID, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY env vars.",
+        });
+      }
+
       const results: any[] = [];
       const errors: any[] = [];
-      
+
       for (const file of files) {
         try {
           const maxSize = getFileSizeLimit(file.mimetype);
           if (file.size > maxSize) {
-            fs.unlinkSync(file.path);
-            errors.push({ 
-              file: file.originalname, 
-              error: `File size exceeds limit of ${(maxSize / 1024 / 1024).toFixed(2)}MB` 
+            errors.push({
+              file: file.originalname,
+              error: `File size exceeds limit of ${(maxSize / 1024 / 1024).toFixed(2)}MB`
             });
             continue;
           }
-          
+
           const fileType = path.extname(file.originalname).slice(1).toLowerCase();
-          
+
           let metadata: Record<string, unknown> = {};
-          
+
           if (file.mimetype.startsWith('text/') || file.mimetype === 'application/json') {
             try {
-              const content = fs.readFileSync(file.path, 'utf-8');
+              const content = file.buffer.toString('utf-8');
               metadata.textPreview = content.slice(0, 500);
               metadata.lineCount = content.split('\n').length;
               metadata.wordCount = content.split(/\s+/).filter(Boolean).length;
             } catch { }
           }
-          
+
+          const { key, fileName } = makeBrandAssetKey({
+            clientId,
+            category: req.body.category || 'assets',
+            subcategory: req.body.subcategory || null,
+            originalName: file.originalname,
+          });
+          await r2Put(key, file.buffer, file.mimetype);
+
           const assetFile = await storage.createBrandAssetFile({
             clientId,
             category: req.body.category || 'assets',
             subcategory: req.body.subcategory || null,
-            fileName: file.filename,
+            fileName,
             originalName: file.originalname,
-            filePath: file.path,
+            filePath: r2FilePath(key),
             fileType,
             mimeType: file.mimetype,
             fileSize: file.size,
             purpose: null,
             metadata,
           });
-          
+
           results.push(assetFile);
         } catch (error: any) {
-          try { fs.unlinkSync(file.path); } catch { }
           errors.push({ file: file.originalname, error: error.message });
         }
       }
-      
+
       res.status(201).json({ uploaded: results, errors });
     } catch (error: any) {
       res.status(500).json({ error: error.message || "Failed to upload brand asset files" });
@@ -1126,16 +1153,21 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
     }
   });
 
-  // Delete a brand asset file
+  // Delete a brand asset file. Storage dispatch handles both R2-backed
+  // rows (filePath starts with "r2://") and legacy local-disk rows.
   app.delete("/api/brand-asset-files/file/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      
+
       const file = await storage.getBrandAssetFile(id);
       if (file) {
-        try { fs.unlinkSync(file.filePath); } catch { }
+        if (isR2Key(file.filePath)) {
+          await r2Delete(r2KeyOf(file.filePath));
+        } else {
+          try { fs.unlinkSync(file.filePath); } catch { /* legacy file may already be gone */ }
+        }
       }
-      
+
       await storage.deleteBrandAssetFile(id);
       res.status(204).send();
     } catch (error) {
@@ -1147,38 +1179,46 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
   app.delete("/api/brand-asset-files/:clientId/all", async (req, res) => {
     try {
       const clientId = parseInt(req.params.clientId);
-      
+
       const files = await storage.getBrandAssetFiles(clientId);
-      for (const file of files) {
-        try { fs.unlinkSync(file.filePath); } catch { }
-      }
-      
+      await Promise.allSettled(
+        files.map((file) =>
+          isR2Key(file.filePath)
+            ? r2Delete(r2KeyOf(file.filePath))
+            : Promise.resolve().then(() => {
+                try { fs.unlinkSync(file.filePath); } catch { /* legacy */ }
+              }),
+        ),
+      );
+
       const result = await storage.deleteBrandAssetFilesByClient(clientId);
-      
-      try {
-        fs.rmSync(path.join(BRAND_ASSETS_DIR, clientId.toString()), { recursive: true, force: true });
-      } catch { }
-      
       res.json(result);
     } catch (error) {
       res.status(500).json({ error: "Failed to delete brand asset files" });
     }
   });
 
-  // Serve brand asset files
+  // Serve brand asset files. R2-backed rows redirect to a signed URL
+  // (or the public CDN URL if R2_PUBLIC_BASE_URL is set). Legacy local-
+  // disk rows are served directly via Express.
   app.get("/api/brand-asset-files/download/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const file = await storage.getBrandAssetFile(id);
-      
+
       if (!file) {
         return res.status(404).json({ error: "File not found" });
       }
-      
+
+      if (isR2Key(file.filePath)) {
+        const url = await r2GetUrl(r2KeyOf(file.filePath), 3600);
+        return res.redirect(302, url);
+      }
+
       if (!fs.existsSync(file.filePath)) {
         return res.status(404).json({ error: "File not found on disk" });
       }
-      
+
       res.setHeader('Content-Disposition', `attachment; filename="${file.originalName}"`);
       res.setHeader('Content-Type', file.mimeType || 'application/octet-stream');
       res.sendFile(path.resolve(file.filePath));
@@ -1187,24 +1227,29 @@ Return ONLY the JSON object, no additional text or markdown formatting.`;
     }
   });
 
-  // Read text file content
+  // Read text file content. Same R2 / legacy-disk dispatch as download.
   app.get("/api/brand-asset-files/content/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const file = await storage.getBrandAssetFile(id);
-      
+
       if (!file) {
         return res.status(404).json({ error: "File not found" });
       }
-      
+
       if (!file.mimeType?.startsWith('text/') && file.mimeType !== 'application/json') {
         return res.status(400).json({ error: "File is not a text file" });
       }
-      
+
+      if (isR2Key(file.filePath)) {
+        const buffer = await r2Get(r2KeyOf(file.filePath));
+        return res.json({ content: buffer.toString('utf-8'), file });
+      }
+
       if (!fs.existsSync(file.filePath)) {
         return res.status(404).json({ error: "File not found on disk" });
       }
-      
+
       const content = fs.readFileSync(file.filePath, 'utf-8');
       res.json({ content, file });
     } catch (error) {
