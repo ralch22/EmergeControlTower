@@ -27,8 +27,6 @@ interface Env {
   APP_BASE_URL: string;
   R2_ACCOUNT_ID: string;
   R2_BUCKET: string;
-  CONTENT_FACTORY_PORT: string;
-  CONTENT_FACTORY_URL: string;
   ELEVENLABS_MAX_CONCURRENT: string;
 
   // Secrets (wrangler secret put …)
@@ -100,15 +98,10 @@ export class EctContainer extends Container<Env> {
       R2_BUCKET: this.env.R2_BUCKET,
       R2_ACCESS_KEY_ID: this.env.R2_ACCESS_KEY_ID,
       R2_SECRET_ACCESS_KEY: this.env.R2_SECRET_ACCESS_KEY,
-      CONTENT_FACTORY_PORT: this.env.CONTENT_FACTORY_PORT,
-      CONTENT_FACTORY_URL: this.env.CONTENT_FACTORY_URL,
       ELEVENLABS_MAX_CONCURRENT: this.env.ELEVENLABS_MAX_CONCURRENT,
       GEMINI_API_KEY: this.env.GEMINI_API_KEY ?? "",
       AI_INTEGRATIONS_GEMINI_API_KEY: this.env.AI_INTEGRATIONS_GEMINI_API_KEY ?? "",
       ANTHROPIC_API_KEY: this.env.ANTHROPIC_API_KEY ?? "",
-      // CRITICAL: Python orchestrator (01-content-factory/python/providers/
-      // claude.py:22) hard-raises ValueError at import if this is unset.
-      // Placeholder lets the container boot; Anthropic calls 401 at runtime.
       AI_INTEGRATIONS_ANTHROPIC_API_KEY: this.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY ?? "",
       ELEVENLABS_API_KEY: this.env.ELEVENLABS_API_KEY ?? "",
       RUNWAY_API_KEY: this.env.RUNWAY_API_KEY ?? "",

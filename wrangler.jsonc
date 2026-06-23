@@ -5,9 +5,9 @@
  *   Worker (workers/proxy.ts) — thin front-door. Every request is proxied
  *   into a singleton Container instance via the EctContainer Durable Object.
  *
- *   Container (Dockerfile at repo root) — Node Express + Python FastAPI
- *   orchestrator, single image. Express listens on :5000; Python on
- *   localhost:8000 (Node→Python via PYTHON_API_URL).
+ *   Container (Dockerfile at repo root) — Node Express only. Express
+ *   listens on :5000. (The Python LangGraph orchestrator that used to
+ *   coexist on :8000 was removed in PR 2.1 — never called from prod.)
  *
  * Bindings:
  *   HYPERDRIVE — Postgres connection pooled at the CF edge, upstream =
@@ -104,10 +104,8 @@
     "APP_BASE_URL": "https://emerge-control-tower.emerge-digital.workers.dev",
     "R2_ACCOUNT_ID": "4a75e91d6fca8bc58467fb80ce1b9c2e",
     "R2_BUCKET": "emerge-control-tower-assets",
-    "CONTENT_FACTORY_PORT": "8000",
-    "CONTENT_FACTORY_URL": "http://localhost:8000",
     "ELEVENLABS_MAX_CONCURRENT": "3",
-    "DEPLOY_TAG": "secrets-v1"
+    "DEPLOY_TAG": "node-only-v1"
   },
 
   // Observability — keep CF logs on the Worker side. The Container's
