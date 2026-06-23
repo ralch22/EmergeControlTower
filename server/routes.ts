@@ -7416,12 +7416,12 @@ export function registerVideoIngredientsRoutes(app: Express) {
       }
 
       // Get all scenes for this project
-      const scenes = await storage.getVideoScenesByProject(projectId);
+      const scenes = await storage.getVideoScenes(projectId);
 
       const projectScenes = scenes.map(s => ({
         sceneNumber: s.sceneNumber,
         visualPrompt: s.visualPrompt || undefined,
-        thumbnailUrl: s.thumbnailUrl || undefined,
+        thumbnailUrl: s.imageUrl || undefined,
       }));
 
       const { validateVideoProject } = await import("../01-content-factory/services/visual-qa");

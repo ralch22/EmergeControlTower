@@ -266,7 +266,7 @@ export function composeBrandBrief(
       
       return {
         id: assetFile?.id.toString() || `db-${key}-${Math.random().toString(36).substr(2, 9)}`,
-        type: (isLogo ? 'logo' : isMoodBoard ? 'moodboard' : isIcon ? 'icon' : 'reference_image') as const,
+        type: (isLogo ? 'logo' : isMoodBoard ? 'moodboard' : isIcon ? 'icon' : 'reference_image') as 'logo' | 'moodboard' | 'icon' | 'reference_image',
         url: filePath,
         description: assetFile?.purpose || `Brand asset: ${key}`,
         isPrimary: isLogo && (key === 'logo' || assetFile?.purpose?.includes('primary')),

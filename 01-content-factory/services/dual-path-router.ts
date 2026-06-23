@@ -675,7 +675,7 @@ export async function recordRouteDecision(data: {
     contentType: data.contentType,
     selectedRoute: data.selectedRoute,
     routeReason: data.routeReason,
-    factors: data.factors,
+    factors: data.factors as any,
     learningAdjustments: data.learningAdjustments as any, // Persist learning adjustments for attribution
     expectedQuality: data.expectedQuality.toString(),
     expectedCost: data.expectedCost.toString(),

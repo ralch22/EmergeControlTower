@@ -12,18 +12,19 @@ import type { IStorage } from '../../server/storage';
 
 function composeBriefFromProfile(brandProfile: BrandProfileJSON | null, clientName: string, websiteUrl?: string): EnrichedClientBrief | null {
   if (!brandProfile) return null;
-  
+
   const mockClient = {
-    clientName,
-    industry: brandProfile.textual?.industry || 'general',
-    brandVoice: brandProfile.textual?.archetype || 'professional',
+    id: 0,
+    name: clientName,
+    industry: 'general',
+    brandVoice: brandProfile.textual?.personality?.archetype || 'professional',
     targetAudience: brandProfile.textual?.targetAudience?.demographics || 'general audience',
     keywords: '',
     contentGoals: '',
     brandProfile,
     websiteUrl: websiteUrl || null,
   };
-  
+
   return composeBrandBrief(mockClient);
 }
 
