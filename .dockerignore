@@ -1,0 +1,48 @@
+# Build context excludes. Keeps the Docker daemon from pulling in junk and
+# accidentally baking secrets into image layers.
+
+# Local installs (rebuilt inside the Docker stage)
+node_modules
+.venv
+__pycache__
+*.pyc
+*.pyo
+
+# Build artifacts (rebuilt inside the Docker stage)
+dist
+build
+.tsbuildinfo
+
+# Local data — never bake into the image
+attached_assets
+uploads
+test-results
+
+# Replit / local-only configs
+.replit
+replit.md
+.config
+
+# Git history — not needed at runtime
+.git
+.gitignore
+.github
+
+# Secrets
+.env
+.env.local
+.env.*.local
+.dev.vars
+
+# Editor / OS junk
+.DS_Store
+.vscode
+.idea
+*.swp
+
+# Cloudflare local state
+.wrangler
+
+# CI artifacts
+coverage
+*.log

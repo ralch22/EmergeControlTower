@@ -7,3 +7,5 @@ vite.config.ts.*
 # Sensitive credentials
 attached_assets/*.json
 start.sh
+# Cloudflare wrangler local build output
+.wrangler
