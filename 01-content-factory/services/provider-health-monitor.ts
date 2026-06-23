@@ -155,12 +155,30 @@ export const PROVIDER_CONFIG = {
     basePriority: 50,
     constraints: {}
   },
-  fal_minimax: { 
-    serviceType: 'video', 
-    isFree: false, 
-    costPerRequest: 0.04, 
+  fal_minimax: {
+    serviceType: 'video',
+    isFree: false,
+    costPerRequest: 0.04,
     basePriority: 45,
     constraints: {}
+  },
+  // Seedance 1.0 Pro — chosen as J Pools default after 4-way A/B
+  // (Veo 3.1 Fast / Kling 2.1 Std / Kling 2.1 Pro / Seedance Pro)
+  // on 2026-06-20. Highest fidelity to a reference photo. ~$0.62/sec
+  // at 720p. Durations: 5s or 10s only. Video-only (no native audio).
+  seedance_pro: {
+    serviceType: 'video',
+    isFree: false,
+    costPerRequest: 6.20, // ~$0.62/sec x 10s default clip
+    basePriority: 80,     // top of the video fallback chain
+    constraints: { allowedDurations: [5, 10] }
+  },
+  seedance_lite: {
+    serviceType: 'video',
+    isFree: false,
+    costPerRequest: 0.90, // ~$0.18/sec x 5s default clip
+    basePriority: 50,
+    constraints: { allowedDurations: [5, 10] }
   },
   
   // Image providers
@@ -342,11 +360,11 @@ class ProviderHealthMonitor {
 
   private async initializeDefaultFallbackChains(): Promise<void> {
     const chains = [
-      { 
-        serviceType: 'video', 
-        chainName: 'video_default', 
-        providerOrder: JSON.stringify(['runway', 'veo31', 'fal', 'fal_kling', 'pika', 'luma']),
-        isDefault: true 
+      {
+        serviceType: 'video',
+        chainName: 'video_default',
+        providerOrder: JSON.stringify(['seedance_pro', 'runway', 'veo31', 'fal', 'fal_kling', 'pika', 'luma']),
+        isDefault: true
       },
       { 
         serviceType: 'video', 
