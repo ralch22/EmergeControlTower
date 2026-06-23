@@ -224,6 +224,155 @@ export async function generateVideoWithFalKling(
   }
 }
 
+// Seedance 1.0 Pro — ByteDance, highest fidelity to a real reference photo.
+// Chosen as the J Pools default after a 4-way A/B against Veo 3.1 Fast,
+// Kling 2.1 Standard, and Kling 2.1 Pro on 2026-06-20. ~$0.62/sec at 720p.
+// Video only — no native audio (layer with ElevenLabs in post).
+export async function generateVideoWithSeedancePro(
+  prompt: string,
+  options: FalVideoOptions = {}
+): Promise<FalVideoResult> {
+  try {
+    initFalClient();
+
+    console.log('[Fal AI Seedance Pro] Starting video generation...');
+
+    // Seedance accepts 5 or 10 second clips only.
+    const duration = options.duration && options.duration > 7 ? '10' : '5';
+    const aspectRatio = (options.aspectRatio || '9:16') as '16:9' | '9:16' | '1:1';
+
+    // Fal's SDK strongly types each endpoint, so we build two distinct
+    // inline literals rather than a Record<string, any> union.
+    const subscribed = options.imageUrl
+      ? fal.subscribe('fal-ai/bytedance/seedance/v1/pro/image-to-video', {
+          input: {
+            prompt,
+            image_url: options.imageUrl,
+            duration: duration as '5' | '10',
+            resolution: '720p',
+            aspect_ratio: aspectRatio,
+          },
+          logs: true,
+          onQueueUpdate: (update) => {
+            if (update.status === 'IN_PROGRESS') {
+              console.log('[Fal AI Seedance Pro] image-to-video in progress...');
+            }
+          },
+        })
+      : fal.subscribe('fal-ai/bytedance/seedance/v1/pro/text-to-video', {
+          input: {
+            prompt,
+            duration: duration as '5' | '10',
+            resolution: '720p',
+            aspect_ratio: aspectRatio,
+          },
+          logs: true,
+          onQueueUpdate: (update) => {
+            if (update.status === 'IN_PROGRESS') {
+              console.log('[Fal AI Seedance Pro] text-to-video in progress...');
+            }
+          },
+        });
+
+    const result = await subscribed as { data: { video: { url: string } }; requestId: string };
+
+    if (result.data?.video?.url) {
+      console.log('[Fal AI Seedance Pro] Video generated successfully');
+      return {
+        success: true,
+        taskId: result.requestId,
+        videoUrl: result.data.video.url,
+        status: 'completed',
+      };
+    }
+
+    return {
+      success: false,
+      error: 'No video URL in response',
+      status: 'failed',
+    };
+  } catch (error: any) {
+    console.error('[Fal AI Seedance Pro] Error:', error);
+    return {
+      success: false,
+      error: error.message || 'Fal AI Seedance Pro video generation failed',
+      status: 'failed',
+    };
+  }
+}
+
+// Seedance 1.0 Lite — same family as Pro but ~7x cheaper. Lower fidelity
+// to reference photos; use for high-volume / budget-constrained runs.
+export async function generateVideoWithSeedanceLite(
+  prompt: string,
+  options: FalVideoOptions = {}
+): Promise<FalVideoResult> {
+  try {
+    initFalClient();
+
+    console.log('[Fal AI Seedance Lite] Starting video generation...');
+
+    const duration = options.duration && options.duration > 7 ? '10' : '5';
+    const aspectRatio = (options.aspectRatio || '9:16') as '16:9' | '9:16' | '1:1';
+
+    const subscribed = options.imageUrl
+      ? fal.subscribe('fal-ai/bytedance/seedance/v1/lite/image-to-video', {
+          input: {
+            prompt,
+            image_url: options.imageUrl,
+            duration: duration as '5' | '10',
+            resolution: '720p',
+            aspect_ratio: aspectRatio,
+          },
+          logs: true,
+          onQueueUpdate: (update) => {
+            if (update.status === 'IN_PROGRESS') {
+              console.log('[Fal AI Seedance Lite] image-to-video in progress...');
+            }
+          },
+        })
+      : fal.subscribe('fal-ai/bytedance/seedance/v1/lite/text-to-video', {
+          input: {
+            prompt,
+            duration: duration as '5' | '10',
+            resolution: '720p',
+            aspect_ratio: aspectRatio,
+          },
+          logs: true,
+          onQueueUpdate: (update) => {
+            if (update.status === 'IN_PROGRESS') {
+              console.log('[Fal AI Seedance Lite] text-to-video in progress...');
+            }
+          },
+        });
+
+    const result = await subscribed as { data: { video: { url: string } }; requestId: string };
+
+    if (result.data?.video?.url) {
+      console.log('[Fal AI Seedance Lite] Video generated successfully');
+      return {
+        success: true,
+        taskId: result.requestId,
+        videoUrl: result.data.video.url,
+        status: 'completed',
+      };
+    }
+
+    return {
+      success: false,
+      error: 'No video URL in response',
+      status: 'failed',
+    };
+  } catch (error: any) {
+    console.error('[Fal AI Seedance Lite] Error:', error);
+    return {
+      success: false,
+      error: error.message || 'Fal AI Seedance Lite video generation failed',
+      status: 'failed',
+    };
+  }
+}
+
 export async function generateImageWithFal(
   prompt: string,
   options: FalImageOptions = {}

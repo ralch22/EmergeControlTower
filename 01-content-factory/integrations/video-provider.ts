@@ -16,14 +16,16 @@ import { generateVideoWithVeo2, checkVeo2Status, waitForVeo2Completion } from '.
 import { generateVideoWithVeo31, checkVeo31Status, waitForVeo31Completion, testVeo31Connection } from './veo31';
 import { generateImageWithNanoBananaPro } from './nano-banana-pro';
 import { generateSceneImageWithAlibaba, isAlibabaImageConfigured } from './alibaba-image';
-import { 
-  generateVideoWithFal, 
-  generateVideoWithFalKling, 
+import {
+  generateVideoWithFal,
+  generateVideoWithFalKling,
   generateVideoWithFalMinimax,
+  generateVideoWithSeedancePro,
+  generateVideoWithSeedanceLite,
   generateImageWithFal,
   generateImageWithFalFluxPro,
-  isFalConfigured, 
-  testFalConnection 
+  isFalConfigured,
+  testFalConnection
 } from './fal-ai';
 import { healthMonitor, PROVIDER_CONFIG } from '../services/provider-health-monitor';
 
@@ -54,9 +56,11 @@ export type VideoProvider =
   | 'luma' 
   | 'kling' 
   | 'hailuo' 
-  | 'fal' 
-  | 'fal_kling' 
-  | 'fal_minimax';
+  | 'fal'
+  | 'fal_kling'
+  | 'fal_minimax'
+  | 'seedance_pro'
+  | 'seedance_lite';
 
 interface ProviderConfig {
   name: VideoProvider;
@@ -543,6 +547,63 @@ const providerConfigs: Record<VideoProvider, ProviderConfig> = {
     waitForCompletion: async (taskId) => ({
       success: true,
       provider: 'fal_minimax',
+      taskId,
+      status: 'completed',
+    }),
+  },
+
+  seedance_pro: {
+    name: 'seedance_pro',
+    displayName: 'Seedance 1.0 Pro (ByteDance)',
+    isConfigured: isFalConfigured,
+    generate: async (prompt, options) => {
+      const result = await generateVideoWithSeedancePro(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: options.aspectRatio || '9:16',
+        imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
+      });
+      return { ...result, provider: 'seedance_pro' };
+    },
+    // fal.subscribe is synchronous-feeling (the SDK polls internally), so
+    // by the time generate() returns the video is already rendered.
+    // checkStatus/waitForCompletion exist for interface conformance only.
+    checkStatus: async (taskId) => ({
+      success: true,
+      provider: 'seedance_pro',
+      taskId,
+      status: 'completed',
+    }),
+    waitForCompletion: async (taskId) => ({
+      success: true,
+      provider: 'seedance_pro',
+      taskId,
+      status: 'completed',
+    }),
+  },
+
+  seedance_lite: {
+    name: 'seedance_lite',
+    displayName: 'Seedance 1.0 Lite (ByteDance)',
+    isConfigured: isFalConfigured,
+    generate: async (prompt, options) => {
+      const result = await generateVideoWithSeedanceLite(prompt, {
+        duration: options.duration || 5,
+        aspectRatio: options.aspectRatio || '9:16',
+        imageUrl: options.imageUrl,
+        imageBase64: options.imageBase64,
+      });
+      return { ...result, provider: 'seedance_lite' };
+    },
+    checkStatus: async (taskId) => ({
+      success: true,
+      provider: 'seedance_lite',
+      taskId,
+      status: 'completed',
+    }),
+    waitForCompletion: async (taskId) => ({
+      success: true,
+      provider: 'seedance_lite',
       taskId,
       status: 'completed',
     }),

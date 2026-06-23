@@ -17,6 +17,61 @@ const AUDIO_HARD_FAILURE_PATTERNS = [
 
 const ELEVENLABS_BASE_URL = "https://api.elevenlabs.io/v1";
 
+// Concurrency guard. ElevenLabs plans cap concurrent TTS requests (Free/Starter=2,
+// Creator=5, Pro=10). Firing more in parallel returns HTTP 429
+// `concurrent_limit_exceeded` and silently drops a request. We saw this in the
+// J Pools v2 cut on 2026-06-20: 6 parallel calls dropped one VO line, which the
+// audio mixer encoded as ~10s of bed-only silence. Override via
+// `ELEVENLABS_MAX_CONCURRENT` env var; default 3 leaves headroom for most plans.
+const EL_MAX_CONCURRENT = (() => {
+  const raw = process.env.ELEVENLABS_MAX_CONCURRENT;
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : 3;
+})();
+
+let elActive = 0;
+const elQueue: Array<() => void> = [];
+
+async function acquireElSlot(): Promise<() => void> {
+  if (elActive >= EL_MAX_CONCURRENT) {
+    await new Promise<void>((resolve) => elQueue.push(resolve));
+  }
+  elActive++;
+  return () => {
+    elActive--;
+    const next = elQueue.shift();
+    if (next) next();
+  };
+}
+
+// Wraps a TTS fetch with the concurrency semaphore and exponential-backoff
+// retry on HTTP 429 (`concurrent_limit_exceeded` from ElevenLabs).
+async function elFetchWithBackoff(
+  url: string,
+  init: RequestInit,
+  label: string,
+): Promise<Response> {
+  const release = await acquireElSlot();
+  try {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const response = await fetch(url, init);
+      if (response.status !== 429) {
+        return response;
+      }
+      const waitMs = Math.min(2000 * 2 ** attempt, 20000);
+      console.warn(
+        `[ElevenLabs] ${label} got 429 (attempt ${attempt + 1}); ` +
+        `backing off ${waitMs}ms`,
+      );
+      await new Promise((r) => setTimeout(r, waitMs));
+    }
+    // Final attempt without backoff so the caller still sees the 429.
+    return fetch(url, init);
+  } finally {
+    release();
+  }
+}
+
 export interface VoiceoverResult {
   success: boolean;
   audioUrl?: string;
@@ -102,7 +157,7 @@ export async function generateVoiceover(
   const selectedVoiceId = voiceStyle ? DEFAULT_VOICES[voiceStyle] : voiceId;
 
   try {
-    const response = await fetch(
+    const response = await elFetchWithBackoff(
       `${ELEVENLABS_BASE_URL}/text-to-speech/${selectedVoiceId}`,
       {
         method: 'POST',
@@ -120,7 +175,8 @@ export async function generateVoiceover(
             speed,
           },
         }),
-      }
+      },
+      `generateVoiceover voice=${selectedVoiceId}`,
     );
 
     if (!response.ok) {
