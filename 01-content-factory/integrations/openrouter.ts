@@ -108,7 +108,10 @@ class OpenRouterClient {
         baseURL: OPENROUTER_BASE_URL,
         apiKey: OPENROUTER_API_KEY,
         defaultHeaders: {
-          "HTTP-Referer": "https://emerge-control-tower.replit.app",
+          // OpenRouter uses HTTP-Referer + X-Title for free-tier rate-limit
+          // attribution. Falls back to a generic placeholder if APP_BASE_URL
+          // isn't set so the client still constructs without throwing.
+          "HTTP-Referer": process.env.APP_BASE_URL || "https://emerge.digital",
           "X-Title": "Emerge Digital Control Tower",
         },
       });
