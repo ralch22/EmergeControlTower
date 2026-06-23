@@ -24,7 +24,10 @@ const allowlist = [
   "openai",
   "passport",
   "passport-local",
-  "pg",
+  // pg intentionally NOT bundled — its protocol parsers use dynamic
+  // require() which esbuild can't statically analyze, causing pg to
+  // throw on module load when bundled. Externalized so it loads from
+  // node_modules/pg at runtime. node_modules ships in the Docker image.
   "stripe",
   "uuid",
   "ws",

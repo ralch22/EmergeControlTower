@@ -14,10 +14,15 @@
 
 # syntax=docker/dockerfile:1.7
 
+# Pin to linux/amd64 — Cloudflare Containers runs amd64 only, and we
+# don't want a Mac-arm64 host to silently produce an arm64 image that
+# would fail to schedule. BuildKit will use emulation on arm64 hosts.
+ARG TARGETPLATFORM=linux/amd64
+
 # ────────────────────────────────────────────────────────────────────────────
 # Stage 1 — Node deps + build
 # ────────────────────────────────────────────────────────────────────────────
-FROM node:20-bookworm-slim AS node-builder
+FROM --platform=linux/amd64 node:20-bookworm-slim AS node-builder
 
 WORKDIR /app
 
@@ -42,61 +47,53 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ────────────────────────────────────────────────────────────────────────────
-# Stage 2 — Python deps (uv)
+# Stage 2 — Runtime (Node + Python coexist, single image)
 # ────────────────────────────────────────────────────────────────────────────
-FROM python:3.11-slim-bookworm AS python-builder
-
-WORKDIR /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates \
-      build-essential \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir uv
-
-COPY pyproject.toml uv.lock ./
-# `uv sync --frozen --no-dev` is the modern lockfile-driven install path
-# (replaces the older `uv pip sync uv.lock` which is fragile across uv
-# versions). --frozen forbids resolution mismatches; --no-dev skips dev
-# extras. pyproject.toml's [tool.uv] package=false stops uv from trying
-# to build the project itself.
-RUN uv venv /opt/venv \
-    && VIRTUAL_ENV=/opt/venv uv sync --frozen --no-dev
-
-# ────────────────────────────────────────────────────────────────────────────
-# Stage 3 — Runtime
-# ────────────────────────────────────────────────────────────────────────────
-FROM node:20-bookworm-slim AS runtime
-
-WORKDIR /app
-
-# Runtime system deps:
-#   - python3 + libvips42 (sharp's native runtime) — kept slim, no compilers
-#   - dumb-init — proper PID 1 so signals reach Node and Python cleanly
 #
-# Note: no ffmpeg here. ECT has no spawn/exec call sites for it; muxing
-# is handled by Shotstack via HTTP. Adding ffmpeg back would pull ~250
-# MB of codecs — re-add only when a real local-mux call site lands.
+# We removed the separate python-builder stage: `uv venv` in a python:3.11
+# image symlinks python to /usr/local/bin/python3, which doesn't exist in
+# the node:20-bookworm-slim runtime base. Copying the venv across stages
+# left dangling symlinks. Installing Python packages directly in the
+# runtime stage avoids the cross-base-image symlink problem entirely.
+#
+# Runtime system deps:
+#   - python3 + python3-pip — orchestrator runtime
+#   - libvips42 — sharp's native runtime (kept slim, no compilers)
+#   - dumb-init — PID 1 so signals reach Node and Python cleanly
+#   - no ffmpeg: ECT has no spawn/exec call sites for it; Shotstack
+#     handles muxing via HTTP
+FROM --platform=linux/amd64 node:20-bookworm-slim AS runtime
+
+WORKDIR /app
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates \
       python3 \
+      python3-pip \
       libvips42 \
       dumb-init \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Python deps system-wide (no venv — see header). PEP 668
+# requires --break-system-packages on newer Debian; safe here because
+# we own the whole container.
+COPY --from=node-builder /app/pyproject.toml ./pyproject.toml
+COPY --from=node-builder /app/uv.lock ./uv.lock
+RUN pip install --break-system-packages --no-cache-dir uv \
+    && uv export --frozen --no-dev --no-hashes -o /tmp/requirements.txt \
+    && pip install --break-system-packages --no-cache-dir -r /tmp/requirements.txt \
+    && rm /tmp/requirements.txt
 
 # Pull in the Node build output + pruned node_modules
 COPY --from=node-builder /app/dist ./dist
 COPY --from=node-builder /app/node_modules ./node_modules
 COPY --from=node-builder /app/package.json ./package.json
 
-# Pull in the Python venv + Python source (kept separate from the Node bundle)
-COPY --from=python-builder /opt/venv /opt/venv
+# Python source (TS code is already bundled into dist/index.cjs)
 COPY --from=node-builder /app/01-content-factory ./01-content-factory
 COPY --from=node-builder /app/shared ./shared
-COPY --from=node-builder /app/pyproject.toml ./pyproject.toml
 
 ENV NODE_ENV=production \
-    PATH="/opt/venv/bin:${PATH}" \
     PORT=5000 \
     CONTENT_FACTORY_PORT=8000 \
     CONTENT_FACTORY_URL=http://localhost:8000 \

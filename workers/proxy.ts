@@ -37,6 +37,7 @@ interface Env {
   GEMINI_API_KEY?: string;
   AI_INTEGRATIONS_GEMINI_API_KEY?: string;
   ANTHROPIC_API_KEY?: string;
+  AI_INTEGRATIONS_ANTHROPIC_API_KEY?: string;
   ELEVENLABS_API_KEY?: string;
   RUNWAY_API_KEY?: string;
   PIKA_API_KEY?: string;
@@ -46,6 +47,18 @@ interface Env {
   SLACK_WEBHOOK_URL?: string;
   BUFFER_ACCESS_TOKEN?: string;
   GOOGLE_SERVICE_ACCOUNT_JSON?: string;
+  GOOGLE_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
+  SHOTSTACK_API_KEY?: string;
+  DASHSCOPE_API_KEY?: string;
+  SESSION_SECRET?: string;
+
+  // Direct Neon Postgres URL — forwarded as DATABASE_URL to the Container.
+  // Hyperdrive's connectionString is a Worker-only address (intercepted by
+  // the Worker runtime); Containers live in a separate network namespace
+  // and can't reach it. Keep HYPERDRIVE binding for future Worker-side
+  // direct DB calls but pass the upstream URL through to the Container.
+  NEON_DATABASE_URL?: string;
 }
 
 export class EctContainer extends Container<Env> {
@@ -56,33 +69,72 @@ export class EctContainer extends Container<Env> {
   // on the next request (small cold-start). Tune up if cold-starts hurt UX.
   sleepAfter = "10m";
 
-  // Env vars forwarded to the container at startup. The Container app sees
-  // these as `process.env.<KEY>`. Hyperdrive's connectionString is the key
-  // unlock — it's how DATABASE_URL becomes "Neon via the CF edge pool".
-  override envVars = {
-    DATABASE_URL: this.env.HYPERDRIVE.connectionString,
-    APP_BASE_URL: this.env.APP_BASE_URL,
-    R2_ACCOUNT_ID: this.env.R2_ACCOUNT_ID,
-    R2_BUCKET: this.env.R2_BUCKET,
-    R2_ACCESS_KEY_ID: this.env.R2_ACCESS_KEY_ID,
-    R2_SECRET_ACCESS_KEY: this.env.R2_SECRET_ACCESS_KEY,
-    CONTENT_FACTORY_PORT: this.env.CONTENT_FACTORY_PORT,
-    CONTENT_FACTORY_URL: this.env.CONTENT_FACTORY_URL,
-    ELEVENLABS_MAX_CONCURRENT: this.env.ELEVENLABS_MAX_CONCURRENT,
-    GEMINI_API_KEY: this.env.GEMINI_API_KEY ?? "",
-    AI_INTEGRATIONS_GEMINI_API_KEY: this.env.AI_INTEGRATIONS_GEMINI_API_KEY ?? "",
-    ANTHROPIC_API_KEY: this.env.ANTHROPIC_API_KEY ?? "",
-    ELEVENLABS_API_KEY: this.env.ELEVENLABS_API_KEY ?? "",
-    RUNWAY_API_KEY: this.env.RUNWAY_API_KEY ?? "",
-    PIKA_API_KEY: this.env.PIKA_API_KEY ?? "",
-    FLUX_API_KEY: this.env.FLUX_API_KEY ?? "",
-    REPLICATE_API_KEY: this.env.REPLICATE_API_KEY ?? "",
-    FAL_API_KEY: this.env.FAL_API_KEY ?? "",
-    SLACK_WEBHOOK_URL: this.env.SLACK_WEBHOOK_URL ?? "",
-    BUFFER_ACCESS_TOKEN: this.env.BUFFER_ACCESS_TOKEN ?? "",
-    GOOGLE_SERVICE_ACCOUNT_JSON: this.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "",
-    NODE_ENV: "production",
-  };
+  // Override fetch() so envVars are resolved LAZILY at request time, not
+  // at DO class-field init.
+  //
+  // The previous shape — `override envVars = { DATABASE_URL: this.env.HYPERDRIVE.connectionString, ... }` —
+  // evaluates as a class-field initializer inside the DO constructor.
+  // Touching `this.env.HYPERDRIVE` at that point can throw if any binding
+  // isn't fully ready, which crashes the constructor before the SDK's
+  // auto-start ever reaches Cloudchamber's scheduler. Result: CF logs zero
+  // events ever, and every Worker request returns the SDK's generic
+  // "Failed to start container, consider calling start()" — what we saw
+  // for two hours on 2026-06-23 (CF API: active=0, scheduling=0, events=[]).
+  //
+  // The fix is the SDK-blessed pattern: pass envVars to startAndWaitForPorts
+  // at the first request, where bindings are guaranteed live. Errors here
+  // surface as real exceptions instead of the opaque SDK string.
+  override async fetch(request: Request): Promise<Response> {
+    const envVars: Record<string, string> = {
+      // The Container talks to Neon DIRECTLY via NEON_DATABASE_URL.
+      // Hyperdrive's `connectionString` is a Worker-only synthetic
+      // address (intercepted by the Worker runtime). The Container
+      // runs in a different network namespace and can't reach it,
+      // so Express's `initializeDefaultControlEntities` would crash
+      // on pool.query → container dies before port 5000 binds → CF
+      // reports "Container crashed while checking for ports".
+      // Keep env.HYPERDRIVE for future direct Worker-side queries.
+      DATABASE_URL: this.env.NEON_DATABASE_URL ?? this.env.HYPERDRIVE.connectionString,
+      APP_BASE_URL: this.env.APP_BASE_URL,
+      R2_ACCOUNT_ID: this.env.R2_ACCOUNT_ID,
+      R2_BUCKET: this.env.R2_BUCKET,
+      R2_ACCESS_KEY_ID: this.env.R2_ACCESS_KEY_ID,
+      R2_SECRET_ACCESS_KEY: this.env.R2_SECRET_ACCESS_KEY,
+      CONTENT_FACTORY_PORT: this.env.CONTENT_FACTORY_PORT,
+      CONTENT_FACTORY_URL: this.env.CONTENT_FACTORY_URL,
+      ELEVENLABS_MAX_CONCURRENT: this.env.ELEVENLABS_MAX_CONCURRENT,
+      GEMINI_API_KEY: this.env.GEMINI_API_KEY ?? "",
+      AI_INTEGRATIONS_GEMINI_API_KEY: this.env.AI_INTEGRATIONS_GEMINI_API_KEY ?? "",
+      ANTHROPIC_API_KEY: this.env.ANTHROPIC_API_KEY ?? "",
+      // CRITICAL: Python orchestrator (01-content-factory/python/providers/
+      // claude.py:22) hard-raises ValueError at import if this is unset.
+      // Placeholder lets the container boot; Anthropic calls 401 at runtime.
+      AI_INTEGRATIONS_ANTHROPIC_API_KEY: this.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY ?? "",
+      ELEVENLABS_API_KEY: this.env.ELEVENLABS_API_KEY ?? "",
+      RUNWAY_API_KEY: this.env.RUNWAY_API_KEY ?? "",
+      PIKA_API_KEY: this.env.PIKA_API_KEY ?? "",
+      FLUX_API_KEY: this.env.FLUX_API_KEY ?? "",
+      REPLICATE_API_KEY: this.env.REPLICATE_API_KEY ?? "",
+      FAL_API_KEY: this.env.FAL_API_KEY ?? "",
+      SLACK_WEBHOOK_URL: this.env.SLACK_WEBHOOK_URL ?? "",
+      BUFFER_ACCESS_TOKEN: this.env.BUFFER_ACCESS_TOKEN ?? "",
+      GOOGLE_SERVICE_ACCOUNT_JSON: this.env.GOOGLE_SERVICE_ACCOUNT_JSON ?? "",
+      GOOGLE_API_KEY: this.env.GOOGLE_API_KEY ?? "",
+      OPENROUTER_API_KEY: this.env.OPENROUTER_API_KEY ?? "",
+      SHOTSTACK_API_KEY: this.env.SHOTSTACK_API_KEY ?? "",
+      DASHSCOPE_API_KEY: this.env.DASHSCOPE_API_KEY ?? "",
+      SESSION_SECRET: this.env.SESSION_SECRET ?? "",
+      NODE_ENV: "production",
+    };
+
+    await this.startAndWaitForPorts({
+      ports: [5000],
+      cancellationOptions: { instanceGetTimeoutMS: 30_000 },
+      startOptions: { envVars },
+    });
+
+    return this.containerFetch(request);
+  }
 }
 
 export default {

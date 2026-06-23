@@ -36,7 +36,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "emerge-control-tower",
   "main": "workers/proxy.ts",
-  "compatibility_date": "2025-06-23",
+  "compatibility_date": "2026-06-23",
   "compatibility_flags": ["nodejs_compat"],
   "account_id": "4a75e91d6fca8bc58467fb80ce1b9c2e",
 
@@ -45,11 +45,13 @@
     {
       "class_name": "EctContainer",
       "image": "./Dockerfile",
-      // standard-1 = 1 vCPU, 4 GiB RAM, 4 GiB disk. Basic (1/4 vCPU,
-      // 1 GiB RAM) OOMs on first real workload — Node + Python +
-      // sharp + langchain easily clear 1 GiB at idle. Cost delta is
-      // ~$18/mo, rounding-error vs the AI spend ECT generates.
-      "instance_type": "standard-1",
+      // standard-2 = 2 vCPU, 8 GiB RAM, 4 GiB disk.
+      // standard-1 (4 GiB) silently OOM'd at boot — CF Containers
+      // killed the instance with no logs surfaced via wrangler tail.
+      // Local boot peaks around 1.5 GiB but CF's overhead + sklearn
+      // mmap pressure pushed past the 4 GiB ceiling. ~$36/mo vs $18 —
+      // worth it for a Container that actually starts.
+      "instance_type": "standard-2",
       // Single shared instance for v1 (no per-tenant sharding yet).
       "max_instances": 1
     }
@@ -99,12 +101,13 @@
   // Plain env vars (non-secret). Secrets must be set via
   // `wrangler secret put <NAME>`.
   "vars": {
-    "APP_BASE_URL": "https://emerge-control-tower.workers.dev",
+    "APP_BASE_URL": "https://emerge-control-tower.emerge-digital.workers.dev",
     "R2_ACCOUNT_ID": "4a75e91d6fca8bc58467fb80ce1b9c2e",
     "R2_BUCKET": "emerge-control-tower-assets",
     "CONTENT_FACTORY_PORT": "8000",
     "CONTENT_FACTORY_URL": "http://localhost:8000",
-    "ELEVENLABS_MAX_CONCURRENT": "3"
+    "ELEVENLABS_MAX_CONCURRENT": "3",
+    "DEPLOY_TAG": "secrets-v1"
   },
 
   // Observability — keep CF logs on the Worker side. The Container's
