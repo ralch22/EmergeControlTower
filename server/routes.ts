@@ -2516,7 +2516,15 @@ ${brandBrief.forbiddenWords.length ? `\nNEVER use: ${brandBrief.forbiddenWords.j
       if (content.type !== 'video_script') {
         return res.status(400).json({ error: "Content is not a video script" });
       }
-      
+
+      // Cost gate: reject before spending if the daily/provider budget is
+      // blown. Returns HTTP 402 (Payment Required) so the UI can surface it.
+      const { checkBudget } = await import("../01-content-factory/services/cost-control");
+      const budgetGate = await checkBudget("runway", "video_generation");
+      if (!budgetGate.allowed) {
+        return res.status(402).json({ error: budgetGate.reason, code: "BUDGET_EXCEEDED" });
+      }
+
       // Import Runway functions
       const { generateVideoFromText, waitForVideoCompletion } = await import("../01-content-factory/integrations/runway");
       
@@ -5545,6 +5553,22 @@ async function generateVideoProjectAsync(
 
     console.log(`[VideoProject] Starting generation for ${projectId} with ${fullProject.scenes.length} scenes`);
     console.log(`[VideoProject] Enabled providers in priority order: ${enabledProviders.map((p: { name: string }) => p.name).join(' → ')}`);
+
+    // Pipeline-level cost gate: estimate the whole project's spend up front
+    // and bail before generating anything if it would blow the daily/provider
+    // budget. Cheaper than discovering it mid-project after partial spend.
+    const { checkBudget, getEstimatedCost } = await import("../01-content-factory/services/cost-control");
+    const primaryProvider = (enabledProviders[0]?.name as string) ?? "veo31";
+    const perScene =
+      getEstimatedCost(primaryProvider, "video_generation_8s") ||
+      getEstimatedCost(primaryProvider, "video_generation");
+    const estTotal = perScene * fullProject.scenes.length;
+    const projectBudget = await checkBudget(primaryProvider, "video_generation", estTotal);
+    if (!projectBudget.allowed) {
+      console.log(`[VideoProject] Budget gate blocked generation: ${projectBudget.reason}`);
+      await storage.updateVideoProject(projectId, { status: "cancelled" });
+      return;
+    }
 
     // Import the fallback system and image generation
     const { generateVideoWithFallback, waitForVideoWithProvider, generateUniqueSceneImage } = await import("../01-content-factory/integrations/video-provider");

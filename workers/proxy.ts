@@ -57,6 +57,91 @@ interface Env {
   // and can't reach it. Keep HYPERDRIVE binding for future Worker-side
   // direct DB calls but pass the upstream URL through to the Container.
   NEON_DATABASE_URL?: string;
+
+  // Cloudflare Access defence-in-depth. When BOTH are set, the Worker
+  // verifies the Cf-Access-Jwt-Assertion header before forwarding to the
+  // Container — so even if the Access policy is removed/misconfigured at
+  // the edge, the app stays gated. Until they're set (the Access app's AUD
+  // tag is created in the Zero Trust dashboard), verification is skipped
+  // and CF Access at the edge remains the sole gate.
+  //   ACCESS_TEAM_DOMAIN e.g. "highpointtreescom.cloudflareaccess.com"
+  //   ACCESS_AUD         the Application Audience tag from the Access app
+  ACCESS_TEAM_DOMAIN?: string;
+  ACCESS_AUD?: string;
+}
+
+// In-memory JWKS cache (per isolate). CF Access rotates signing keys
+// rarely; a short TTL keeps us correct without refetching every request.
+let jwksCache: { keys: JsonWebKey[]; fetchedAt: number } | null = null;
+const JWKS_TTL_MS = 60 * 60 * 1000; // 1h
+
+function b64urlToUint8(s: string): Uint8Array {
+  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - (s.length % 4));
+  const b64 = (s + pad).replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function decodeJwtPart<T>(part: string): T {
+  return JSON.parse(new TextDecoder().decode(b64urlToUint8(part))) as T;
+}
+
+async function getJwks(teamDomain: string): Promise<JsonWebKey[]> {
+  const now = Date.now();
+  if (jwksCache && now - jwksCache.fetchedAt < JWKS_TTL_MS) return jwksCache.keys;
+  const res = await fetch(`https://${teamDomain}/cdn-cgi/access/certs`);
+  if (!res.ok) throw new Error(`JWKS fetch failed: ${res.status}`);
+  const body = (await res.json()) as { keys: JsonWebKey[] };
+  jwksCache = { keys: body.keys ?? [], fetchedAt: now };
+  return jwksCache.keys;
+}
+
+/**
+ * Verify a Cloudflare Access JWT (RS256). Returns true iff the signature is
+ * valid AND aud includes the configured AUD AND iss matches the team AND it
+ * hasn't expired. Defence-in-depth only — CF Access is the primary gate.
+ */
+async function verifyAccessJwt(token: string, env: Env): Promise<boolean> {
+  try {
+    const [headerB64, payloadB64, sigB64] = token.split(".");
+    if (!headerB64 || !payloadB64 || !sigB64) return false;
+
+    const header = decodeJwtPart<{ kid?: string; alg?: string }>(headerB64);
+    if (header.alg !== "RS256" || !header.kid) return false;
+
+    const jwks = await getJwks(env.ACCESS_TEAM_DOMAIN!);
+    const jwk = jwks.find((k) => (k as { kid?: string }).kid === header.kid);
+    if (!jwk) return false;
+
+    const key = await crypto.subtle.importKey(
+      "jwk",
+      jwk,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["verify"],
+    );
+
+    const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`);
+    const ok = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      b64urlToUint8(sigB64),
+      data,
+    );
+    if (!ok) return false;
+
+    const payload = decodeJwtPart<{ aud?: string | string[]; iss?: string; exp?: number }>(payloadB64);
+    const auds = Array.isArray(payload.aud) ? payload.aud : payload.aud ? [payload.aud] : [];
+    if (!auds.includes(env.ACCESS_AUD!)) return false;
+    if (payload.iss !== `https://${env.ACCESS_TEAM_DOMAIN}`) return false;
+    if (!payload.exp || payload.exp * 1000 < Date.now()) return false;
+
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export class EctContainer extends Container<Env> {
@@ -132,6 +217,16 @@ export class EctContainer extends Container<Env> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    // Defence-in-depth: if Access JWT verification is configured, enforce it
+    // before touching the Container. No-op until ACCESS_TEAM_DOMAIN + ACCESS_AUD
+    // are set (the Access app's AUD is created in the Zero Trust dashboard).
+    if (env.ACCESS_TEAM_DOMAIN && env.ACCESS_AUD) {
+      const token = request.headers.get("Cf-Access-Jwt-Assertion");
+      if (!token || !(await verifyAccessJwt(token, env))) {
+        return new Response("Unauthorized", { status: 401 });
+      }
+    }
+
     // Single shared instance for v1 — no per-tenant sharding yet. When
     // we land multi-tenancy, key by tenant_id from req auth instead.
     const container = getContainer(env.ECT, "singleton");
